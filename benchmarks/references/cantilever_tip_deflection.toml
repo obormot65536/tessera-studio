@@ -1,0 +1,5 @@
+# Approved by the maintainer in iteration 1.
+description = "Cantilever 200 x 10 x 10 mm steel (E = 210000 MPa, nu = 0.30), root face fully clamped, 100 N uniform tip shear in -z, C3D10; mean u_z magnitude of tip-face nodes"
+source = "Timoshenko beam: delta = P L^3/(3 E I) + P L/(kappa G A), kappa = 10(1+nu)/(12+11nu). Timoshenko & Gere, Mechanics of Materials (end-loaded cantilever); Timoshenko, Phil. Mag. 41 (1921) 744-746; Timoshenko & Goodier, Theory of Elasticity 3rd ed. sec. 21; Cowper, J. Appl. Mech. 33 (1966) 335-340"
+reference_tip_deflection_mm = 1.5267238095238094
+rel_tolerance = 0.02

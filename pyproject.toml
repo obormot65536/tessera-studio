@@ -1,0 +1,99 @@
+[project]
+name = "tessera-studio"
+version = "0.0.1"
+description = "Stress analysis of 3D-printed parts and assemblies with layer-wise orthotropic materials"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "GPL-3.0-or-later"
+dependencies = [
+    "tessera-model",
+    "tessera-core",
+    "tessera-geometry",
+    "tessera-printsetup",
+    "tessera-materials",
+    "tessera-mesh",
+    "tessera-physics",
+    "tessera-solvers",
+    "tessera-post",
+    "tessera-cli",
+    "tessera-mcp",
+    "tessera-gui",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+tessera-model = { workspace = true }
+tessera-core = { workspace = true }
+tessera-geometry = { workspace = true }
+tessera-printsetup = { workspace = true }
+tessera-materials = { workspace = true }
+tessera-mesh = { workspace = true }
+tessera-physics = { workspace = true }
+tessera-solvers = { workspace = true }
+tessera-post = { workspace = true }
+tessera-cli = { workspace = true }
+tessera-mcp = { workspace = true }
+tessera-gui = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "hypothesis>=6",
+    "ruff>=0.6",
+    "pyright>=1.1.380",
+    "import-linter>=2.1",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["tessera"]
+
+[tool.pyright]
+include = ["packages"]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+
+[tool.pytest.ini_options]
+testpaths = ["packages", "benchmarks"]
+addopts = "--import-mode=importlib"
+markers = [
+    "solver: needs the CalculiX executable (ccx) on PATH",
+    "benchmark: analytical validation case",
+]
+
+[tool.importlinter]
+root_packages = [
+    "tessera.model",
+    "tessera.core",
+    "tessera.geometry",
+    "tessera.printsetup",
+    "tessera.materials",
+    "tessera.mesh",
+    "tessera.physics",
+    "tessera.solvers",
+    "tessera.post",
+    "tessera.cli",
+    "tessera.mcp",
+    "tessera.gui",
+]
+
+[[tool.importlinter.contracts]]
+name = "Layered architecture (ADR-001)"
+type = "layers"
+layers = [
+    "tessera.gui | tessera.cli | tessera.mcp",
+    "tessera.core",
+    "tessera.geometry | tessera.printsetup | tessera.materials | tessera.mesh | tessera.physics | tessera.solvers | tessera.post",
+    "tessera.model",
+]

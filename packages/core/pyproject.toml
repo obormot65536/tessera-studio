@@ -1,0 +1,32 @@
+[project]
+name = "tessera-core"
+version = "0.0.1"
+description = "Tessera Studio: project API and job orchestration used by every client"
+requires-python = ">=3.12"
+license = "GPL-3.0-or-later"
+dependencies = [
+    "tessera-model",
+    "pydantic>=2.7",
+    "tessera-geometry",
+    "tessera-materials",
+    "tessera-mesh",
+    "tessera-physics",
+    "tessera-post",
+    "tessera-solvers",
+]
+
+[tool.uv.sources]
+tessera-model = { workspace = true }
+tessera-geometry = { workspace = true }
+tessera-materials = { workspace = true }
+tessera-mesh = { workspace = true }
+tessera-physics = { workspace = true }
+tessera-post = { workspace = true }
+tessera-solvers = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tessera"]
