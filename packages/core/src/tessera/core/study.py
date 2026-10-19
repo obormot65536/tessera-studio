@@ -8,14 +8,23 @@ import tessera.materials as materials
 import tessera.mesh as mesh
 import tessera.physics as physics
 import tessera.post as post
-from tessera.model import FaceInfo, PartInstance, Project, SolverAdapter, StudyResult, Transform
+from tessera.model import (
+    AnalysisKind,
+    FaceInfo,
+    InputError,
+    PartInstance,
+    Project,
+    SolverAdapter,
+    StudyResult,
+    Transform,
+)
 
 
 def _part(project: Project, part_id: str) -> PartInstance:
     for part in project.assembly.parts:
         if part.id == part_id:
             return part
-    raise KeyError(f"no part {part_id!r} in project {project.name!r}")
+    raise InputError(f"no part {part_id!r} in project {project.name!r}")
 
 
 def describe_faces(project: Project, part_id: str) -> list[FaceInfo]:
@@ -24,6 +33,7 @@ def describe_faces(project: Project, part_id: str) -> list[FaceInfo]:
 
 
 def _default_adapter() -> SolverAdapter:
+    # v0.1 has one solver; ADR-004's registry by analysis kind arrives with the second one.
     from tessera.solvers import CalculixAdapter
 
     return CalculixAdapter()
@@ -40,7 +50,12 @@ def solve(
     if part.transform != Transform():
         raise NotImplementedError("v0.1 does not apply part placements yet")
     if part.material_id is None:
-        raise ValueError(f"part {part.id!r} has no material")
+        raise InputError(f"part {part.id!r} has no material")
+
+    adapter = adapter or _default_adapter()
+    analysis = AnalysisKind(project.study.analysis)
+    if analysis not in adapter.capabilities():
+        raise InputError(f"solver {adapter.name!r} cannot run a {analysis} analysis")
 
     part_mesh = mesh.mesh_step(part.geometry, part_id=part.id, size=project.study.mesh_size)
     job = physics.build_static_job(
@@ -49,5 +64,5 @@ def solve(
     if workdir is None:
         workdir = Path(tempfile.mkdtemp(prefix="tessera-"))
     workdir.mkdir(parents=True, exist_ok=True)
-    solution = (adapter or _default_adapter()).run(job, workdir)
-    return post.summarize(job.mesh, solution)
+    solution = adapter.run(job, workdir)
+    return post.summarize(job.mesh, solution, workdir=workdir)

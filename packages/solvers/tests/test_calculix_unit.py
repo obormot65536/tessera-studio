@@ -223,3 +223,18 @@ def test_deck_numbers_fit_calculix_20_character_fields(x: float) -> None:
     text = calculix._num(x)
     assert len(text) <= 20
     assert float(text) == pytest.approx(x, rel=1e-12, abs=0.0)
+
+
+def test_element_nodes_without_results_are_a_solver_error() -> None:
+    mesh = tiny_job().mesh
+    disp = np.zeros((mesh.n_nodes, 3))
+    stress = np.zeros((mesh.n_nodes, 6))
+    calculix.check_results_complete(mesh, disp, stress)  # complete: no error
+    disp[4] = np.nan
+    with pytest.raises(SolverError, match="1 mesh node"):
+        calculix.check_results_complete(mesh, disp, stress)
+
+
+def test_number_format_is_pinned() -> None:
+    assert calculix._num(0.5) == "5.000000000000e-01"
+    assert calculix._num(-8.526512829121204e-17) == "-8.526512829121e-17"

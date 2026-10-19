@@ -588,12 +588,14 @@ version = "0.0.1"
 source = { editable = "packages/cli" }
 dependencies = [
     { name = "tessera-core" },
+    { name = "tessera-model" },
     { name = "typer" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "tessera-core", editable = "packages/core" },
+    { name = "tessera-model", editable = "packages/model" },
     { name = "typer", specifier = ">=0.12" },
 ]
 
@@ -602,6 +604,7 @@ name = "tessera-core"
 version = "0.0.1"
 source = { editable = "packages/core" }
 dependencies = [
+    { name = "pydantic" },
     { name = "tessera-geometry" },
     { name = "tessera-materials" },
     { name = "tessera-mesh" },
@@ -613,6 +616,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "pydantic", specifier = ">=2.7" },
     { name = "tessera-geometry", editable = "packages/geometry" },
     { name = "tessera-materials", editable = "packages/materials" },
     { name = "tessera-mesh", editable = "packages/mesh" },

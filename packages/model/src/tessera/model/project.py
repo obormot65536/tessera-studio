@@ -57,7 +57,7 @@ class FaceSet(_Model):
     """Faces of one part instance, by geometry face index."""
 
     part_id: str
-    faces: tuple[int, ...]
+    faces: Annotated[tuple[int, ...], Field(min_length=1)]
 
 
 class Connection(_Model):

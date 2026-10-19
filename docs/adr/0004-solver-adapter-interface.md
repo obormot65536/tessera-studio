@@ -66,3 +66,11 @@ seam: it is exactly what a benchmark or a bug report needs to reproduce a run.
 1. [ ] Add `Mesh`, `SolveJob`, `SolveResult`, `SolverAdapter`, `SolverError` to `tessera.model`.
 2. [ ] Implement `CalculixAdapter` (static, isotropic) with a patch test.
 3. [ ] Extend additively in v0.5: orientations, orthotropic materials, ties, contact, couplings.
+4. [ ] Registry by analysis kind once a second adapter exists (v0.1 core uses CalculiX
+       directly but checks `capabilities()`).
+5. [ ] Default solver timeout before the GUI/MCP server can start solves (a hung contact solve
+       must not block them forever).
+6. [ ] High-order mesh quality: enable gmsh high-order optimization or report inverted curved
+       elements clearly before CalculiX rejects them with a Jacobian error.
+7. [ ] Recover stresses at integration points for failure criteria: CalculiX's nodal frd
+       stresses carry about 1e-5 relative extrapolation bias.

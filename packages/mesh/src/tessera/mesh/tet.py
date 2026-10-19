@@ -6,7 +6,7 @@ import gmsh
 import numpy as np
 
 from tessera.mesh._gmsh import gmsh_model
-from tessera.model import Mesh
+from tessera.model import InputError, Mesh
 
 _GMSH_TET10 = 11
 _GMSH_TRI6 = 9
@@ -22,15 +22,17 @@ def mesh_step(path: Path, *, part_id: str, size: float | None = None) -> Mesh:
     """
     if not path.is_file():
         raise FileNotFoundError(path)
-    with gmsh_model():
-        gmsh.model.occ.importShapes(str(path))
+    options: dict[str, float | str] = {"Mesh.ElementOrder": 2}
+    if size is not None:
+        options |= {"Mesh.MeshSizeMax": size, "Mesh.MeshSizeMin": size / 4}
+    with gmsh_model(options):
+        try:
+            gmsh.model.occ.importShapes(str(path))
+        except Exception as exc:  # gmsh raises plain Exception
+            raise InputError(f"cannot read {path} as STEP: {exc}") from exc
         gmsh.model.occ.synchronize()
         if len(gmsh.model.getEntities(3)) != 1:
-            raise ValueError(f"{path} must contain exactly one solid in v0.1")
-        if size is not None:
-            gmsh.option.setNumber("Mesh.MeshSizeMax", size)
-            gmsh.option.setNumber("Mesh.MeshSizeMin", size / 4)
-        gmsh.option.setNumber("Mesh.ElementOrder", 2)
+            raise InputError(f"{path} must contain exactly one solid in v0.1")
         gmsh.model.mesh.generate(3)
 
         raw_tags, raw_coords, _ = gmsh.model.mesh.getNodes()

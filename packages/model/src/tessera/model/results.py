@@ -1,6 +1,7 @@
 """Results of a solved study, as returned by ``tessera.core.solve``."""
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -16,6 +17,8 @@ class StudyResult:
     """Largest nodal displacement magnitude, mm."""
     max_von_mises: float
     """Largest nodal von Mises stress, MPa."""
+    workdir: Path | None = None
+    """Where the solver's input and output files were kept."""
 
     @property
     def displacement_magnitude(self) -> np.ndarray:

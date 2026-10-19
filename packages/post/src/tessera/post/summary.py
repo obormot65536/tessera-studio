@@ -1,5 +1,7 @@
 """Scalar summaries of a solved study."""
 
+from pathlib import Path
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -15,10 +17,12 @@ def von_mises(stresses: NDArray[np.float64]) -> NDArray[np.float64]:
     )
 
 
-def summarize(mesh: Mesh, solution: SolveResult) -> StudyResult:
+def summarize(mesh: Mesh, solution: SolveResult, workdir: Path | None = None) -> StudyResult:
+    """Summarize a solution. Nodes no element uses may have no result (NaN) and are skipped."""
     return StudyResult(
         mesh=mesh,
         solution=solution,
-        max_displacement=float(np.linalg.norm(solution.displacements, axis=1).max()),
-        max_von_mises=float(von_mises(solution.stresses).max()),
+        max_displacement=float(np.nanmax(np.linalg.norm(solution.displacements, axis=1))),
+        max_von_mises=float(np.nanmax(von_mises(solution.stresses))),
+        workdir=workdir,
     )

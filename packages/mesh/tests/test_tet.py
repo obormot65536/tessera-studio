@@ -50,3 +50,15 @@ def test_face_surfaces_cover_the_boundary(box_step: Path) -> None:
         total += 0.5 * np.linalg.norm(a, axis=1).sum()
     assert total == pytest.approx(2 * (40 * 10 + 40 * 10 + 10 * 10))
     assert mesh.element_sets["part:box"].size == mesh.n_elements
+
+
+def test_mesh_options_do_not_leak_into_a_running_gmsh_session(box_step: Path) -> None:
+    fresh = mesh_step(box_step, part_id="box").n_nodes
+    gmsh.initialize(interruptible=False)  # e.g. a long-lived GUI or MCP process
+    try:
+        before = gmsh.option.getNumber("Mesh.MeshSizeMax")
+        mesh_step(box_step, part_id="box", size=2.0)
+        assert gmsh.option.getNumber("Mesh.MeshSizeMax") == before
+        assert mesh_step(box_step, part_id="box").n_nodes == fresh
+    finally:
+        gmsh.finalize()

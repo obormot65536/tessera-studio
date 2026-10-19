@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 license = "GPL-3.0-or-later"
 dependencies = [
     "tessera-model",
+    "pydantic>=2.7",
     "tessera-geometry",
     "tessera-materials",
     "tessera-mesh",

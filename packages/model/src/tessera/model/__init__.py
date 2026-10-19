@@ -1,5 +1,6 @@
 """Shared data model, units and interfaces (bottom layer)."""
 
+from tessera.model.errors import InputError
 from tessera.model.geometry_info import FaceInfo
 from tessera.model.mesh import TET10_EDGES, TRI6_EDGES, Mesh
 from tessera.model.project import (
@@ -41,6 +42,7 @@ __all__ = [
     "FaceSet",
     "FixedSupport",
     "ForceLoad",
+    "InputError",
     "IsotropicMaterial",
     "Mesh",
     "NodalLoads",

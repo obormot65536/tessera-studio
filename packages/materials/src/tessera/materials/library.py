@@ -4,7 +4,7 @@ v0.1 holds only textbook isotropic metals used by benchmarks and non-printed par
 materials (orthotropic, with citations) arrive in v0.5 through the materials-curator workflow.
 """
 
-from tessera.model import IsotropicMaterial
+from tessera.model import InputError, IsotropicMaterial
 
 _ISOTROPIC: dict[str, IsotropicMaterial] = {
     # Typical handbook values for structural steel and 6061-T6 aluminium.
@@ -22,7 +22,7 @@ def get_isotropic(material_id: str) -> IsotropicMaterial:
         return _ISOTROPIC[material_id]
     except KeyError:
         known = ", ".join(sorted(_ISOTROPIC))
-        raise KeyError(f"unknown material {material_id!r}; known: {known}") from None
+        raise InputError(f"unknown material {material_id!r}; known: {known}") from None
 
 
 def material_ids() -> list[str]:

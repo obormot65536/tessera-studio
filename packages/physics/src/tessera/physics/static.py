@@ -7,6 +7,7 @@ import numpy as np
 from tessera.model import (
     FaceSet,
     FixedSupport,
+    InputError,
     IsotropicMaterial,
     Mesh,
     NodalLoads,
@@ -22,14 +23,15 @@ def _surface(mesh: Mesh, faces: FaceSet) -> np.ndarray:
     try:
         return np.concatenate([mesh.surfaces[f"face:{f}"] for f in faces.faces])
     except KeyError as missing:
-        raise ValueError(f"part {faces.part_id!r} has no face {missing.args[0]!r}") from None
+        face = str(missing.args[0]).removeprefix("face:")
+        raise InputError(f"part {faces.part_id!r} has no face {face}") from None
 
 
 def build_static_job(
     study: Study, part: PartInstance, mesh: Mesh, material: IsotropicMaterial
 ) -> SolveJob:
     if not study.supports:
-        raise ValueError("the study needs at least one support")
+        raise InputError("the study needs at least one support")
     node_sets = dict(mesh.node_sets)
     supports = []
     for support in study.supports:

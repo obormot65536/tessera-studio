@@ -50,3 +50,8 @@ def test_connection_to_unknown_part_is_rejected() -> None:
 def test_duplicate_part_ids_are_rejected() -> None:
     with pytest.raises(ValidationError, match="unique"):
         Assembly(parts=[_part("p1"), _part("p1")])
+
+
+def test_face_set_needs_at_least_one_face() -> None:
+    with pytest.raises(ValidationError, match="at least 1"):
+        FaceSet(part_id="p1", faces=())

@@ -22,6 +22,7 @@ from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 
+from tessera.model.mesh import Mesh
 from tessera.model.solver import AnalysisKind, SolveJob, SolverError, SolveResult
 
 JOB_NAME = "job"
@@ -276,6 +277,18 @@ def _to_array(block: dict[int, list[float]], n_nodes: int, n_comp: int) -> NDArr
     return arr
 
 
+def check_results_complete(
+    mesh: Mesh, displacements: NDArray[np.float64], stresses: NDArray[np.float64]
+) -> None:
+    """Raise if a node used by an element has no result (orphan nodes may stay NaN)."""
+    used = np.unique(mesh.elements)
+    bad = used[np.isnan(displacements[used]).any(axis=1) | np.isnan(stresses[used]).any(axis=1)]
+    if bad.size:
+        raise SolverError(
+            f"CalculiX returned no result for {bad.size} mesh node(s), e.g. node {bad[0]}"
+        )
+
+
 # --------------------------------------------------------------------------------------------
 # Adapter
 # --------------------------------------------------------------------------------------------
@@ -352,9 +365,12 @@ class CalculixAdapter:
         metadata = {"workdir": str(workdir), **deck_names(job).as_metadata()}
         if parsed.version:
             metadata["ccx_version"] = parsed.version
+        displacements = _to_array(parsed.blocks["DISP"], n, 3)
+        stresses = _to_array(parsed.blocks["STRESS"], n, 6)
+        check_results_complete(job.mesh, displacements, stresses)
         return SolveResult(
-            displacements=_to_array(parsed.blocks["DISP"], n, 3),
-            stresses=_to_array(parsed.blocks["STRESS"], n, 6),
+            displacements=displacements,
+            stresses=stresses,
             solver=self.name,
             log=log,
             metadata=metadata,

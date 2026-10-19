@@ -1,6 +1,7 @@
 import pytest
 
 from tessera.materials import get_isotropic, material_ids
+from tessera.model import InputError
 
 
 def test_steel() -> None:
@@ -10,6 +11,6 @@ def test_steel() -> None:
 
 
 def test_unknown_material_lists_known_ids() -> None:
-    with pytest.raises(KeyError, match="steel-generic"):
+    with pytest.raises(InputError, match="steel-generic"):
         get_isotropic("unobtainium")
     assert "aluminium-6061-t6" in material_ids()

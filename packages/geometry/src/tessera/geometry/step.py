@@ -1,32 +1,55 @@
 """STEP import and face queries (via gmsh's OpenCASCADE kernel)."""
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import gmsh
 import numpy as np
 
 from tessera.geometry._gmsh import gmsh_model
-from tessera.model import FaceInfo
+from tessera.model import FaceInfo, InputError
 
 
 def _import_single_solid(path: Path) -> int:
     if not path.is_file():
         raise FileNotFoundError(path)
-    gmsh.model.occ.importShapes(str(path))
+    try:
+        gmsh.model.occ.importShapes(str(path))
+    except Exception as exc:  # gmsh raises plain Exception
+        raise InputError(f"cannot read {path} as STEP: {exc}") from exc
     gmsh.model.occ.synchronize()
     volumes = gmsh.model.getEntities(3)
     if len(volumes) != 1:
-        raise ValueError(f"{path} contains {len(volumes)} solids; v0.1 supports exactly one")
+        raise InputError(f"{path} contains {len(volumes)} solids; v0.1 supports exactly one")
     return volumes[0][1]
 
 
+def _face_points(face: int, n: int = 7) -> Iterator[np.ndarray]:
+    """Points on the (trimmed) face, from a parameter-space grid."""
+    (umin, vmin), (umax, vmax) = np.asarray(gmsh.model.getParametrizationBounds(2, face))
+    for u in np.linspace(umin, umax, n + 2)[1:-1]:
+        for v in np.linspace(vmin, vmax, n + 2)[1:-1]:
+            xyz = np.asarray(gmsh.model.getValue(2, face, [u, v]), dtype=float)
+            if gmsh.model.isInside(2, face, xyz.tolist()):
+                yield xyz
+
+
 def _outward_normal(face: int, volume: int, centroid: np.ndarray, size: float) -> np.ndarray:
+    """Unit normal pointing out of the solid.
+
+    Probes just in front of and behind points on the face; the centroid itself can lie off
+    the face (e.g. inside a hole). Falls back to gmsh's face orientation, which is outward
+    for valid solids, if no probe is decisive.
+    """
     uv = gmsh.model.getParametrization(2, face, centroid.tolist())
     normal = np.asarray(gmsh.model.getNormal(face, uv), dtype=float)
     normal /= np.linalg.norm(normal)
-    probe = centroid + normal * 1e-4 * size
-    if gmsh.model.isInside(3, volume, probe.tolist()):
-        normal = -normal
+    step = 1e-4 * size
+    for point in _face_points(face):
+        ahead = gmsh.model.isInside(3, volume, (point + step * normal).tolist())
+        behind = gmsh.model.isInside(3, volume, (point - step * normal).tolist())
+        if ahead != behind:
+            return -normal if ahead else normal
     return normal
 
 

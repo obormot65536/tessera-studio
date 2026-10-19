@@ -8,6 +8,7 @@ from pathlib import Path
 import typer
 
 from tessera.core import describe_faces, load_project, new_project, save_project, solve
+from tessera.model import InputError, SolverError
 
 app = typer.Typer(
     help="Tessera Studio: stress analysis for 3D-printed parts.", no_args_is_help=True
@@ -19,10 +20,12 @@ def _user_errors() -> Iterator[None]:
     """Report problems in the user's input as one line instead of a traceback."""
     try:
         yield
-    except (FileNotFoundError, KeyError, ValueError, NotImplementedError) as exc:
-        message = exc.args[0] if isinstance(exc, KeyError) and exc.args else exc
-        typer.echo(f"error: {message}", err=True)
+    except (InputError, FileNotFoundError, NotImplementedError) as exc:
+        typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(1) from None
+    except SolverError as exc:
+        typer.echo(f"solver failed: {exc}", err=True)
+        raise typer.Exit(2) from None
 
 
 @app.command("version")
@@ -66,6 +69,7 @@ def solve_cmd(path: Path, workdir: Path | None = None) -> None:
     typer.echo(f"nodes: {result.mesh.n_nodes}, elements: {result.mesh.n_elements}")
     typer.echo(f"max displacement: {result.max_displacement:.6g} mm")
     typer.echo(f"max von Mises stress: {result.max_von_mises:.6g} MPa")
+    typer.echo(f"solver files: {result.workdir}")
 
 
 def main() -> None:
