@@ -1,6 +1,6 @@
 # ADR-003: Project file format
 
-**Status:** Proposed
+**Status:** Accepted (maintainer, iteration 1)
 **Deciders:** Maintainer
 
 ## Context

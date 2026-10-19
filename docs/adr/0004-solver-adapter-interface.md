@@ -1,6 +1,6 @@
 # ADR-004: Solver adapter interface
 
-**Status:** Proposed
+**Status:** Accepted (maintainer, iteration 1)
 **Deciders:** Maintainer
 
 ## Context
