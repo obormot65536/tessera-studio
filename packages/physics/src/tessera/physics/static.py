@@ -37,7 +37,7 @@ def build_static_job(
     for support in study.supports:
         name = f"support:{support.id}"
         node_sets[name] = np.unique(_surface(mesh, support.faces))
-        supports.append(FixedSupport(node_set=name))
+        supports.append(FixedSupport(node_set=name, dofs=support.dofs))
 
     loads = []
     for load in study.loads:

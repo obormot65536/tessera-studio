@@ -55,3 +55,20 @@ def test_duplicate_part_ids_are_rejected() -> None:
 def test_face_set_needs_at_least_one_face() -> None:
     with pytest.raises(ValidationError, match="at least 1"):
         FaceSet(part_id="p1", faces=())
+
+
+def test_support_fixes_all_directions_by_default_or_selected_ones() -> None:
+    from tessera.model import Support
+
+    faces = FaceSet(part_id="p1", faces=(1,))
+    assert Support(id="s", faces=faces).dofs == (1, 2, 3)
+    roller = Support(id="sym", faces=faces, dofs=(1,))
+    assert Support.model_validate_json(roller.model_dump_json()) == roller
+
+
+@pytest.mark.parametrize("dofs", [(), (1, 1), (4,), (0,)])
+def test_support_rejects_invalid_dofs(dofs: tuple[int, ...]) -> None:
+    from tessera.model import Support
+
+    with pytest.raises(ValidationError):
+        Support.model_validate({"id": "s", "faces": {"part_id": "p1", "faces": [1]}, "dofs": dofs})
