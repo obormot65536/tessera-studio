@@ -1,6 +1,6 @@
 # ADR-002: Internal unit system
 
-- Status: Proposed
+- Status: Accepted (maintainer, iteration 1)
 - Date: 2026-10-19
 
 ## Decision
