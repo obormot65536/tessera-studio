@@ -86,7 +86,39 @@ class Assembly(_Model):
         return self
 
 
+class Support(_Model):
+    """Fixed support: the faces cannot move."""
+
+    id: str
+    faces: FaceSet
+
+
+class ForceLoad(_Model):
+    """Total force in N, spread uniformly (per unit area) over the faces."""
+
+    id: str
+    faces: FaceSet
+    force: Vec3
+
+
+class Study(_Model):
+    analysis: Literal["static"] = "static"
+    supports: list[Support] = Field(default_factory=list)
+    loads: list[ForceLoad] = Field(default_factory=list)
+    mesh_size: Annotated[float, Field(gt=0.0)] | None = None
+    """Target element size in mm; ``None`` lets the mesher choose."""
+
+
 class Project(_Model):
     schema_version: int = SCHEMA_VERSION
     name: str
     assembly: Assembly = Field(default_factory=Assembly)
+    study: Study = Field(default_factory=Study)
+
+    @model_validator(mode="after")
+    def _check_study_references(self) -> Project:
+        known = {p.id for p in self.assembly.parts}
+        for item in [*self.study.supports, *self.study.loads]:
+            if item.faces.part_id not in known:
+                raise ValueError(f"{item.id!r} refers to unknown part {item.faces.part_id!r}")
+        return self

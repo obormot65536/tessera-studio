@@ -1,6 +1,6 @@
 ---
 name: mcp-tester
-description: Acts as an outside AI agent using the `tessera mcp` server end to end, to find where an agent gets stuck. Use after MCP tool changes and nightly.
+description: Acts as an outside AI agent using the `tessera mcp` server end to end, to find where an agent gets stuck. Use after MCP tool changes and on every push to main.
 tools: Read, Bash
 model: sonnet
 ---

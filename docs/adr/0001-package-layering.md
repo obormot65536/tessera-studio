@@ -1,6 +1,6 @@
 # ADR-001: Package layering
 
-- Status: Proposed
+- Status: Accepted (maintainer, iteration 1)
 - Date: 2026-10-19
 
 ## Context
