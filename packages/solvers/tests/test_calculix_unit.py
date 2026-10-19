@@ -4,6 +4,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from tessera.model.mesh import Mesh
 from tessera.model.solver import (
@@ -15,7 +17,7 @@ from tessera.model.solver import (
     SolverAdapter,
     SolverError,
 )
-from tessera.solvers import CalculixAdapter
+from tessera.solvers import CalculixAdapter, calculix
 from tessera.solvers.calculix import CCX_ENV_VAR, deck_names, parse_frd, write_deck
 
 # Unit right-angle tet10: corners, then midsides on (0,1) (1,2) (2,0) (0,3) (1,3) (2,3).
@@ -66,18 +68,22 @@ def test_deck_contents() -> None:
     lines = deck.splitlines()
     for kw in ("*NODE", "*ELEMENT, TYPE=C3D10", "*STEP", "*STATIC", "*END STEP"):
         assert kw in lines
-    assert "1, 0.0, 0.0, 0.0" in lines
-    assert "10, 0.0, 0.5, 0.5" in lines
+    n = calculix._num
+    assert f"1, {n(0)}, {n(0)}, {n(0)}" in lines
+    assert f"10, {n(0)}, {n(0.5)}, {n(0.5)}" in lines
     assert "1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10" in lines  # 0-based -> 1-based, order kept
     assert lines[lines.index("*ELSET, ELSET=E_part") + 1] == "1"
     assert lines[lines.index("*NSET, NSET=N_fixed") + 1] == "1, 3, 4, 7, 8, 10"
-    assert lines[lines.index("*MATERIAL, NAME=M_resin") + 1 :][:2] == ["*ELASTIC", "2500.0, 0.35"]
+    assert lines[lines.index("*MATERIAL, NAME=M_resin") + 1 :][:2] == [
+        "*ELASTIC",
+        f"{n(2500)}, {n(0.35)}",
+    ]
     assert "*SOLID SECTION, ELSET=E_part, MATERIAL=M_resin" in lines
     b = lines.index("*BOUNDARY")
     assert lines[b + 1 : b + 3] == ["N_fixed, 1, 1", "N_fixed, 3, 3"]
     c = lines.index("*CLOAD")
     # duplicates summed (node 2: 1.5 + 0.5), zero components skipped
-    assert lines[c + 1 : c + 3] == ["2, 1, 2.0", "5, 3, -2.0"]
+    assert lines[c + 1 : c + 3] == [f"2, 1, {n(2)}", f"5, 3, {n(-2)}"]
     assert lines[c + 3] == "*NODE FILE"
     assert lines[lines.index("*NODE FILE") + 1] == "U"
     assert lines[lines.index("*EL FILE") + 1] == "S"
@@ -209,3 +215,11 @@ def test_parse_frd_last_step_and_packed_fields() -> None:
     assert disp[3] == [1.25e-2, -3.0e-3, 45.0]
     assert res.blocks["STRESS"][3] == [-1.0, -2.0, -3.0, -4.0, -5.0, -6.0]
     assert 2 not in res.blocks["STRESS"]
+
+
+@given(st.floats(allow_nan=False, allow_infinity=False, width=64))
+def test_deck_numbers_fit_calculix_20_character_fields(x: float) -> None:
+    # CalculiX reads numeric fields of at most 20 characters; longer reprs abort the run.
+    text = calculix._num(x)
+    assert len(text) <= 20
+    assert float(text) == pytest.approx(x, rel=1e-12, abs=0.0)

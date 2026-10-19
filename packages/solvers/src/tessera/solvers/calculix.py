@@ -92,7 +92,9 @@ def deck_names(job: SolveJob) -> DeckNames:
 
 
 def _num(x: float) -> str:
-    return repr(float(x))
+    # CalculiX numeric fields hold at most 20 characters; 13 significant digits in
+    # scientific notation always fit, including a sign and a three-digit exponent.
+    return f"{float(x):.12e}"
 
 
 def _id_lines(ids: Iterable[int]) -> list[str]:
