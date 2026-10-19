@@ -6,10 +6,22 @@ requires-python = ">=3.12"
 license = "GPL-3.0-or-later"
 dependencies = [
     "tessera-model",
+    "tessera-geometry",
+    "tessera-materials",
+    "tessera-mesh",
+    "tessera-physics",
+    "tessera-post",
+    "tessera-solvers",
 ]
 
 [tool.uv.sources]
 tessera-model = { workspace = true }
+tessera-geometry = { workspace = true }
+tessera-materials = { workspace = true }
+tessera-mesh = { workspace = true }
+tessera-physics = { workspace = true }
+tessera-post = { workspace = true }
+tessera-solvers = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

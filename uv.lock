@@ -602,11 +602,25 @@ name = "tessera-core"
 version = "0.0.1"
 source = { editable = "packages/core" }
 dependencies = [
+    { name = "tessera-geometry" },
+    { name = "tessera-materials" },
+    { name = "tessera-mesh" },
     { name = "tessera-model" },
+    { name = "tessera-physics" },
+    { name = "tessera-post" },
+    { name = "tessera-solvers" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "tessera-model", editable = "packages/model" }]
+requires-dist = [
+    { name = "tessera-geometry", editable = "packages/geometry" },
+    { name = "tessera-materials", editable = "packages/materials" },
+    { name = "tessera-mesh", editable = "packages/mesh" },
+    { name = "tessera-model", editable = "packages/model" },
+    { name = "tessera-physics", editable = "packages/physics" },
+    { name = "tessera-post", editable = "packages/post" },
+    { name = "tessera-solvers", editable = "packages/solvers" },
+]
 
 [[package]]
 name = "tessera-geometry"
