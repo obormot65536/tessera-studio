@@ -23,26 +23,26 @@ the mesh size. There sigma_xx = sigma_theta_theta is the peak hoop stress.
 
 i.e. Kt is formed on the NET section, consistent with the reference below.
 
-Reference: finite-width Kirsch problem (Howland strip), Pilkey curve fit
-------------------------------------------------------------------------
+Reference: finite-width Kirsch problem, Howland's strip solution (PROVISIONAL)
+-----------------------------------------------------------------------------
 Infinite plate: Kt = 3 (G. Kirsch, "Die Theorie der Elastizitaet und die Beduerfnisse der
-Festigkeitslehre", Z. VDI 42 (1898) 797-807). For a finite-width strip:
+Festigkeitslehre", Z. VDI 42 (1898) 797-807). For a strip of finite width the reference is
+Howland's solution as reported in S. P. Timoshenko and J. N. Goodier, *Theory of Elasticity*,
+3rd ed., McGraw-Hill 1970 (sec. 35), from R. C. J. Howland, "On the stresses in the
+neighbourhood of a circular hole in a strip under tension", Phil. Trans. R. Soc. A 229 (1930)
+49-86. At d/W = 0.2 the gross-section factor is Kt_g = 3.14, so
 
-    Kt_n = 2 + 0.284 (1 - d/W) - 0.600 (1 - d/W)^2 + 1.32 (1 - d/W)^3
+    Kt_n = Kt_g * (1 - d/W) = 3.14 * 0.8 = 2.512
 
-W. D. Pilkey and D. F. Pilkey, *Peterson's Stress Concentration Factors*, 3rd ed., Wiley 2008,
-section 4.3.1, Chart 4.1 (finite-width infinite thin element, uniaxial tension, 0 <= d/H <= 1),
-a fit to the Howland, Isida and Christiansen solutions. At d/W = 0.2: Kt_n = 2.51904
-(Kt_g = Kt_n / (1 - d/W) = 3.1488).
+PROVISIONAL: the maintainer approved this source; the tabulated 3.14 is still to be confirmed
+in the book and may be refined.
 
-Accuracy of the reference at d/W = 0.2: the alternatives span 2.5065-2.5190, i.e. 0.5 %.
-They are R. C. J. Howland, "On the stresses in the neighbourhood of a circular hole in a strip
-under tension", Phil. Trans. R. Soc. A 229 (1930) 49-86 (Kt_g = 3.14, so Kt_n = 2.512);
-R. B. Heywood, *Designing by Photoelasticity*, Chapman & Hall 1952 (Kt_n = 2 + (1 - d/W)^3 =
-2.512); and the older Peterson cubic 3 - 3.14 a + 3.667 a^2 - 1.527 a^3 (2.5065). The fit
-gives 3.004 at d/W -> 0 (Kirsch: 3), +0.13 %. An independent fine-mesh gmsh + CalculiX
-plane-stress check (t/r = 0.04, local refinement to r/100) converged to Kt_n = 2.5217,
-+0.1 % from the fit.
+Accuracy of the reference at d/W = 0.2: published values span 2.5065-2.5190 (0.5 %).
+Heywood, *Designing by Photoelasticity*, Chapman & Hall 1952: Kt_n = 2 + (1 - d/W)^3 = 2.512;
+older Peterson cubic 3 - 3.14 a + 3.667 a^2 - 1.527 a^3 = 2.5065; Pilkey & Pilkey, *Peterson's
+Stress Concentration Factors*, 3rd ed., Wiley 2008, Chart 4.1 fit = 2.5190. An independent
+fine-mesh gmsh + CalculiX plane-stress check (t/r = 0.04, local refinement to r/100)
+converged to Kt_n = 2.5217, +0.4 % from Howland.
 
 Why these dimensions
 --------------------
@@ -114,13 +114,14 @@ def net_stress(
     return gross_stress * width / (width - diameter)
 
 
-def finite_width_kt_net(diameter: float = HOLE_DIAMETER, width: float = WIDTH) -> float:
-    """Net-section Kt of a central circular hole in a finite-width strip under tension.
+HOWLAND_KT_GROSS = {0.2: 3.14}
+"""Howland's gross-section Kt by d/W, as tabulated in Timoshenko & Goodier (provisional)."""
 
-    Pilkey & Pilkey, Peterson's Stress Concentration Factors, 3rd ed. (2008), Chart 4.1.
-    """
-    a = 1.0 - diameter / width
-    return 2.0 + 0.284 * a - 0.600 * a**2 + 1.32 * a**3
+
+def finite_width_kt_net(diameter: float = HOLE_DIAMETER, width: float = WIDTH) -> float:
+    """Net-section Kt from Howland's tabulated gross-section value (Timoshenko & Goodier)."""
+    ratio = round(diameter / width, 6)
+    return HOWLAND_KT_GROSS[ratio] * (1.0 - diameter / width)
 
 
 def write_plate_hole_step(path: Path) -> Path:
@@ -287,7 +288,10 @@ def test_plate_hole_mesh_convergence(
         kt_mid, kt_surface, n_nodes = plate_kt(size)
         rows.append((size, n_nodes, kt_mid, kt_surface, abs(kt_mid - expected) / expected))
 
-    print(f"\nPlate with hole, Kt_n reference {expected:.5f} (Pilkey Chart 4.1, d/W = 0.2)")
+    print(
+        f"\nPlate with hole, Kt_n reference {expected:.5f}"
+        " (Howland via Timoshenko & Goodier, d/W = 0.2)"
+    )
     print(f"{'h [mm]':>8} {'nodes':>8} {'Kt_n mid':>10} {'Kt_n surf':>10} {'rel. error':>11}")
     for size, n_nodes, kt_mid, kt_surface, error in rows:
         print(f"{size:>8g} {n_nodes:>8d} {kt_mid:>10.5f} {kt_surface:>10.5f} {error:>11.4%}")
