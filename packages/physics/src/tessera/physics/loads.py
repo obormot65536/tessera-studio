@@ -1,7 +1,9 @@
-"""Convert face loads into consistent nodal forces on quadratic triangles."""
+"""Convert face and body loads into consistent nodal forces on quadratic elements."""
 
 import numpy as np
 from numpy.typing import NDArray
+
+from tessera.model import TET10_EDGES
 
 # Dunavant degree-4 rule on the triangle: barycentric points and weights (weights sum to 1).
 _A, _B = 0.445948490915965, 0.091576213509771
@@ -63,3 +65,126 @@ def uniform_face_load(
     per_node = np.bincount(inverse, weights=weights.ravel(), minlength=node_ids.size)
     forces = np.outer(per_node / area, total_force)
     return node_ids.astype(np.int64), forces
+
+
+def _sum_per_node(
+    connectivity: NDArray[np.int64], weights: NDArray[np.float64]
+) -> tuple[NDArray[np.int64], NDArray[np.float64]]:
+    """Add (K, n, ...) per-element node weights into (unique nodes, summed weights)."""
+    node_ids, inverse = np.unique(connectivity.ravel(), return_inverse=True)
+    flat = weights.reshape(connectivity.size, -1)
+    summed = np.stack(
+        [
+            np.bincount(inverse, weights=flat[:, k], minlength=node_ids.size)
+            for k in range(flat.shape[1])
+        ],
+        axis=1,
+    )
+    return node_ids.astype(np.int64), summed
+
+
+def tri6_normal_weights(nodes: NDArray[np.float64], tris: NDArray[np.int64]) -> NDArray[np.float64]:
+    """Return (K, 6, 3) integrals of each shape function times the area-weighted normal.
+
+    The normal follows the triangle's winding (right hand). Exact for curved faces: the
+    integrand has degree 4, which the Dunavant rule integrates exactly.
+    """
+    x = nodes[tris]  # (K, 6, 3)
+    weights = np.zeros((*tris.shape, 3), dtype=np.float64)
+    for (n, dxi, deta), w in zip(_SHAPES, _W, strict=True):
+        normal = np.cross(dxi @ x, deta @ x)  # (K, 3), length = Jacobian
+        weights += 0.5 * w * n[None, :, None] * normal[:, None, :]
+    return weights
+
+
+def pressure_face_load(
+    nodes: NDArray[np.float64], tris: NDArray[np.int64], pressure: float
+) -> tuple[NDArray[np.int64], NDArray[np.float64]]:
+    """Consistent nodal forces (N) of a pressure (MPa) on outward-oriented ``tris``.
+
+    Positive pressure pushes into the body, against the outward normal, at every point of a
+    curved face.
+    """
+    return _sum_per_node(tris, -pressure * tri6_normal_weights(nodes, tris))
+
+
+# Corners of the four faces of a C3D10 element, and the corner opposite each face.
+_TET_FACE_CORNERS = np.array([[0, 1, 2], [0, 1, 3], [1, 2, 3], [0, 2, 3]])
+_TET_OPPOSITE = np.array([3, 2, 0, 1])
+_TRI6_FLIP = np.array([0, 2, 1, 5, 4, 3])
+
+
+def orient_outward(
+    nodes: NDArray[np.float64], elements: NDArray[np.int64], tris: NDArray[np.int64]
+) -> NDArray[np.int64]:
+    """Reorder each boundary triangle so its normal points out of the element it bounds."""
+    face_corners = elements[:, _TET_FACE_CORNERS].reshape(-1, 3)  # (4M, 3)
+    opposite = elements[:, _TET_OPPOSITE].ravel()
+    keys = np.vstack([np.sort(face_corners, axis=1), np.sort(tris[:, :3], axis=1)])
+    _, inverse = np.unique(keys, axis=0, return_inverse=True)
+    inverse = inverse.ravel()
+    n_faces = face_corners.shape[0]
+    face_of_key = np.full(inverse.max() + 1, -1, dtype=np.int64)
+    face_of_key[inverse[:n_faces]] = np.arange(n_faces)
+    owner = face_of_key[inverse[n_faces:]]
+    if (owner < 0).any():
+        bad = tris[np.flatnonzero(owner < 0)[0], :3].tolist()
+        raise ValueError(f"triangle with corners {bad} is not a face of any element")
+
+    x = nodes[tris[:, :3]]
+    normal = np.cross(x[:, 1] - x[:, 0], x[:, 2] - x[:, 0])
+    inward = np.einsum("ij,ij->i", normal, nodes[opposite[owner]] - x[:, 0]) > 0
+    oriented = tris.copy()
+    oriented[inward] = tris[inward][:, _TRI6_FLIP]
+    return oriented
+
+
+def _tet10_shape(l1: float, l2: float, l3: float) -> tuple[NDArray, NDArray]:
+    """C3D10 shape functions and their derivatives wrt (xi, eta, zeta) = (l1, l2, l3)."""
+    l0 = 1.0 - l1 - l2 - l3
+    lam = np.array([l0, l1, l2, l3])
+    dlam = np.array([[-1.0, -1.0, -1.0], [1, 0, 0], [0, 1, 0], [0, 0, 1]])  # (4, 3)
+    n = [lam[i] * (2 * lam[i] - 1) for i in range(4)]
+    dn = [(4 * lam[i] - 1) * dlam[i] for i in range(4)]
+    for i, j in TET10_EDGES:
+        n.append(4 * lam[i] * lam[j])
+        dn.append(4 * (lam[j] * dlam[i] + lam[i] * dlam[j]))
+    return np.array(n), np.array(dn)
+
+
+def _tet_rule(order: int) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Collapsed (Duffy) Gauss rule on the unit tetrahedron; exact to degree 2*order - 3."""
+    g, gw = np.polynomial.legendre.leggauss(order)
+    g, gw = 0.5 * (g + 1.0), 0.5 * gw
+    u, v, w = np.meshgrid(g, g, g, indexing="ij")
+    wu, wv, ww = np.meshgrid(gw, gw, gw, indexing="ij")
+    points = np.stack([u, (1 - u) * v, (1 - u) * (1 - v) * w], axis=-1).reshape(-1, 3)
+    weights = (wu * wv * ww * (1 - u) ** 2 * (1 - v)).ravel()
+    return points, weights
+
+
+# Degree 5 is enough: shape function (2) times the curved element's Jacobian (3).
+_TET10_RULE = [(*_tet10_shape(*p), w) for p, w in zip(*_tet_rule(4), strict=True)]
+
+
+def tet10_volume_weights(
+    nodes: NDArray[np.float64], elements: NDArray[np.int64]
+) -> NDArray[np.float64]:
+    """Return (M, 10) integrals of each shape function over each element (mm^3)."""
+    x = nodes[elements]  # (M, 10, 3)
+    weights = np.zeros(elements.shape, dtype=np.float64)
+    for n, dn, w in _TET10_RULE:
+        jac = np.linalg.det(np.einsum("ni,mnj->mij", dn, x))  # (M,)
+        weights += np.outer(w * jac, n)
+    return weights
+
+
+def body_force_load(
+    nodes: NDArray[np.float64],
+    elements: NDArray[np.int64],
+    density: float,
+    acceleration: tuple[float, float, float],
+) -> tuple[NDArray[np.int64], NDArray[np.float64]]:
+    """Consistent nodal forces (N) of a uniform acceleration (mm/s^2) on mass (t/mm^3)."""
+    node_ids, volume = _sum_per_node(elements, tet10_volume_weights(nodes, elements))
+    return node_ids, density * volume * np.asarray(acceleration, dtype=float)[None, :]

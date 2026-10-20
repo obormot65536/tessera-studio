@@ -17,7 +17,12 @@ from tessera.model import (
     SolveJob,
     Study,
 )
-from tessera.physics.loads import uniform_face_load
+from tessera.physics.loads import (
+    body_force_load,
+    orient_outward,
+    pressure_face_load,
+    uniform_face_load,
+)
 
 
 def _surface(mesh: Mesh, faces: FaceSet) -> np.ndarray:
@@ -42,11 +47,20 @@ def build_static_job(
 
     loads = []
     for load in study.loads:
-        if not isinstance(load, ForceLoad):
-            raise NotImplementedError(f"{load.kind} loads are not supported yet")
-        node_ids, forces = uniform_face_load(
-            mesh.nodes, _surface(mesh, load.faces), np.asarray(load.force, dtype=float)
-        )
+        tris = _surface(mesh, load.faces)
+        if isinstance(load, ForceLoad):
+            node_ids, forces = uniform_face_load(
+                mesh.nodes, tris, np.asarray(load.force, dtype=float)
+            )
+        else:
+            tris = orient_outward(mesh.nodes, mesh.elements, tris)
+            node_ids, forces = pressure_face_load(mesh.nodes, tris, load.pressure)
+        loads.append(NodalLoads(nodes=node_ids, forces=forces))
+    if study.gravity is not None:
+        if material.density is None:
+            raise InputError(f"material {material.name!r} has no density, needed for gravity")
+        elements = mesh.elements[mesh.element_sets[f"part:{part.id}"]]
+        node_ids, forces = body_force_load(mesh.nodes, elements, material.density, study.gravity)
         loads.append(NodalLoads(nodes=node_ids, forces=forces))
 
     return SolveJob(
