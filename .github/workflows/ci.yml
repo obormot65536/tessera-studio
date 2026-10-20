@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 jobs:
   fast:
@@ -12,12 +13,29 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libglu1-mesa libxcursor1 libxinerama1 libxft2
+      - run: uv sync
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pyright
+      - run: uv run lint-imports
+      - run: uv run pytest -m "not solver"
+
+  # macOS runners are often unavailable, so the macOS job neither gates the solver tier nor,
+  # by default, fails the run. Label a PR "macos" when it touches macOS-specific behaviour:
+  # then a failed or missing macOS run fails the workflow.
+  fast-macos:
+    name: Fast tier (macos-latest)
+    runs-on: macos-latest
+    continue-on-error: ${{ !contains(github.event.pull_request.labels.*.name, 'macos') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
       - run: uv sync
       - run: uv run ruff check .
       - run: uv run ruff format --check .
