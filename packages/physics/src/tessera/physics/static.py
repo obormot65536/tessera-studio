@@ -1,6 +1,7 @@
 """Build a discrete static ``SolveJob`` from a study on a meshed part."""
 
 import dataclasses
+from typing import assert_never
 
 import numpy as np
 
@@ -13,6 +14,7 @@ from tessera.model import (
     Mesh,
     NodalLoads,
     PartInstance,
+    PressureLoad,
     Section,
     SolveJob,
     Study,
@@ -45,21 +47,23 @@ def build_static_job(
         node_sets[name] = np.unique(_surface(mesh, support.faces))
         supports.append(FixedSupport(node_set=name, dofs=support.dofs))
 
+    elements = mesh.elements[mesh.element_sets[f"part:{part.id}"]]
     loads = []
     for load in study.loads:
         tris = _surface(mesh, load.faces)
-        if isinstance(load, ForceLoad):
-            node_ids, forces = uniform_face_load(
-                mesh.nodes, tris, np.asarray(load.force, dtype=float)
-            )
-        else:
-            tris = orient_outward(mesh.nodes, mesh.elements, tris)
-            node_ids, forces = pressure_face_load(mesh.nodes, tris, load.pressure)
+        match load:
+            case ForceLoad():
+                force = np.asarray(load.force, dtype=float)
+                node_ids, forces = uniform_face_load(mesh.nodes, tris, force)
+            case PressureLoad():
+                tris = orient_outward(mesh.nodes, elements, tris)
+                node_ids, forces = pressure_face_load(mesh.nodes, tris, load.pressure)
+            case _:
+                assert_never(load)
         loads.append(NodalLoads(nodes=node_ids, forces=forces))
     if study.gravity is not None:
         if material.density is None:
             raise InputError(f"material {material.name!r} has no density, needed for gravity")
-        elements = mesh.elements[mesh.element_sets[f"part:{part.id}"]]
         node_ids, forces = body_force_load(mesh.nodes, elements, material.density, study.gravity)
         loads.append(NodalLoads(nodes=node_ids, forces=forces))
 

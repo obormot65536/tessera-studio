@@ -3,7 +3,7 @@
 import numpy as np
 from numpy.typing import NDArray
 
-from tessera.model import TET10_EDGES
+from tessera.model import TET10_EDGES, InputError
 
 # Dunavant degree-4 rule on the triangle: barycentric points and weights (weights sum to 1).
 _A, _B = 0.445948490915965, 0.091576213509771
@@ -117,19 +117,34 @@ _TRI6_FLIP = np.array([0, 2, 1, 5, 4, 3])
 def orient_outward(
     nodes: NDArray[np.float64], elements: NDArray[np.int64], tris: NDArray[np.int64]
 ) -> NDArray[np.int64]:
-    """Reorder each boundary triangle so its normal points out of the element it bounds."""
-    face_corners = elements[:, _TET_FACE_CORNERS].reshape(-1, 3)  # (4M, 3)
-    opposite = elements[:, _TET_OPPOSITE].ravel()
-    keys = np.vstack([np.sort(face_corners, axis=1), np.sort(tris[:, :3], axis=1)])
-    _, inverse = np.unique(keys, axis=0, return_inverse=True)
-    inverse = inverse.ravel()
-    n_faces = face_corners.shape[0]
-    face_of_key = np.full(inverse.max() + 1, -1, dtype=np.int64)
-    face_of_key[inverse[:n_faces]] = np.arange(n_faces)
-    owner = face_of_key[inverse[n_faces:]]
-    if (owner < 0).any():
-        bad = tris[np.flatnonzero(owner < 0)[0], :3].tolist()
+    """Reorder each boundary triangle so its normal points out of the element it bounds.
+
+    ``elements`` should be the elements of one part. A triangle must be a face of exactly one
+    of them: a face between two elements has no outside.
+    """
+    corners = np.unique(tris[:, :3])
+    near = elements[np.isin(elements[:, :4], corners).sum(axis=1) >= 3]
+    face_corners = near[:, _TET_FACE_CORNERS].reshape(-1, 3)
+    opposite = near[:, _TET_OPPOSITE].ravel()
+    triples = np.sort(np.vstack([face_corners, tris[:, :3]]), axis=1)
+    _, keys = np.unique(triples, axis=0, return_inverse=True)  # one id per corner triple
+    keys = keys.ravel()
+    face_keys, tri_keys = keys[: face_corners.shape[0]], keys[face_corners.shape[0] :]
+
+    order = np.argsort(face_keys, kind="stable")
+    sorted_keys = face_keys[order]
+    first = np.searchsorted(sorted_keys, tri_keys, side="left")
+    count = np.searchsorted(sorted_keys, tri_keys, side="right") - first
+    if (count == 0).any():
+        bad = tris[np.flatnonzero(count == 0)[0], :3].tolist()
         raise ValueError(f"triangle with corners {bad} is not a face of any element")
+    if (count > 1).any():
+        bad = tris[np.flatnonzero(count > 1)[0], :3].tolist()
+        raise InputError(
+            f"triangle with corners {bad} lies between two elements, so it has no outside; "
+            "pressure needs a boundary face"
+        )
+    owner = order[first]
 
     x = nodes[tris[:, :3]]
     normal = np.cross(x[:, 1] - x[:, 0], x[:, 2] - x[:, 0])
@@ -139,7 +154,9 @@ def orient_outward(
     return oriented
 
 
-def _tet10_shape(l1: float, l2: float, l3: float) -> tuple[NDArray, NDArray]:
+def _tet10_shape(
+    l1: float, l2: float, l3: float
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     """C3D10 shape functions and their derivatives wrt (xi, eta, zeta) = (l1, l2, l3)."""
     l0 = 1.0 - l1 - l2 - l3
     lam = np.array([l0, l1, l2, l3])
@@ -152,30 +169,56 @@ def _tet10_shape(l1: float, l2: float, l3: float) -> tuple[NDArray, NDArray]:
     return np.array(n), np.array(dn)
 
 
-def _tet_rule(order: int) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-    """Collapsed (Duffy) Gauss rule on the unit tetrahedron; exact to degree 2*order - 3."""
-    g, gw = np.polynomial.legendre.leggauss(order)
-    g, gw = 0.5 * (g + 1.0), 0.5 * gw
-    u, v, w = np.meshgrid(g, g, g, indexing="ij")
-    wu, wv, ww = np.meshgrid(gw, gw, gw, indexing="ij")
+# Three-point Gauss-Jacobi rules on [-1, 1] for the weights (1 - x)^2 and (1 - x), from
+# scipy.special.roots_jacobi(3, alpha, 0); each is exact to degree 5 (tested).
+_JACOBI_2 = (
+    np.array([-0.8540119518537006, -0.30599246792329643, 0.41000441977699675]),
+    np.array([1.2570908885190917, 1.169970154078929, 0.23960562406864572]),
+)
+_JACOBI_1 = (
+    np.array([-0.8228240809745921, -0.1810662711185305, 0.5753189235216941]),
+    np.array([0.8037276549558384, 0.9169644254383448, 0.2793079196058167]),
+)
+
+
+def _tet_rule() -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """27-point conical product rule on the unit tetrahedron, exact to degree 5.
+
+    The collapsed map (u, (1 - u) v, (1 - u)(1 - v) w) has Jacobian (1 - u)^2 (1 - v); Gauss-
+    Jacobi points in u and v absorb those factors, Gauss-Legendre points serve w.
+    """
+    (xu, wu), (xv, wv) = _JACOBI_2, _JACOBI_1
+    xw, ww = np.polynomial.legendre.leggauss(3)
+    u, v, w = (0.5 * (x + 1.0) for x in np.meshgrid(xu, xv, xw, indexing="ij"))
+    weights = np.einsum("i,j,k->ijk", wu / 8, wv / 4, ww / 2).ravel()
     points = np.stack([u, (1 - u) * v, (1 - u) * (1 - v) * w], axis=-1).reshape(-1, 3)
-    weights = (wu * wv * ww * (1 - u) ** 2 * (1 - v)).ravel()
     return points, weights
 
 
 # Degree 5 is enough: shape function (2) times the curved element's Jacobian (3).
-_TET10_RULE = [(*_tet10_shape(*p), w) for p, w in zip(*_tet_rule(4), strict=True)]
+_TET_POINTS, _TET_WEIGHTS = _tet_rule()
+_TET_N, _TET_DN = (np.array(a) for a in zip(*(_tet10_shape(*p) for p in _TET_POINTS), strict=True))
+# (27, 10) shape functions and the stacked (27 * 3, 10) derivative rows of all points.
+_TET_DN_ROWS = _TET_DN.transpose(0, 2, 1).reshape(-1, 10)
+
+
+def _det3(j: NDArray[np.float64]) -> NDArray[np.float64]:
+    return (
+        j[..., 0, 0] * (j[..., 1, 1] * j[..., 2, 2] - j[..., 1, 2] * j[..., 2, 1])
+        - j[..., 0, 1] * (j[..., 1, 0] * j[..., 2, 2] - j[..., 1, 2] * j[..., 2, 0])
+        + j[..., 0, 2] * (j[..., 1, 0] * j[..., 2, 1] - j[..., 1, 1] * j[..., 2, 0])
+    )
 
 
 def tet10_volume_weights(
     nodes: NDArray[np.float64], elements: NDArray[np.int64]
 ) -> NDArray[np.float64]:
     """Return (M, 10) integrals of each shape function over each element (mm^3)."""
-    x = nodes[elements]  # (M, 10, 3)
-    weights = np.zeros(elements.shape, dtype=np.float64)
-    for n, dn, w in _TET10_RULE:
-        jac = np.linalg.det(np.einsum("ni,mnj->mij", dn, x))  # (M,)
-        weights += np.outer(w * jac, n)
+    weights = np.empty(elements.shape, dtype=np.float64)
+    for chunk in range(0, elements.shape[0], 100_000):  # bounds memory on large meshes
+        x = nodes[elements[chunk : chunk + 100_000]]  # (m, 10, 3)
+        jac = (_TET_DN_ROWS @ x).reshape(x.shape[0], -1, 3, 3)  # (m, 27, 3, 3)
+        weights[chunk : chunk + 100_000] = (_det3(jac) * _TET_WEIGHTS) @ _TET_N
     return weights
 
 

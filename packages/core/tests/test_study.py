@@ -186,3 +186,18 @@ def test_gravity_weighs_the_whole_part(bracket_step: Path) -> None:
     total = weight.forces.sum(axis=0)
     assert total[:2] == pytest.approx([0.0, 0.0], abs=1e-12)
     assert total[2] == pytest.approx(expected, rel=1e-4)
+
+
+def test_gravity_needs_a_material_density(
+    bracket_step: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tessera.materials as materials
+    from tessera.model import IsotropicMaterial
+
+    weightless = IsotropicMaterial(name="weightless", youngs_modulus=1000.0, poisson_ratio=0.3)
+    monkeypatch.setattr(materials, "get_isotropic", lambda _id: weightless)
+    root, tip = _root_and_tip(bracket_step)
+    project = _project(bracket_step, root, tip)
+    project.study.gravity = (0.0, 0.0, -9810.0)
+    with pytest.raises(InputError, match="no density"):
+        solve(project, adapter=FakeSolver())

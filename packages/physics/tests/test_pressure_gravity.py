@@ -106,7 +106,74 @@ def test_curved_tet10_volume_weights_sum_to_its_volume(bulge: list) -> None:
 
 def test_body_force_totals_density_times_volume_times_acceleration() -> None:
     nodes = _tet10(_UNIT)
-    # Two elements sharing nothing are fine; use one, density of steel in t/mm^3.
+    # Density of steel in t/mm^3, so the total is in N.
     ids, forces = body_force_load(nodes, np.arange(10)[None, :], 7.85e-9, (0.0, 0.0, -9810.0))
     np.testing.assert_allclose(forces.sum(axis=0), [0.0, 0.0, -7.85e-9 * 4.0 * 9810.0])
     assert ids.tolist() == list(range(10))
+
+
+@pytest.mark.parametrize(
+    "a,b,c", [(a, b, c) for a in range(6) for b in range(6 - a) for c in range(6 - a - b)]
+)
+def test_tet_rule_integrates_every_monomial_up_to_degree_5(a: int, b: int, c: int) -> None:
+    from math import factorial
+
+    from tessera.physics.loads import _tet_rule
+
+    points, weights = _tet_rule()
+    exact = factorial(a) * factorial(b) * factorial(c) / factorial(a + b + c + 3)
+    got = weights @ (points[:, 0] ** a * points[:, 1] ** b * points[:, 2] ** c)
+    assert got == pytest.approx(exact, rel=1e-12)
+
+
+@settings(max_examples=50)
+@given(bulges)
+def test_pressure_on_a_closed_curved_surface_has_no_net_moment(bulge: list) -> None:
+    # Unlike the resultant, the moment depends on how the load is shared between nodes.
+    nodes = _tet10(_UNIT, np.array(bulge))
+    ids, forces = pressure_face_load(nodes, _TET10_FACES, 5.0)
+    np.testing.assert_allclose(np.cross(nodes[ids], forces).sum(axis=0), 0.0, atol=1e-9)
+
+
+@settings(max_examples=50)
+@given(bulges)
+def test_reversed_face_gets_exactly_the_opposite_load(bulge: list) -> None:
+    nodes = _tet10(_UNIT, np.array(bulge))
+    face = _TET10_FACES[2:3]
+    ids, forces = pressure_face_load(nodes, face, 3.0)
+    ids_r, forces_r = pressure_face_load(nodes, face[:, _FLIP], 3.0)
+    np.testing.assert_array_equal(ids, ids_r)
+    np.testing.assert_allclose(forces_r, -forces, atol=1e-12)
+
+
+@settings(max_examples=50)
+@given(bulges)
+def test_curved_tet10_volume_weights_give_its_centroid(bulge: list) -> None:
+    # First moment of volume, from the flux of x^2 / 2 through the boundary (exact here).
+    from tessera.physics.loads import _SHAPES, _W
+
+    nodes = _tet10(_UNIT, np.array(bulge))
+    w = tet10_volume_weights(nodes, np.arange(10)[None, :])[0]
+    x = nodes[_TET10_FACES]
+    flux = np.zeros(3)
+    for (n, dxi, deta), wq in zip(_SHAPES, _W, strict=True):
+        point = n @ x
+        normal = np.cross(dxi @ x, deta @ x)
+        flux += 0.5 * wq * (0.5 * point**2 * normal).sum(axis=0)
+    # x^2 n has degree 6 on a curved face: compare with a tolerance, not exactly.
+    np.testing.assert_allclose(w @ nodes, flux, rtol=1e-3, atol=1e-3)
+
+
+def test_a_face_between_two_elements_has_no_outside() -> None:
+    from tessera.model import InputError
+
+    nodes = _tet10(_UNIT)
+    mirror = nodes.copy()
+    mirror[3] = [0.0, 0.0, -4.0]  # second element below the shared bottom face
+    for k, (i, j) in enumerate(TET10_EDGES):
+        mirror[4 + k] = 0.5 * (mirror[i] + mirror[j])
+    both = np.vstack([nodes, mirror[[3, 7, 8, 9]]])
+    second = np.array([0, 1, 2, 10, 4, 5, 6, 11, 12, 13])
+    elements = np.vstack([np.arange(10), second])
+    with pytest.raises(InputError, match="between two elements"):
+        orient_outward(both, elements, _TET10_FACES[:1])

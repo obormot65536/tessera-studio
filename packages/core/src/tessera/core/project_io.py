@@ -91,15 +91,20 @@ def load_project(path: Path) -> Project:
 
 def _parse(text: str | bytes, path: Path) -> Project:
     try:
-        project = Project.model_validate_json(text)
-    except ValidationError as exc:
+        raw = json.loads(text)
+    except ValueError as exc:  # JSONDecodeError, or bytes that are not UTF-8
         raise InputError(f"{path} is not a valid project file:\n{exc}") from None
-    if project.schema_version > SCHEMA_VERSION:
+    # Check the version first: a newer file may use fields this version does not know.
+    version = raw.get("schema_version") if isinstance(raw, dict) else None
+    if isinstance(version, int) and version > SCHEMA_VERSION:
         raise InputError(
-            f"{path} uses project schema {project.schema_version}; "
+            f"{path} uses project schema {version}; "
             f"this version of Tessera reads up to {SCHEMA_VERSION}"
         )
-    return project
+    try:
+        return Project.model_validate(raw)
+    except ValidationError as exc:
+        raise InputError(f"{path} is not a valid project file:\n{exc}") from None
 
 
 def _dump(data: dict[str, Any]) -> str:
