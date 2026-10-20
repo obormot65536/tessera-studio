@@ -25,3 +25,16 @@ def test_invalid_project_file_is_an_input_error(tmp_path: Path) -> None:
     path.write_text('{"name": 3', encoding="utf-8")
     with pytest.raises(InputError, match="not a valid project"):
         load_project(path)
+
+
+def test_files_from_schema_1_still_load(tmp_path: Path) -> None:
+    path = tmp_path / "old.tessera.json"
+    path.write_text('{"schema_version": 1, "name": "old"}', encoding="utf-8")
+    assert load_project(path).name == "old"
+
+
+def test_saved_files_carry_schema_2(tmp_path: Path) -> None:
+    # Schema 2 adds Support.dofs; older builds then report the schema, not a raw field error.
+    path = tmp_path / "new.tessera.json"
+    save_project(new_project("new"), path)
+    assert '"schema_version": 2' in path.read_text(encoding="utf-8")

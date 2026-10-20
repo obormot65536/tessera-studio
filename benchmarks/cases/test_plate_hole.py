@@ -1,4 +1,4 @@
-"""Plate with a central hole in tension: stress concentration vs Kirsch (v0.1 gate: 2 %).
+"""Plate with a central hole in tension: stress concentration vs Howland (v0.1 gate: 2 %).
 
 Problem (mm, N, MPa per ADR-002)
 --------------------------------
@@ -46,7 +46,7 @@ converged to Kt_n = 2.5217, +0.4 % from Howland.
 
 Why these dimensions
 --------------------
-- d/W = 0.2: the finite-width correction is small (Kt_g 3.149 vs 3), so the uncertainty of
+- d/W = 0.2: the finite-width correction is small (Kt_g 3.14 vs 3), so the uncertainty of
   the correction is well under 1 % of Kt. At larger d/W the published values diverge more.
 - L_half = 2 W: the hole disturbance has decayed long before the loaded end. The same
   independent check gave the same Kt to 0.01 % at L_half = 4 W, and +0.1 % at L_half = W.
@@ -303,6 +303,6 @@ def test_plate_hole_mesh_convergence(
     errors = [r[4] for r in rows]
     for coarse, fine in itertools.pairwise(errors):
         # Error must not grow under refinement, unless it already sits well inside the gate
-        # (the converged 3D mid-thickness value is ~0.3 % above the plane-stress fit).
+        # (the converged 3D mid-thickness value is ~0.3 % above the plane-stress reference).
         assert fine <= coarse + CONVERGENCE_SLACK or fine < tolerance / 4
     assert errors[-1] < tolerance

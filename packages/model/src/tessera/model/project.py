@@ -12,7 +12,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+"""2: Support.dofs (directional supports). Schema-1 files load unchanged."""
 
 Vec3 = tuple[float, float, float]
 
