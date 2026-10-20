@@ -2,6 +2,9 @@
 
 from dataclasses import dataclass
 
+import numpy as np
+from numpy.typing import NDArray
+
 Vec3 = tuple[float, float, float]
 
 
@@ -17,3 +20,27 @@ class FaceInfo:
     """mm"""
     normal: Vec3 | None
     """Outward unit normal for planar faces, ``None`` for curved faces."""
+
+
+@dataclass(frozen=True)
+class TriangleSurface:
+    """A closed triangulated solid boundary with Tessera-defined faces (ADR-005)."""
+
+    vertices: NDArray[np.float64]
+    """(N, 3) coordinates in mm."""
+    triangles: NDArray[np.int64]
+    """(M, 3) vertex indices, counter-clockwise seen from outside (normals point out)."""
+    face_ids: NDArray[np.int64]
+    """(M,) face index of each triangle, 1..n_faces, as used in ``FaceSet.faces``."""
+
+    def __post_init__(self) -> None:
+        if self.vertices.ndim != 2 or self.vertices.shape[1] != 3:
+            raise ValueError(f"vertices must have shape (N, 3), got {self.vertices.shape}")
+        if self.triangles.ndim != 2 or self.triangles.shape[1] != 3:
+            raise ValueError(f"triangles must have shape (M, 3), got {self.triangles.shape}")
+        if self.face_ids.shape != (self.triangles.shape[0],):
+            raise ValueError("face_ids needs one entry per triangle")
+
+    @property
+    def n_faces(self) -> int:
+        return int(self.face_ids.max()) if self.face_ids.size else 0
