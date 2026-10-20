@@ -74,6 +74,8 @@ they are treated as caches, which keeps migrations limited to `project.json`.
 
 ## Amendment (iteration 4): container brought forward to v0.1
 
+**Status:** Accepted (maintainer, iteration 4)
+
 STL faces are numbered by Tessera from the file's triangles (ADR-005), so saved supports and
 loads are only safe while the exact geometry bytes travel with the project. The container
 therefore lands in v0.1, without the mesh/results caches:
