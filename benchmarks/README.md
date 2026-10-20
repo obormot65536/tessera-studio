@@ -1,6 +1,7 @@
 # Benchmarks
 
-Analytical validation cases that prove the solver pipeline is correct.
+Analytical validation cases that prove the solver pipeline is correct. The planned suite, with
+sources, licence notes and proposed tolerances, is in [`CATALOG.md`](CATALOG.md).
 
 - `cases/`: one module per case (geometry, loads, closed-form solution with its source,
   mesh-convergence run). Written by the `fea-verifier` subagent.
