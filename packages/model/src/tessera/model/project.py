@@ -12,7 +12,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+"""2: Support.dofs (directional supports). Schema-1 files load unchanged."""
 
 Vec3 = tuple[float, float, float]
 
@@ -87,10 +88,22 @@ class Assembly(_Model):
 
 
 class Support(_Model):
-    """Fixed support: the faces cannot move."""
+    """Support: the listed global displacement components of the faces are held at zero.
+
+    The default fixes all three (a fixed support); a single component normal to a plane face
+    makes a symmetry or roller support.
+    """
 
     id: str
     faces: FaceSet
+    dofs: Annotated[tuple[Literal[1, 2, 3], ...], Field(min_length=1)] = (1, 2, 3)
+    """Global components held at zero: 1 = x, 2 = y, 3 = z."""
+
+    @model_validator(mode="after")
+    def _check_unique_dofs(self) -> Support:
+        if len(set(self.dofs)) != len(self.dofs):
+            raise ValueError(f"support {self.id!r} lists a component twice: {self.dofs}")
+        return self
 
 
 class ForceLoad(_Model):

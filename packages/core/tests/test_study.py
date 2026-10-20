@@ -131,3 +131,15 @@ def test_unknown_part_and_material_are_input_errors(bracket_step: Path) -> None:
     p.assembly.parts[0].material_id = "unobtainium"
     with pytest.raises(InputError, match="unknown material"):
         solve(p, adapter=FakeSolver())
+
+
+def test_roller_support_passes_only_its_dofs(bracket_step: Path, tmp_path: Path) -> None:
+    root, tip = _root_and_tip(bracket_step)
+    project = _project(bracket_step, root, tip)
+    project.study.supports[0] = Support(
+        id="wall", faces=FaceSet(part_id="b", faces=(root,)), dofs=(1,)
+    )
+    fake = FakeSolver()
+    solve(project, workdir=tmp_path, adapter=fake)
+    assert fake.job is not None
+    assert [s.dofs for s in fake.job.supports] == [(1,)]

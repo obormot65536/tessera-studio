@@ -1,0 +1,6 @@
+# Approved by the maintainer in iteration 2. PROVISIONAL: the tabulated Kt_g = 3.14 is still to
+# be confirmed in Timoshenko & Goodier and may be refined.
+description = "Plate with central hole in tension: strip W = 50, d = 10 (d/W = 0.2), t = 1 mm, steel (E = 210000 MPa, nu = 0.30), 100 MPa gross tension at x = +-100; eighth model with symmetry rollers (u_x on x=0, u_y on y=0, u_z on z=0), C3D10; Kt_n = sigma_xx at the mid-thickness hole-edge node (0, r, 0) / net-section stress sigma*W/(W-d)"
+source = "Howland's finite-width strip solution as given in Timoshenko & Goodier, Theory of Elasticity 3rd ed. (McGraw-Hill 1970) sec. 35: Kt_gross = 3.14 at d/W = 0.2, Kt_net = 3.14 * 0.8. Howland, Phil. Trans. R. Soc. A 229 (1930) 49-86; Kirsch, Z. VDI 42 (1898) 797-807"
+reference_kt_net = 2.5120000000000005
+rel_tolerance = 0.02
