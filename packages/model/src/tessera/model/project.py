@@ -10,10 +10,11 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag, model_validator
 
-SCHEMA_VERSION = 2
-"""2: Support.dofs (directional supports). Schema-1 files load unchanged."""
+SCHEMA_VERSION = 3
+"""2: Support.dofs (directional supports). 3: PressureLoad, Study.gravity, load ``kind``.
+Older files load unchanged."""
 
 Vec3 = tuple[float, float, float]
 
@@ -109,15 +110,40 @@ class Support(_Model):
 class ForceLoad(_Model):
     """Total force in N, spread uniformly (per unit area) over the faces."""
 
+    kind: Literal["force"] = "force"
     id: str
     faces: FaceSet
     force: Vec3
 
 
+class PressureLoad(_Model):
+    """Uniform pressure in MPa normal to the faces; positive pushes into the part."""
+
+    kind: Literal["pressure"] = "pressure"
+    id: str
+    faces: FaceSet
+    pressure: float
+
+
+def _load_kind(value: object) -> str:
+    # Schema-2 files have force loads without a ``kind``.
+    if isinstance(value, dict):
+        return str(value.get("kind", "force"))  # pyright: ignore[reportUnknownMemberType]
+    return str(getattr(value, "kind", ""))
+
+
+Load = Annotated[
+    Annotated[ForceLoad, Tag("force")] | Annotated[PressureLoad, Tag("pressure")],
+    Discriminator(_load_kind),
+]
+
+
 class Study(_Model):
     analysis: Literal["static"] = "static"
     supports: list[Support] = Field(default_factory=list)
-    loads: list[ForceLoad] = Field(default_factory=list)
+    loads: list[Load] = Field(default_factory=list)
+    gravity: Vec3 | None = None
+    """Acceleration due to gravity in mm/s^2 acting on every part, e.g. (0, 0, -9810)."""
     mesh_size: Annotated[float, Field(gt=0.0)] | None = None
     """Target element size in mm; ``None`` lets the mesher choose."""
 

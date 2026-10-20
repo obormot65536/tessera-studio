@@ -7,7 +7,8 @@ materials (orthotropic, with citations) arrive in v0.5 through the materials-cur
 from tessera.model import InputError, IsotropicMaterial
 
 _ISOTROPIC: dict[str, IsotropicMaterial] = {
-    # Typical handbook values for structural steel and 6061-T6 aluminium.
+    # Typical handbook values for structural steel and 6061-T6 aluminium (densities approved
+    # by the maintainer in iteration 5, when gravity loads first used them).
     "steel-generic": IsotropicMaterial(
         name="steel-generic", youngs_modulus=210_000.0, poisson_ratio=0.30, density=7.85e-9
     ),

@@ -143,3 +143,61 @@ def test_roller_support_passes_only_its_dofs(bracket_step: Path, tmp_path: Path)
     solve(project, workdir=tmp_path, adapter=fake)
     assert fake.job is not None
     assert [s.dofs for s in fake.job.supports] == [(1,)]
+
+
+def _job(project) -> SolveJob:
+    fake = FakeSolver()
+    solve(project, adapter=fake)
+    assert fake.job is not None
+    return fake.job
+
+
+def test_pressure_pushes_into_plane_and_curved_faces(bracket_step: Path) -> None:
+    from tessera.model import PressureLoad
+
+    root, tip = _root_and_tip(bracket_step)
+    faces = describe_faces(_project(bracket_step, root, tip), "b")
+    bore = [f.index for f in faces if f.kind == "Cylinder"]
+    project = _project(bracket_step, root, tip)
+    project.study.loads = [
+        PressureLoad(id="tip", faces=FaceSet(part_id="b", faces=(tip,)), pressure=3.0),
+        PressureLoad(id="bore", faces=FaceSet(part_id="b", faces=tuple(bore)), pressure=7.0),
+    ]
+    job = _job(project)
+    tip_load, bore_load = job.loads
+    # Tip face: x = 60, 20 x 5 mm, outward +x, so 3 MPa pushes in -x with 300 N.
+    np.testing.assert_allclose(tip_load.forces.sum(axis=0), [-300.0, 0.0, 0.0], atol=1e-9)
+    # A full bore balances itself, while pushing outward from its axis (40, 10) by p * 2 pi r t.
+    np.testing.assert_allclose(bore_load.forces.sum(axis=0), 0.0, atol=1e-6)
+    away = job.mesh.nodes[bore_load.nodes, :2] - [40.0, 10.0]
+    away /= np.linalg.norm(away, axis=1)[:, None]
+    outward = np.einsum("ij,ij->", bore_load.forces[:, :2], away)
+    assert outward == pytest.approx(7.0 * 2 * np.pi * 4 * 5, rel=1e-3)
+
+
+def test_gravity_weighs_the_whole_part(bracket_step: Path) -> None:
+    root, tip = _root_and_tip(bracket_step)
+    project = _project(bracket_step, root, tip)
+    project.study.loads = []
+    project.study.gravity = (0.0, 0.0, -9810.0)
+    (weight,) = _job(project).loads
+    volume = 60 * 20 * 5 + 5 * 20 * 40 - 5 * 20 * 5 - np.pi * 4**2 * 5
+    expected = -7.85e-9 * volume * 9810.0
+    total = weight.forces.sum(axis=0)
+    assert total[:2] == pytest.approx([0.0, 0.0], abs=1e-12)
+    assert total[2] == pytest.approx(expected, rel=1e-4)
+
+
+def test_gravity_needs_a_material_density(
+    bracket_step: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tessera.materials as materials
+    from tessera.model import IsotropicMaterial
+
+    weightless = IsotropicMaterial(name="weightless", youngs_modulus=1000.0, poisson_ratio=0.3)
+    monkeypatch.setattr(materials, "get_isotropic", lambda _id: weightless)
+    root, tip = _root_and_tip(bracket_step)
+    project = _project(bracket_step, root, tip)
+    project.study.gravity = (0.0, 0.0, -9810.0)
+    with pytest.raises(InputError, match="no density"):
+        solve(project, adapter=FakeSolver())

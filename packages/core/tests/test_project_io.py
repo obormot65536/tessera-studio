@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from tessera.core import load_project, new_project, save_project
+from tessera.model import SCHEMA_VERSION
 
 
 def test_save_and_load(tmp_path: Path) -> None:
@@ -33,8 +34,15 @@ def test_files_from_schema_1_still_load(tmp_path: Path) -> None:
     assert load_project(path).name == "old"
 
 
-def test_saved_files_carry_schema_2(tmp_path: Path) -> None:
-    # Schema 2 adds Support.dofs; older builds then report the schema, not a raw field error.
+def test_saved_files_carry_the_current_schema(tmp_path: Path) -> None:
+    # From schema 3 on, builds check the version before the fields (see test below).
     path = tmp_path / "new.tessera.json"
     save_project(new_project("new"), path)
-    assert '"schema_version": 2' in path.read_text(encoding="utf-8")
+    assert f'"schema_version": {SCHEMA_VERSION}' in path.read_text(encoding="utf-8")
+
+
+def test_newer_schema_with_unknown_fields_reports_the_schema(tmp_path: Path) -> None:
+    path = tmp_path / "future.tessera.json"
+    path.write_text('{"schema_version": 999, "name": "x", "hologram": true}', encoding="utf-8")
+    with pytest.raises(ValueError, match="schema 999"):
+        load_project(path)

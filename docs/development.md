@@ -18,6 +18,14 @@ with the code.
 7. **Approve and merge** (maintainer): reads the PR, signs off physics, squash-merges.
 8. **Document**: `docs-writer` updates docs and CHANGELOG; close the issue.
 
+## CI
+
+- Fast tier (ruff, pyright, lint-imports, unit tests) on Ubuntu and Windows gates the solver
+  tier (CalculiX benchmarks, Linux).
+- macOS runs the fast tier too, but does not block: GitHub's macOS runners are often
+  unavailable. Label a PR `macos` when it touches macOS-specific behaviour (paths, packaging,
+  native libraries); then a failed or missing macOS run fails the workflow.
+
 ## Milestones
 
 | Milestone | Gate |
