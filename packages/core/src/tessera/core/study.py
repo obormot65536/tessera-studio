@@ -12,6 +12,7 @@ from tessera.model import (
     AnalysisKind,
     FaceInfo,
     InputError,
+    Mesh,
     PartInstance,
     Project,
     SolverAdapter,
@@ -30,6 +31,16 @@ def _part(project: Project, part_id: str) -> PartInstance:
 def describe_faces(project: Project, part_id: str) -> list[FaceInfo]:
     """Faces of a part, for choosing where supports and loads go."""
     return geometry.describe_faces(_part(project, part_id).geometry)
+
+
+def _mesh_part(part: PartInstance, size: float | None) -> Mesh:
+    suffix = part.geometry.suffix.lower()
+    if suffix in geometry.STL_SUFFIXES:
+        surface = geometry.read_stl(part.geometry)
+        return mesh.mesh_surface(surface, part_id=part.id, size=size)
+    if suffix in geometry.STEP_SUFFIXES:
+        return mesh.mesh_step(part.geometry, part_id=part.id, size=size)
+    raise InputError(f"unsupported geometry file {part.geometry.name!r}: use STEP or STL")
 
 
 def _default_adapter() -> SolverAdapter:
@@ -57,7 +68,7 @@ def solve(
     if analysis not in adapter.capabilities():
         raise InputError(f"solver {adapter.name!r} cannot run a {analysis} analysis")
 
-    part_mesh = mesh.mesh_step(part.geometry, part_id=part.id, size=project.study.mesh_size)
+    part_mesh = _mesh_part(part, project.study.mesh_size)
     job = physics.build_static_job(
         project.study, part, part_mesh, materials.get_isotropic(part.material_id)
     )

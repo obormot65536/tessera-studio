@@ -186,6 +186,19 @@ def test_cantilever_tip_deflection(
     assert -u_z == pytest.approx(expected, rel=ref["rel_tolerance"])
 
 
+def test_cantilever_tip_deflection_from_stl(
+    box_stl: Callable[..., Path],
+    load_reference: Callable[[str], dict[str, Any]],
+    tmp_path: Path,
+) -> None:
+    """Same gate from an STL of the beam: STL import must not change the answer (ADR-005)."""
+    ref = load_reference(REFERENCE)
+    stl = box_stl("cantilever", (0.0, -WIDTH / 2, -HEIGHT / 2), (LENGTH, WIDTH, HEIGHT))
+    u_z, _ = _solve_tip_deflection(stl, GATE_MESH_SIZE, tmp_path)
+    assert u_z < 0.0, "tip must deflect in the load direction (-z)"
+    assert -u_z == pytest.approx(ref["reference_tip_deflection_mm"], rel=ref["rel_tolerance"])
+
+
 def test_cantilever_mesh_convergence(
     tip_deflection: Callable[[float], tuple[float, int]],
     load_reference: Callable[[str], dict[str, Any]],
