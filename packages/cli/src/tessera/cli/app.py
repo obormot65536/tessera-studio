@@ -7,7 +7,14 @@ from pathlib import Path
 
 import typer
 
-from tessera.core import describe_faces, load_project, new_project, save_project, solve
+from tessera.core import (
+    describe_faces,
+    is_container_name,
+    load_project,
+    new_project,
+    save_project,
+    solve,
+)
 from tessera.model import InputError, SolverError
 
 app = typer.Typer(
@@ -46,7 +53,7 @@ def new(path: Path, name: str | None = None) -> None:
 @app.command()
 def pack(source: Path, target: Path) -> None:
     """Bundle a project and copies of its geometry into one shareable .tessera file."""
-    if not target.name.endswith(".tessera"):
+    if not is_container_name(target):
         typer.echo("error: the packed file name must end in .tessera", err=True)
         raise typer.Exit(1)
     with _user_errors():

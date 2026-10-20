@@ -84,3 +84,14 @@ def test_pack_refuses_a_target_that_is_not_a_container(tmp_path: Path) -> None:
     result = runner.invoke(app, ["pack", str(source), str(tmp_path / "out.json")])
     assert result.exit_code == 1
     assert ".tessera" in result.output
+
+
+def test_pack_with_missing_geometry_is_a_clean_error(tmp_path: Path) -> None:
+    import json
+
+    source = tmp_path / "p.tessera.json"
+    part = {"id": "a", "name": "a", "geometry": "gone.step"}
+    source.write_text(json.dumps({"name": "p", "assembly": {"parts": [part]}}), encoding="utf-8")
+    result = runner.invoke(app, ["pack", str(source), str(tmp_path / "p.tessera")])
+    assert result.exit_code == 1
+    assert "not found" in result.output

@@ -1,6 +1,7 @@
 """The ``.tessera`` container (ADR-003 amendment) and relative paths in ``*.tessera.json``."""
 
 import json
+import os
 import zipfile
 from pathlib import Path
 
@@ -219,7 +220,7 @@ def test_json_save_stores_paths_relative_to_the_project_folder(tmp_path: Path) -
     save_project(_project_with(source), path)
 
     stored = json.loads(path.read_text(encoding="utf-8"))
-    assert Path(stored["assembly"]["parts"][0]["geometry"]).as_posix() == "parts/p.step"
+    assert stored["assembly"]["parts"][0]["geometry"] == "parts/p.step"  # "/" on every OS
     assert load_project(path).assembly.parts[0].geometry == source
 
 
@@ -235,3 +236,111 @@ def test_unzipped_container_is_an_editable_json_project(tmp_path: Path) -> None:
     loaded = load_project(unzipped / "project.json")
 
     assert loaded.assembly.parts[0].geometry.read_bytes() == b"step bytes"
+
+
+def test_container_entries_use_forward_slashes(tmp_path: Path) -> None:
+    source = tmp_path / "part.step"
+    source.write_bytes(b"step")
+    path = tmp_path / "a.tessera"
+    save_project(_project_with(source), path)
+    with zipfile.ZipFile(path) as zf:
+        stored = json.loads(zf.read("project.json"))
+    assert stored["assembly"]["parts"][0]["geometry"] == "geometry/p1.step"
+
+
+def test_part_ids_differing_only_in_case_keep_their_own_geometry(tmp_path: Path) -> None:
+    upper, lower = tmp_path / "u.step", tmp_path / "l.step"
+    upper.write_bytes(b"upper")
+    lower.write_bytes(b"lower")
+    project = _project_with(upper, pid="Bracket")
+    project.assembly.parts.append(PartInstance(id="bracket", name="b", geometry=lower))
+    path = tmp_path / "case.tessera"
+    save_project(project, path)
+
+    with zipfile.ZipFile(path) as zf:
+        names = [n.casefold() for n in zf.namelist()]
+    assert len(names) == len(set(names))
+    loaded = load_project(path)
+    assert [p.geometry.read_bytes() for p in loaded.assembly.parts] == [b"upper", b"lower"]
+
+
+def test_crafted_entry_names_cannot_collide_on_extraction(tmp_path: Path) -> None:
+    parts = [
+        {"id": "a", "name": "a", "geometry": "geometry/X.step"},
+        {"id": "b", "name": "b", "geometry": "geometry/x.step"},
+    ]
+    path = _write_zip(
+        tmp_path / "x.tessera",
+        {
+            "project.json": json.dumps({"name": "x", "assembly": {"parts": parts}}),
+            "geometry/X.step": b"upper",
+            "geometry/x.step": b"lower",
+        },
+    )
+    loaded = load_project(path)
+    assert [p.geometry.read_bytes() for p in loaded.assembly.parts] == [b"upper", b"lower"]
+
+
+def test_saving_an_opened_container_as_json_is_refused(tmp_path: Path) -> None:
+    source = tmp_path / "part.step"
+    source.write_bytes(b"step")
+    path = tmp_path / "a.tessera"
+    save_project(_project_with(source), path)
+
+    with pytest.raises(InputError, match="unzip"):
+        save_project(load_project(path), tmp_path / "a.tessera.json")
+
+
+def test_only_geometry_files_are_packed(tmp_path: Path) -> None:
+    # A crafted JSON project must not be able to pack e.g. an SSH key into a shared file.
+    secret = tmp_path / "id_ed25519"
+    secret.write_bytes(b"PRIVATE KEY")
+    path = tmp_path / "x.tessera"
+    with pytest.raises(InputError, match="not a STEP or STL"):
+        save_project(_project_with(secret), path)
+    assert not path.exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permissions")
+def test_saving_keeps_the_file_permissions(tmp_path: Path) -> None:
+    path = tmp_path / "shared.tessera"
+    save_project(new_project("shared"), path)
+    path.chmod(0o640)
+    save_project(new_project("shared"), path)
+    assert path.stat().st_mode & 0o777 == 0o640
+
+
+def test_damaged_container_is_an_input_error(tmp_path: Path) -> None:
+    good = tmp_path / "good.tessera"
+    save_project(new_project("x"), good)
+    data = bytearray(good.read_bytes())
+    data[40:60] = b"\xff" * 20  # corrupt the compressed project.json
+    bad = tmp_path / "bad.tessera"
+    bad.write_bytes(bytes(data))
+    with pytest.raises(InputError):
+        load_project(bad)
+
+
+def test_a_folder_is_not_a_project_file(tmp_path: Path) -> None:
+    with pytest.raises(InputError, match="not a file"):
+        load_project(tmp_path)
+
+
+def test_total_geometry_size_is_capped(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import tessera.core.project_io as project_io
+
+    parts = [
+        {"id": "a", "name": "a", "geometry": "geometry/a.step"},
+        {"id": "b", "name": "b", "geometry": "geometry/b.step"},
+    ]
+    path = _write_zip(
+        tmp_path / "x.tessera",
+        {
+            "project.json": json.dumps({"name": "x", "assembly": {"parts": parts}}),
+            "geometry/a.step": b"0" * 600,
+            "geometry/b.step": b"0" * 600,
+        },
+    )
+    monkeypatch.setattr(project_io, "MAX_TOTAL_BYTES", 1000)
+    with pytest.raises(InputError, match="in total"):
+        load_project(path)

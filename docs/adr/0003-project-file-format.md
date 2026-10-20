@@ -17,7 +17,7 @@ A `.tessera` file is a **zip container**:
 
 ```
 project.json        # Project model (pydantic), schema_version, relative paths only
-geometry/<part>.step  # copies of imported geometry (original path kept as metadata)
+geometry/<part>.step  # copies of imported geometry (see amendment: no original path)
 mesh/<study>.npz      # nodes, elements, sets (numpy, optional)
 results/<study>.npz   # displacements, stresses, safety factors (optional)
 ```
@@ -84,13 +84,19 @@ therefore lands in v0.1, without the mesh/results caches:
   JSON file's folder. An unzipped `.tessera` is therefore a valid editable project
   (`project.json` + `geometry/`).
 - Loading reads the file by content (a zip is a container, anything else is JSON), copies the
-  geometry into a private temporary folder that lives until the process exits, and never
-  extracts by member name: only `geometry/<name>` entries with a plain name are read, and each
-  is size-capped before decompression.
+  geometry into a private temporary folder that lives until the process exits, under file names
+  Tessera makes up (so entries cannot collide on case-insensitive file systems or name devices).
+  Only `geometry/<name>` entries with a plain name are read, each size-capped before
+  decompression.
+- Only STEP and STL files are copied into a container, so a crafted JSON project cannot get a
+  user to pack, say, an SSH key into a file they then share.
+- A project opened from a container cannot be saved as JSON (its geometry lives in a temporary
+  folder); unzip the container to get the editable form.
 - The original import path is **not** stored: shared projects and bug reports would leak the
   sender's folder layout and user name.
-- Saving writes a temporary file next to the target and renames it over the target, so a failed
-  save never leaves a half-written project.
+- Saving writes a temporary file next to the target, flushes it, keeps the target's
+  permissions and renames it over the target, so a failed save never leaves a half-written
+  project.
 
 ## Action items
 
