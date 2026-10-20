@@ -56,20 +56,21 @@ def mesh_surface(surface: TriangleSurface, *, part_id: str, size: float | None =
         entity = gmsh.model.addDiscreteEntity(2)
         node_tags = np.arange(1, surface.vertices.shape[0] + 1)
         gmsh.model.mesh.addNodes(2, entity, node_tags.tolist(), surface.vertices.ravel().tolist())
+        # Element tag k + 1 is triangle k; gmsh keeps element tags through classification.
+        element_tags = np.arange(1, surface.triangles.shape[0] + 1)
         gmsh.model.mesh.addElementsByType(
-            entity, _GMSH_TRI3, [], (surface.triangles + 1).ravel().tolist()
+            entity, _GMSH_TRI3, element_tags.tolist(), (surface.triangles + 1).ravel().tolist()
         )
         # Split at every Tessera face boundary (and possibly more): patches never straddle faces.
-        angle = math.radians(_feature_angle(surface)) * 0.999
+        # The margin is absolute as well as relative so float differences between angle
+        # computations cannot hide a boundary edge.
+        boundary = _feature_angle(surface)
+        angle = math.radians(min(0.999 * boundary, boundary - 0.01))
         gmsh.model.mesh.classifySurfaces(angle, True, True, math.pi)
         gmsh.model.mesh.createGeometry()
 
-        face_of_triangle = {
-            tuple(sorted(tri)): int(face)
-            for tri, face in zip((surface.triangles + 1).tolist(), surface.face_ids, strict=True)
-        }
         patches = [tag for _, tag in gmsh.model.getEntities(2)]
-        face_of_entity = {patch: _face_of_patch(patch, face_of_triangle) for patch in patches}
+        face_of_entity = {patch: _face_of_patch(patch, surface) for patch in patches}
 
         loop = gmsh.model.geo.addSurfaceLoop(patches)
         gmsh.model.geo.addVolume([loop])
@@ -96,14 +97,21 @@ def _feature_angle(surface: TriangleSurface) -> float:
     return float(np.degrees(np.arccos(cos)).min())
 
 
-def _face_of_patch(patch: int, face_of_triangle: dict[tuple[int, ...], int]) -> int:
-    _, tri_nodes = gmsh.model.mesh.getElementsByType(_GMSH_TRI3, patch)
-    faces = {
-        face_of_triangle[tuple(sorted(t))] for t in np.asarray(tri_nodes).reshape(-1, 3).tolist()
-    }
-    if len(faces) != 1:
-        raise RuntimeError(f"gmsh patch {patch} spans Tessera faces {sorted(faces)}")
-    return faces.pop()
+def _face_of_patch(patch: int, surface: TriangleSurface) -> int:
+    """Tessera face of a gmsh patch, through the original element tags of its triangles."""
+    raw_tags, _ = gmsh.model.mesh.getElementsByType(_GMSH_TRI3, patch)
+    tags = np.asarray(raw_tags, dtype=np.int64)
+    if tags.size == 0 or tags.min() < 1 or tags.max() > surface.triangles.shape[0]:
+        raise RuntimeError(
+            f"gmsh patch {patch} has triangles that are not in the imported surface; "
+            "this gmsh version renumbered elements, which Tessera's STL meshing relies on"
+        )
+    faces = np.unique(surface.face_ids[tags - 1])
+    if faces.size != 1:
+        raise RuntimeError(
+            f"gmsh patch {patch} spans Tessera faces {faces.tolist()}; try a larger feature angle"
+        )
+    return int(faces[0])
 
 
 def _extract(part_id: str, face_of_entity: dict[int, int]) -> Mesh:

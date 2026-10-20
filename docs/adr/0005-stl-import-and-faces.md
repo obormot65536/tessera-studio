@@ -48,4 +48,15 @@ and the same face-naming problem.
 - Easier: STL, STEP and later 3MF meshes share the same face contract.
 - Harder: feature angle is a heuristic; expose it as a parameter and report face counts so users
   notice odd splits.
-- Revisit: a unit option for STL; healing of slightly open STLs (currently rejected).
+- Face numbers follow the triangle order in the file: stable for one file, but re-exporting
+  the STL can renumber faces and move saved supports/loads. A later release should re-locate
+  saved faces by centroid/normal when the geometry file changes.
+- `describe_faces` and meshing must use the same feature angle. Both use the default today;
+  when the angle becomes a project setting, it is passed to both.
+- Feature angles below 1° are rejected: near-flat neighbours would become face boundaries
+  that floating-point noise cannot separate reliably.
+- Triangles with a repeated corner are dropped; zero-area triangles with three distinct
+  collinear corners are rejected with a repair hint (dropping them would open a crack).
+- Revisit: a unit option for STL and a bounding-box sanity warning; healing of slightly open
+  or sliver-containing STLs (currently rejected); internal cavities (currently rejected as
+  disconnected shells).

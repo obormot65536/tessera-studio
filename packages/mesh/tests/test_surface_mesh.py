@@ -127,3 +127,17 @@ def test_mesh_options_do_not_leak_into_a_running_gmsh_session(
         assert mesh_surface(box_surface, part_id="box").n_nodes == fresh
     finally:
         gmsh.finalize()
+
+
+def test_inverted_stl_meshes_like_the_original(
+    tmp_path: Path, box_surface: TriangleSurface
+) -> None:
+    flipped = TriangleSurface(
+        vertices=box_surface.vertices,
+        triangles=box_surface.triangles[:, ::-1].copy(),
+        face_ids=box_surface.face_ids,
+    )
+    # read_stl fixes winding; mesh_surface must still produce a valid solid from either.
+    mesh = mesh_surface(flipped, part_id="box", size=5.0)
+    assert _tet_volume(mesh) == pytest.approx(4000.0, rel=1e-6)
+    assert len(mesh.surfaces) == box_surface.n_faces

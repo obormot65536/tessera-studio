@@ -100,3 +100,18 @@ def test_stl_and_step_box_give_the_same_solve_job(
         totals[name] = sum(load.forces.sum(axis=0) for load in job.loads)
     assert totals["stl"] == pytest.approx([0.0, 0.0, -50.0])
     assert totals["stl"] == pytest.approx(totals["step"])
+
+
+def test_unsupported_geometry_suffix_is_an_input_error(tmp_path: Path) -> None:
+    from tessera.core import new_project, solve
+    from tessera.model import FaceSet, InputError, PartInstance, Support
+
+    obj = tmp_path / "part.obj"
+    obj.write_text("v 0 0 0\n")
+    p = new_project("obj")
+    p.assembly.parts.append(
+        PartInstance(id="p", name="p", geometry=obj, material_id="steel-generic")
+    )
+    p.study.supports.append(Support(id="s", faces=FaceSet(part_id="p", faces=(1,))))
+    with pytest.raises(InputError, match="unsupported geometry"):
+        solve(p)

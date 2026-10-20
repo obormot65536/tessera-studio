@@ -277,3 +277,66 @@ def test_two_bodies_are_rejected(tmp_path: Path) -> None:
     path = _write_stl(tmp_path / "two.stl", _two_boxes)
     with pytest.raises(InputError, match=r"bodies|solid|body"):
         read_stl(path)
+
+
+def _split_with_sliver(tris: np.ndarray) -> np.ndarray:
+    """Split triangle (a, b, c) at m, the midpoint of a-b, and close the gap with the
+    collinear triangle (a, b, m). The result is closed and consistently wound, with one
+    zero-area triangle whose three corners are distinct."""
+    a, b, c = tris[0]
+    m = 0.5 * (a + b)
+    pieces = np.array([[a, m, c], [m, b, c], [a, b, m]])
+    return np.concatenate([pieces, tris[1:]])
+
+
+def test_zero_area_sliver_triangles_are_rejected_clearly(box_ascii: Path, tmp_path: Path) -> None:
+    path = _write_ascii(tmp_path / "sliver.stl", _split_with_sliver(_read_ascii(box_ascii)))
+    with pytest.raises(InputError, match="zero-area"):
+        read_stl(path)
+
+
+def test_needle_triangles_with_repeated_corners_are_dropped(
+    box_ascii: Path, tmp_path: Path
+) -> None:
+    tris = _read_ascii(box_ascii)
+    a, b = tris[0][0], tris[0][1]
+    needle = np.array([[a, a, b]])  # two identical corners: no area, no topology
+    surface = read_stl(_write_ascii(tmp_path / "needle.stl", np.concatenate([tris, needle])))
+    assert surface.n_faces == 6
+    faces = describe_surface(surface)
+    assert all(f.area > 0 and f.kind == "Plane" for f in faces)
+
+
+def test_inconsistent_winding_is_rejected(box_ascii: Path, tmp_path: Path) -> None:
+    tris = _read_ascii(box_ascii)
+    tris[0] = tris[0][::-1]  # flip one triangle only
+    with pytest.raises(InputError, match="winding"):
+        read_stl(_write_ascii(tmp_path / "mixed.stl", tris))
+
+
+@pytest.mark.parametrize("angle", [0.0, 0.5, 181.0, -10.0])
+def test_feature_angle_outside_1_to_180_degrees_is_rejected(box_ascii: Path, angle: float) -> None:
+    with pytest.raises(InputError, match="feature angle"):
+        read_stl(box_ascii, feature_angle_deg=angle)
+
+
+def test_open_surface_is_reported_as_open_not_as_several_bodies(
+    box_ascii: Path, tmp_path: Path
+) -> None:
+    tris = _read_ascii(box_ascii)
+    with pytest.raises(InputError, match="not a closed solid"):
+        read_stl(_write_ascii(tmp_path / "open2.stl", tris[2:]))
+
+
+def test_large_strip_of_triangles_is_segmented_quickly(tmp_path: Path) -> None:
+    import time
+
+    # A fine cylinder written in shuffled triangle order: one long chain of wall triangles.
+    path = _write_stl(tmp_path / "fine_cyl.stl", _cylinder, size=0.4)
+    tris = _read_ascii(path)
+    rng = np.random.default_rng(0)
+    shuffled = _write_ascii(tmp_path / "shuffled.stl", tris[rng.permutation(len(tris))])
+    start = time.perf_counter()
+    surface = read_stl(shuffled)
+    assert time.perf_counter() - start < 3.0, f"{len(tris)} triangles took too long"
+    assert surface.n_faces == 3

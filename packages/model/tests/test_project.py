@@ -72,3 +72,19 @@ def test_support_rejects_invalid_dofs(dofs: tuple[int, ...]) -> None:
 
     with pytest.raises(ValidationError):
         Support.model_validate({"id": "s", "faces": {"part_id": "p1", "faces": [1]}, "dofs": dofs})
+
+
+def test_triangle_surface_validates_indices_and_face_ids() -> None:
+    import numpy as np
+
+    from tessera.model import TriangleSurface
+
+    vertices = np.zeros((4, 3))
+    tris = np.array([[0, 1, 2], [0, 2, 3]])
+    TriangleSurface(vertices, tris, np.array([1, 2]))  # valid
+    with pytest.raises(ValueError, match="vertex index"):
+        TriangleSurface(vertices, np.array([[0, 1, 9], [0, 2, 3]]), np.array([1, 1]))
+    with pytest.raises(ValueError, match=r"1\.\.n"):
+        TriangleSurface(vertices, tris, np.array([1, 3]))
+    surface = TriangleSurface(vertices, tris, np.array([1, 1]))
+    assert surface == surface  # identity comparison, no ambiguous array truth value
