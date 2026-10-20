@@ -7,6 +7,7 @@ import numpy as np
 from tessera.model import (
     FaceSet,
     FixedSupport,
+    ForceLoad,
     InputError,
     IsotropicMaterial,
     Mesh,
@@ -41,6 +42,8 @@ def build_static_job(
 
     loads = []
     for load in study.loads:
+        if not isinstance(load, ForceLoad):
+            raise NotImplementedError(f"{load.kind} loads are not supported yet")
         node_ids, forces = uniform_face_load(
             mesh.nodes, _surface(mesh, load.faces), np.asarray(load.force, dtype=float)
         )

@@ -88,3 +88,37 @@ def test_triangle_surface_validates_indices_and_face_ids() -> None:
         TriangleSurface(vertices, tris, np.array([1, 3]))
     surface = TriangleSurface(vertices, tris, np.array([1, 1]))
     assert surface == surface  # identity comparison, no ambiguous array truth value
+
+
+def test_study_holds_force_and_pressure_loads_and_gravity() -> None:
+    from tessera.model import ForceLoad, PressureLoad, Study
+
+    faces = FaceSet(part_id="p1", faces=(1,))
+    study = Study(
+        loads=[
+            ForceLoad(id="f", faces=faces, force=(0.0, 0.0, -10.0)),
+            PressureLoad(id="p", faces=faces, pressure=2.5),
+        ],
+        gravity=(0.0, 0.0, -9810.0),
+    )
+    again = Study.model_validate_json(study.model_dump_json())
+    assert again == study
+    assert [type(load).__name__ for load in again.loads] == ["ForceLoad", "PressureLoad"]
+
+
+def test_schema_2_force_loads_without_kind_still_load() -> None:
+    from tessera.model import ForceLoad, Study
+
+    study = Study.model_validate(
+        {"loads": [{"id": "f", "faces": {"part_id": "p1", "faces": [1]}, "force": [1, 0, 0]}]}
+    )
+    assert isinstance(study.loads[0], ForceLoad)
+
+
+def test_unknown_load_kind_is_rejected() -> None:
+    from tessera.model import Study
+
+    with pytest.raises(ValidationError):
+        Study.model_validate(
+            {"loads": [{"kind": "moment", "id": "m", "faces": {"part_id": "p1", "faces": [1]}}]}
+        )
