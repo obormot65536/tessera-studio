@@ -12,6 +12,7 @@ from tessera.model import (
     InputError,
     IsotropicMaterial,
     Mesh,
+    MomentLoad,
     NodalLoads,
     PartInstance,
     PressureLoad,
@@ -58,6 +59,8 @@ def build_static_job(
             case PressureLoad():
                 tris = orient_outward(mesh.nodes, elements, tris)
                 node_ids, forces = pressure_face_load(mesh.nodes, tris, load.pressure)
+            case MomentLoad():
+                raise NotImplementedError("moment loads are not supported yet")
             case _:
                 assert_never(load)
         loads.append(NodalLoads(nodes=node_ids, forces=forces))

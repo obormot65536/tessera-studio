@@ -120,5 +120,13 @@ def test_unknown_load_kind_is_rejected() -> None:
 
     with pytest.raises(ValidationError):
         Study.model_validate(
-            {"loads": [{"kind": "moment", "id": "m", "faces": {"part_id": "p1", "faces": [1]}}]}
+            {"loads": [{"kind": "torque", "id": "m", "faces": {"part_id": "p1", "faces": [1]}}]}
         )
+
+
+def test_moment_load_round_trips() -> None:
+    from tessera.model import MomentLoad, Study
+
+    load = MomentLoad(id="t", faces=FaceSet(part_id="p1", faces=(2,)), moment=(0, 0, 5e4))
+    again = Study.model_validate_json(Study(loads=[load]).model_dump_json())
+    assert again.loads == [load]
