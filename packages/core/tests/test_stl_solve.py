@@ -115,3 +115,17 @@ def test_unsupported_geometry_suffix_is_an_input_error(tmp_path: Path) -> None:
     p.study.supports.append(Support(id="s", faces=FaceSet(part_id="p", faces=(1,))))
     with pytest.raises(InputError, match="unsupported geometry"):
         solve(p)
+
+
+def test_stl_faces_survive_packing_into_a_container(
+    box_files: tuple[Path, Path], tmp_path: Path
+) -> None:
+    from tessera.core import load_project, save_project
+
+    _, stl = box_files
+    project = new_project("box")
+    project.assembly.parts.append(PartInstance(id="p", name="p", geometry=stl))
+    path = tmp_path / "box.tessera"
+    save_project(project, path)
+
+    assert describe_faces(load_project(path), "p") == describe_faces(project, "p")
