@@ -1,0 +1,6 @@
+# Approved by the maintainer in iteration 5.
+description = "Steel prism 20 x 20 x 200 mm (quarter model), top face roller u_z = 0, symmetry rollers, gravity 9810 mm/s^2 in -z, steel-generic rho 7.85e-9 t/mm^3, C3D10; mean bottom-face elongation and sigma_zz at L/2"
+source = "Bar under its own weight: delta = rho g L^2/(2E), sigma(L/2) = rho g L/2. Timoshenko, Strength of Materials Part I (tension chapter; section unverified)"
+reference_elongation_mm = 7.334142857142859e-06
+reference_mid_stress_mpa = 0.007700850000000001
+rel_tolerance = 0.02

@@ -65,9 +65,9 @@ primary source.
 | TS-01 | v0.1 | End-loaded cantilever, tip deflection | passing |
 | TS-02 | v0.1 | Strip with central hole in tension, Kt (Howland) | passing |
 | TS-03 | v0.1 | Uniform tension patch test (isotropic) | planned |
-| TS-04 | v0.1 | Bar hanging under its own weight | awaiting reference |
+| TS-04 | v0.1 | Bar hanging under its own weight | passing |
 | TS-05 | v0.1 | Simply supported beam, uniform load | planned |
-| TS-06 | v0.1 | Thick-walled cylinder, internal pressure (Lamé) | awaiting reference |
+| TS-06 | v0.1 | Thick-walled cylinder, internal pressure (Lamé) | passing |
 | TS-07 | v0.1 | Thick-walled sphere, internal pressure (Lamé) | planned |
 | TS-08 | v0.1 | Circular plate, uniform pressure, clamped and simply supported | planned |
 | TS-09 | v0.1 | Torsion of circular and square bars (Saint-Venant) | planned |
