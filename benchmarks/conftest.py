@@ -38,6 +38,47 @@ def write_box_step(
     return path
 
 
+def write_box_stl(
+    path: Path, origin: tuple[float, float, float], size: tuple[float, float, float]
+) -> Path:
+    """Write an axis-aligned box (mm) as a binary STL surface triangulation."""
+    import gmsh
+
+    owns_session = not gmsh.isInitialized()
+    if owns_session:
+        gmsh.initialize(interruptible=False)
+    gmsh.option.setNumber("General.Terminal", 0)
+    gmsh.model.add(f"benchmark-{path.stem}-stl")
+    try:
+        gmsh.model.occ.addBox(*origin, *size)
+        gmsh.model.occ.synchronize()
+        gmsh.option.setNumber("Mesh.MeshSizeMax", max(size))
+        gmsh.option.setNumber("Mesh.Binary", 1)
+        gmsh.model.mesh.generate(2)
+        gmsh.write(str(path))
+    finally:
+        gmsh.model.remove()
+        if owns_session:
+            gmsh.finalize()
+    return path
+
+
+@pytest.fixture(scope="session")
+def box_stl(tmp_path_factory: pytest.TempPathFactory) -> Callable[..., Path]:
+    """Factory: ``box_stl(name, origin, size)`` returns the path of a box STL file."""
+    directory = tmp_path_factory.mktemp("geometry-stl")
+
+    def make(
+        name: str, origin: tuple[float, float, float], size: tuple[float, float, float]
+    ) -> Path:
+        path = directory / f"{name}.stl"
+        if not path.exists():
+            write_box_stl(path, origin, size)
+        return path
+
+    return make
+
+
 @pytest.fixture(scope="session")
 def box_step(tmp_path_factory: pytest.TempPathFactory) -> Callable[..., Path]:
     """Factory: ``box_step(name, origin, size)`` returns the path of a box STEP file."""

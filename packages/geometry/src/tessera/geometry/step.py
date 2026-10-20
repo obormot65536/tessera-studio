@@ -53,7 +53,7 @@ def _outward_normal(face: int, volume: int, centroid: np.ndarray, size: float) -
     return normal
 
 
-def describe_faces(path: Path) -> list[FaceInfo]:
+def describe_step_faces(path: Path) -> list[FaceInfo]:
     """List the faces of a single-solid STEP file, ordered by face index."""
     with gmsh_model():
         volume = _import_single_solid(path)
