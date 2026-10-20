@@ -72,7 +72,28 @@ they are treated as caches, which keeps migrations limited to `project.json`.
   becomes real.
 - Must write a migration for every `schema_version` bump from v0.5 on.
 
+## Amendment (iteration 4): container brought forward to v0.1
+
+STL faces are numbered by Tessera from the file's triangles (ADR-005), so saved supports and
+loads are only safe while the exact geometry bytes travel with the project. The container
+therefore lands in v0.1, without the mesh/results caches:
+
+- `project.json` is the `Project` model; each part's `geometry` is `geometry/<name>`, relative
+  to the container root. Parts that share one source file share one entry.
+- `*.tessera.json` stays as the hand-editable form; relative geometry paths resolve against the
+  JSON file's folder. An unzipped `.tessera` is therefore a valid editable project
+  (`project.json` + `geometry/`).
+- Loading reads the file by content (a zip is a container, anything else is JSON), copies the
+  geometry into a private temporary folder that lives until the process exits, and never
+  extracts by member name: only `geometry/<name>` entries with a plain name are read, and each
+  is size-capped before decompression.
+- The original import path is **not** stored: shared projects and bug reports would leak the
+  sender's folder layout and user name.
+- Saving writes a temporary file next to the target and renames it over the target, so a failed
+  save never leaves a half-written project.
+
 ## Action items
 
-1. [ ] v0.1: keep `*.tessera.json`; store geometry paths relative to the project file.
-2. [ ] v0.5: implement the zip container with mesh/results caches and the first migration test.
+1. [x] v0.1: keep `*.tessera.json`; store geometry paths relative to the project file.
+2. [x] v0.1: zip container with `project.json` and geometry (amendment above).
+3. [ ] v0.5: mesh/results caches with a staleness check, and the first migration test.

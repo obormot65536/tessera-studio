@@ -36,9 +36,22 @@ def show_version() -> None:
 
 @app.command()
 def new(path: Path, name: str | None = None) -> None:
-    """Create an empty project file."""
-    save_project(new_project(name or path.name.removesuffix(".tessera.json")), path)
+    """Create an empty project: a .tessera file, or editable JSON for any other name."""
+    default = path.name.removesuffix(".json").removesuffix(".tessera")
+    with _user_errors():
+        save_project(new_project(name or default), path)
     typer.echo(f"created {path}")
+
+
+@app.command()
+def pack(source: Path, target: Path) -> None:
+    """Bundle a project and copies of its geometry into one shareable .tessera file."""
+    if not target.name.endswith(".tessera"):
+        typer.echo("error: the packed file name must end in .tessera", err=True)
+        raise typer.Exit(1)
+    with _user_errors():
+        save_project(load_project(source), target)
+    typer.echo(f"packed {target}")
 
 
 @app.command()
