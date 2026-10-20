@@ -231,3 +231,29 @@ def body_force_load(
     """Consistent nodal forces (N) of a uniform acceleration (mm/s^2) on mass (t/mm^3)."""
     node_ids, volume = _sum_per_node(elements, tet10_volume_weights(nodes, elements))
     return node_ids, density * volume * np.asarray(acceleration, dtype=float)[None, :]
+
+
+def moment_face_load(
+    nodes: NDArray[np.float64], tris: NDArray[np.int64], moment: NDArray[np.float64]
+) -> tuple[NDArray[np.int64], NDArray[np.float64]]:
+    """Spread a moment (N mm) about the faces' area centroid like a distributing coupling.
+
+    Node i gets F_i = w_i (omega x r_i), with w_i its share of the area and r_i its position
+    from the weighted centroid. omega solves I omega = M for the weighted polar inertia I, so
+    the forces sum to zero and their moment about the centroid is exactly M.
+    """
+    weights = tri6_load_weights(nodes, tris)
+    node_ids, inverse = np.unique(tris.ravel(), return_inverse=True)
+    w = np.bincount(inverse, weights=weights.ravel(), minlength=node_ids.size)
+    if w.sum() <= 0:
+        raise InputError("the faces of a moment load must span an area, not a line")
+    centroid = w @ nodes[node_ids] / w.sum()
+    r = nodes[node_ids] - centroid
+    inertia = (w * np.einsum("ij,ij->i", r, r)).sum() * np.eye(3) - np.einsum(
+        "i,ij,ik->jk", w, r, r
+    )
+    if np.linalg.cond(inertia) > 1e12:
+        raise InputError("the faces of a moment load must span an area, not a line")
+    omega = np.linalg.solve(inertia, moment)
+    forces = w[:, None] * np.cross(omega, r).astype(np.float64)
+    return node_ids.astype(np.int64), forces

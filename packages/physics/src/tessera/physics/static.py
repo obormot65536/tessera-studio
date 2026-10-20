@@ -22,6 +22,7 @@ from tessera.model import (
 )
 from tessera.physics.loads import (
     body_force_load,
+    moment_face_load,
     orient_outward,
     pressure_face_load,
     uniform_face_load,
@@ -60,7 +61,8 @@ def build_static_job(
                 tris = orient_outward(mesh.nodes, elements, tris)
                 node_ids, forces = pressure_face_load(mesh.nodes, tris, load.pressure)
             case MomentLoad():
-                raise NotImplementedError("moment loads are not supported yet")
+                moment = np.asarray(load.moment, dtype=float)
+                node_ids, forces = moment_face_load(mesh.nodes, tris, moment)
             case _:
                 assert_never(load)
         loads.append(NodalLoads(nodes=node_ids, forces=forces))
