@@ -5,8 +5,9 @@ from pathlib import Path
 import gmsh
 import pytest
 
+import tessera.geometry as geometry
 from tessera.core import edit, new_project
-from tessera.model import ForceLoad, InputError, MomentLoad, PressureLoad, Project
+from tessera.model import FaceInfo, ForceLoad, InputError, MomentLoad, PressureLoad, Project
 
 
 @pytest.fixture(scope="module")
@@ -157,3 +158,22 @@ def test_parts_are_checked_and_stored_with_an_absolute_path(
     with pytest.raises(InputError):
         edit.add_part(p, broken)
     assert len(p.assembly.parts) == 1
+
+
+def test_a_part_is_read_once_however_many_supports_and_loads_it_gets(
+    box_step: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reads: list[Path] = []
+    parse = geometry.describe_step_faces
+
+    def counting(path: Path) -> list[FaceInfo]:
+        reads.append(path)
+        return parse(path)
+
+    monkeypatch.setattr(geometry, "describe_step_faces", counting)
+    p = new_project("p")
+    edit.add_part(p, box_step)
+    edit.add_support(p, "box", [1])
+    edit.add_force_load(p, "box", [2], (0.0, 0.0, -100.0))
+    edit.add_pressure_load(p, "box", [3], 0.5)
+    assert reads == [box_step]
