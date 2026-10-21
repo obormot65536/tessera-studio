@@ -5,10 +5,11 @@
 - Where the peak stress is, and whether it depends on the mesh (ADR-007): `tessera solve` now
   leads with the largest von Mises stress away from supports and sharp inside edges, then the
   overall peak with its location, face and, when it sits near a fixed support or a sharp
-  inside edge, a note that it keeps rising as the mesh is refined, then the highest stress on
+  inside edge, a note that it may keep rising as the mesh is refined, then the highest stress on
   the top five faces. The API adds `StudyResult.peak_von_mises`, `clear_peak_von_mises`,
   `face_peaks` and `node_flags` (`StressSpot`, `StressFlag`, `NodeFlags` in `tessera.model`).
-  `max_von_mises` is unchanged.
+  `max_von_mises` is unchanged. Where the highest stress is at a support (a clamped base under
+  bending), the value away from supports reads low; the user guide explains how to read both.
 - A force, pressure or moment of zero is refused when it is added, since it does nothing and is
   almost always a typo. Project files that already contain one still open.
 - Gravity and materials without a density are refused when you set them up (turning gravity

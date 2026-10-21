@@ -377,7 +377,7 @@ nodes: 13213, elements: 7263
 max displacement: 1.52177 mm
 von Mises stress away from supports and sharp inside edges: 116.508 MPa at (5.684, 5.092, 0) mm, face 5
 max von Mises stress: 120.398 MPa at (1.83, 8.17, 10) mm, face 6
-  near support 'root' (within 5.39 mm): the stress there keeps rising as the mesh is refined, so this value depends on the mesh size
+  near support 'root' (within 5.39 mm): the stress there may keep rising as the mesh is refined; compare two mesh sizes before trusting either value
 max von Mises stress by face (5 of 6):
   face 6: 120.398 MPa at (1.83, 8.17, 10) mm, near support 'root'
   face 5: 119.969 MPa at (1.83, 8.17, 0) mm, near support 'root'
@@ -397,14 +397,14 @@ How to read it:
   about 1.53 mm for this bar (bending 1.524 mm plus shear 0.003 mm). The solver gave 1.52 mm.
   A linear model only holds while the movement is small compared with the part. If the
   largest movement is a large fraction of the part's size, the answer is not reliable.
-- **von Mises stress away from supports and sharp inside edges (MPa)**: the largest equivalent
-  stress at a node that is not near a support or a sharp inside edge, with its location and
-  face. This is the number to compare with the **yield strength** of the material from its
-  datasheet. Tessera v0.1 does not store yield strength. If every node is near a support or a
-  sharp inside edge, the line says `none`; use a finer mesh.
+- **von Mises stress away from supports and sharp inside edges (MPa)**: the highest
+  equivalent stress outside the marked places (see below), with its location and face. It is
+  not always the stress to compare with the **yield strength** from the material's datasheet:
+  read "Why the peak stress changes with the mesh" first. Tessera v0.1 does not store yield
+  strength. If every node is in a marked place, the line says `none`; use a finer mesh.
 - **max von Mises stress (MPa)**: the largest equivalent stress at any node, with its location
-  and face (`inside the part` if it is not on a face). When it is near a support or a sharp
-  inside edge, the next line says which and why the value cannot be trusted as it is.
+  and face (`inside the part` if it is not on a face). When it is in a marked place, the next
+  line says which, and that the value depends on the mesh size.
 - **max von Mises stress by face**: the highest stress on each face, highest first, so you can
   see where the part is loaded. Five faces are shown; the Python API has them all.
 - **solver files**: the folder with the solver input (`job.inp`) and results (`job.frd`).
@@ -422,6 +422,9 @@ refined. It keeps rising with every finer mesh. Two kinds of place are marked in
   30° or more, like the inside corner of an L-bracket. Outside edges, rounded fillets and holes
   are not marked.
 
+Peaks under small, point-like loads and at the edges of a loaded face can also keep rising with
+the mesh. These places are not marked yet, so a peak there shows up as an unmarked value.
+
 "Near" means within twice the typical element size. The output line says how far that is (5.39
 mm for the example at 2.5 mm). The value is shown, not hidden: a real stress raiser, such as a
 hole next to a clamp, can sit in a marked area.
@@ -434,13 +437,29 @@ The example beam at two mesh sizes:
 | 1.25 | 78 355 | 1.52238 | 116.435 | 143.79, near support 'root' |
 
 The largest displacement and the stress away from the support barely changed (0.04 % and
-0.06 %). The peak at the clamped end rose by 19 %. Use the displacement and the stress away
-from supports and sharp inside edges; do not compare the marked peak with a strength, and do
-not compare marked peaks from different mesh sizes.
+0.06 %). The peak at the clamped end rose by 19 %. Do not compare marked peaks from different
+mesh sizes. A value that settles is not always the stress you need, though, as the next
+paragraphs show.
 
-The stress away from supports and sharp inside edges is still not exact. It sits just outside
-the marked area, and that area shrinks with the mesh. The two-mesh check above is still the
-way to know whether the mesh is fine enough.
+**The stress away from supports and sharp inside edges can read low.** It is the highest
+stress outside the marked places, and it leaves out the place where the stress is often
+highest. Where the highest stress in the part is expected at a support, it can read low. The
+common case is a part clamped at its base and bent, like the example beam. Beam theory gives
+120 MPa at the clamped end of the example (bending moment 100 N × 200 mm over the section
+modulus 167 mm³). The value away from the support is 116.5 MPa, about
+3 % low, because it is taken about 5.4 mm from the clamp. On a short part with a coarse mesh
+the gap can be a third of the stress or more.
+
+In such a case the real stress lies between the two numbers: the stress away from supports and
+sharp inside edges, and the marked peak. Do not take either one on its own as the answer:
+
+- Run the two-mesh check of Step 7 and see which numbers settle. A later release adds
+  `--check-mesh` to do this for you.
+- Or judge from the trend: if the stress away from the support sits next to the marked area
+  and rises toward it, the stress at the support is higher than that value.
+
+Where the highest stress is away from every marked place, for example at a hole in the middle
+of a plate, the two numbers are the same and the value is not marked.
 
 To run the 1.25 mm check, change the mesh size and solve again:
 

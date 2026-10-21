@@ -285,7 +285,8 @@ def test_solve_flags_the_clamp_and_the_inside_corner_but_not_the_hole(
 
     assert result.max_von_mises == pytest.approx(60.0)
     peak = result.peak_von_mises
-    assert peak.value == result.max_von_mises
+    assert peak.value == pytest.approx(60.0)
+    assert result.mesh.nodes[peak.node, 0] == pytest.approx(60.0)
     assert peak.location[0] == pytest.approx(60.0) and not peak.flagged
     assert result.clear_peak_von_mises == peak
     assert result.face_peaks[0].value == pytest.approx(60.0)

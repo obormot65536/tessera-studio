@@ -307,18 +307,24 @@ def solve_cmd(path: Path, workdir: Path | None = None) -> None:
 
     clear, peak = result.clear_peak_von_mises, result.peak_von_mises
     d = result.node_flags.distance
-    if clear is None:
-        typer.echo(f"von Mises stress {_CLEAR}: none, every node is within {d:.3g} mm of one")
+    if clear is None and result.node_flags.flagged.all():
+        typer.echo(
+            f"von Mises stress {_CLEAR}: none, every node is within {d:.3g} mm of a marked "
+            "support or sharp inside edge"
+        )
+    elif clear is None:
+        typer.echo(f"von Mises stress {_CLEAR}: none, no node there has a stress result")
     else:
         typer.echo(f"von Mises stress {_CLEAR}: {clear.value:.6g} MPa {_where(clear)}")
     typer.echo(f"max von Mises stress: {result.max_von_mises:.6g} MPa {_where(peak)}")
     if peak.flagged:
         typer.echo(
-            f"  {_reasons(peak)} (within {d:.3g} mm): the stress there keeps rising as the "
-            "mesh is refined, so this value depends on the mesh size"
+            f"  {_reasons(peak)} (within {d:.3g} mm): the stress there may keep rising as the "
+            "mesh is refined; compare two mesh sizes before trusting either value"
         )
     shown = result.face_peaks[:FACE_PEAKS_SHOWN]
-    typer.echo(f"max von Mises stress by face ({len(shown)} of {len(result.face_peaks)}):")
+    if shown:
+        typer.echo(f"max von Mises stress by face ({len(shown)} of {len(result.face_peaks)}):")
     for spot in shown:
         x, y, z = spot.location
         line = f"  face {spot.face}: {spot.value:.6g} MPa at ({x:.4g}, {y:.4g}, {z:.4g}) mm"

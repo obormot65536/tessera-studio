@@ -3,6 +3,7 @@
 The meshes are small structured tet10 grids built here with numpy, so no mesher or solver runs.
 """
 
+import dataclasses
 import itertools
 from collections.abc import Callable
 
@@ -197,6 +198,20 @@ def test_box_has_no_sharp_inside_edge(bar: Mesh) -> None:
     assert not flag_nodes(job(bar)).flagged.any()
 
 
+def test_edge_where_two_blocks_touch_is_flagged() -> None:
+    # Two 2 x 2 x 2 blocks share only the line x = z = 2 (along y): four outer faces meet at
+    # each element edge there. The stress there is singular, so it counts as a sharp edge.
+    keep = np.zeros((4, 2, 4), dtype=bool)
+    keep[:2, :, :2] = True
+    keep[2:, :, 2:] = True
+    mesh = tet10_grid((4, 2, 4), keep=keep)
+    flags = flag_nodes(job(mesh))
+    x, z = mesh.nodes[:, 0], mesh.nodes[:, 2]
+    to_line = np.hypot(x - 2.0, z - 2.0)
+    np.testing.assert_array_equal(flags.flagged, to_line <= flags.distance + 1e-9)
+    assert list(flags.masks) == [INSIDE_EDGE]
+
+
 def annular_sector(segments: int) -> Callable[[NDArray[np.float64]], NDArray[np.float64]]:
     """Grid (r, theta, z) -> quarter of a thick ring, inner radius 5 mm: a concave bore."""
 
@@ -297,15 +312,19 @@ def test_nan_nodes_are_skipped(bar: Mesh) -> None:
     values = np.ones(bar.n_nodes)
     top = node_at(bar, (9.0, 0.0, 0.0))
     values[top] = 30.0
-    values[node_at(bar, (8.0, 0.0, 0.0))] = np.nan  # a node with no result
-    values[node_at(bar, (10.0, 0.0, 0.0))] = np.nan
-    result = summarize(job(bar), uniaxial(values))
+    no_result = [node_at(bar, (8.0, 0.0, 0.0)), node_at(bar, (10.0, 0.0, 0.0))]
+    values[no_result] = np.nan
+    solution = uniaxial(values)
+    displacements = np.zeros((bar.n_nodes, 3))
+    displacements[top] = (3.0, 4.0, 0.0)
+    displacements[no_result] = np.nan
+    result = summarize(job(bar), dataclasses.replace(solution, displacements=displacements))
     assert result.max_von_mises == pytest.approx(30.0)
     assert result.peak_von_mises.node == top
     clear = result.clear_peak_von_mises
     assert clear is not None and clear.node == top
     assert all(np.isfinite(p.value) for p in result.face_peaks)
-    assert np.isfinite(result.max_displacement)
+    assert result.max_displacement == pytest.approx(5.0)
 
 
 def test_face_without_any_result_is_left_out(bar: Mesh) -> None:

@@ -1,8 +1,9 @@
 """Flag nodes whose stress keeps changing as the mesh is refined (ADR-007).
 
 In linear elasticity the stress has no finite value at the edges of a support that holds two or
-three directions, at line supports, and at sharp inside (re-entrant) edges. Nodes within
-d = 2 h of those places are flagged, h being the median corner-to-corner element edge length.
+three directions and at sharp inside (re-entrant) edges. Nodes within d = 2 h of those places
+are flagged, h being the median corner-to-corner element edge length. Line supports (ADR-006)
+are singular too and will be flagged once they exist.
 The flags depend only on the mesh and the supports, so every stress result can use them.
 """
 
@@ -49,19 +50,35 @@ _DXI, _DETA = _tri6_derivatives()
 
 
 def support_is_singular(support: FixedSupport) -> bool:
-    """Whether the stress near this support is flagged.
+    """Whether the stress near this support is flagged: the one place that decides it.
 
-    A support holding two or three directions clamps its face, and the stress at the face's
-    edge is singular. A support holding one direction is an exact symmetry plane or roller, so
-    it is not flagged. Every line support (ADR-006) is flagged whatever its directions.
+    Today: a support holding two or three directions clamps its face, and the stress at the
+    face's edge is singular, so it is flagged. A support holding one direction is an exact
+    symmetry plane or roller, so it is not. Line supports (ADR-006) will be flagged regardless
+    of direction once the solve job marks them; that check belongs here.
     """
     return len(set(support.dofs)) >= 2
 
 
+def _pair_keys(a: NDArray[np.int64], b: NDArray[np.int64], n_nodes: int) -> NDArray[np.int64]:
+    """One int64 per unordered node pair (min/max, not np.sort: sorting tiny rows is slow)."""
+    return np.minimum(a, b).astype(np.int64) * n_nodes + np.maximum(a, b)
+
+
+def _groups(keys: NDArray[np.int64]) -> tuple[NDArray[np.int64], NDArray[np.int64]]:
+    """Sort order of ``keys`` and the start of each run of equal keys in that order."""
+    order = np.argsort(keys)
+    ordered = keys[order]
+    starts = np.flatnonzero(np.r_[True, ordered[1:] != ordered[:-1]])
+    return order, starts
+
+
 def median_edge_length(mesh: Mesh) -> float:
     """h: the median corner-to-corner length of the mesh's element edges, mm."""
-    pairs = np.sort(mesh.elements[:, np.array(TET10_EDGES)], axis=2).reshape(-1, 2)
-    keys = np.unique(pairs[:, 0] * mesh.n_nodes + pairs[:, 1])
+    edges = np.array(TET10_EDGES)
+    el = mesh.elements
+    keys = np.sort(_pair_keys(el[:, edges[:, 0]], el[:, edges[:, 1]], mesh.n_nodes).ravel())
+    keys = keys[np.r_[True, keys[1:] != keys[:-1]]]  # np.unique, but several times faster
     a, b = np.divmod(keys, mesh.n_nodes)
     return float(np.median(np.linalg.norm(mesh.nodes[a] - mesh.nodes[b], axis=1)))
 
@@ -79,10 +96,17 @@ def _outer_triangles(mesh: Mesh) -> NDArray[np.int64]:
     """(K, 6) element faces on the outer surface, wound so their normals point out."""
     faces = mesh.elements[:, _FACE_TRI6].reshape(-1, 6)
     opposite = mesh.elements[:, _FACE_OPPOSITE].ravel()
-    _, inverse, counts = np.unique(
-        np.sort(faces[:, :3], axis=1), axis=0, return_inverse=True, return_counts=True
-    )
-    outer = counts[inverse.ravel()] == 1
+    # A face is outer when no other element face has the same three corners. Faces with the
+    # same corners share their lowest and highest corner and the sum of all three.
+    c = faces[:, :3]
+    lo_hi = _pair_keys(c.min(axis=1), c.max(axis=1), mesh.n_nodes)
+    total = c.sum(axis=1)
+    order = np.lexsort((total, lo_hi))
+    lo_hi, total = lo_hi[order], total[order]
+    new = np.r_[True, (lo_hi[1:] != lo_hi[:-1]) | (total[1:] != total[:-1])]
+    run = np.cumsum(new) - 1
+    outer = np.empty(len(faces), dtype=bool)
+    outer[order] = np.bincount(run)[run] == 1
     faces, opposite = faces[outer], opposite[outer]
     x = mesh.nodes
     a, b, c = (x[faces[:, k]] for k in range(3))
@@ -97,8 +121,8 @@ def sharp_inside_edge_nodes(mesh: Mesh, angle: float = INSIDE_EDGE_ANGLE) -> NDA
     The turn is measured between the normals of the two curved TRI6 faces at the midpoint of
     their shared edge, so a smooth curved surface (a hole, a fillet) meshed with curved elements
     does not turn there, however coarse the mesh. An edge is inside (concave) when each face
-    rises toward the other's outward normal. Edges not shared by exactly two outer faces are
-    skipped.
+    rises toward the other's outward normal. An edge shared by more than two outer faces (two
+    bodies touching along a line) is singular too and always counts as sharp.
     """
     tris = _outer_triangles(mesh)
     if tris.shape[0] == 0:
@@ -107,15 +131,13 @@ def sharp_inside_edge_nodes(mesh: Mesh, angle: float = INSIDE_EDGE_ANGLE) -> NDA
     normals = np.cross(np.einsum("pk,nkd->npd", _DXI, x), np.einsum("pk,nkd->npd", _DETA, x))
     normals = (normals / np.linalg.norm(normals, axis=2, keepdims=True)).reshape(-1, 3)
 
-    pairs = np.sort(tris[:, _TRI_EDGE_CORNERS], axis=2).reshape(-1, 2)  # (3K, 2), entry 3t + k
-    _, inverse, counts = np.unique(
-        pairs[:, 0] * mesh.n_nodes + pairs[:, 1], return_inverse=True, return_counts=True
-    )
-    inverse = inverse.ravel()
-    order = np.argsort(inverse, kind="stable")
-    grouped = inverse[order]
-    starts = np.flatnonzero(np.r_[True, grouped[1:] != grouped[:-1]])
-    starts = starts[counts[grouped[starts]] == 2]
+    # Entry 3t + k is edge k of triangle t; ``pairs`` holds its corners, lowest first.
+    a, b = tris[:, _TRI_EDGE_CORNERS[:, 0]].ravel(), tris[:, _TRI_EDGE_CORNERS[:, 1]].ravel()
+    pairs = np.stack([np.minimum(a, b), np.maximum(a, b)], axis=1)
+    order, starts = _groups(_pair_keys(a, b, mesh.n_nodes))
+    counts = np.diff(np.r_[starts, len(order)])
+    shared = order[np.repeat(starts[counts > 2], counts[counts > 2])]  # non-manifold edges
+    starts = starts[counts == 2]
     e1, e2 = order[starts], order[starts + 1]
 
     tri1, k1 = np.divmod(e1, 3)
@@ -136,7 +158,9 @@ def sharp_inside_edge_nodes(mesh: Mesh, angle: float = INSIDE_EDGE_ANGLE) -> NDA
     )
     turn = np.degrees(np.arccos(np.clip(np.einsum("ij,ij->i", n1, n2), -1.0, 1.0)))
     sharp = concave & (turn >= angle - 1e-9)
-    edge_nodes = np.concatenate([pairs[e1[sharp]].ravel(), tris[tri1[sharp], k1[sharp] + 3]])
+    edge = np.r_[e1[sharp], shared]
+    tri, k = np.divmod(edge, 3)
+    edge_nodes = np.concatenate([pairs[edge].ravel(), tris[tri, k + 3]])
     return np.unique(edge_nodes).astype(np.int64)
 
 

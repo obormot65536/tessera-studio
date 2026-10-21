@@ -422,8 +422,10 @@ is refined. `solve` flags those places (ADR-007):
 - **Supports:** nodes within d of a node of a support that holds two or three directions. A
   support that holds one direction (a symmetry plane or roller) is never flagged.
 - **Sharp inside edges:** nodes within d of an edge of the outer surface that turns inward by
-  30° or more. Outward (convex) edges, smooth fillets and holes are not flagged; the turn is
+  30° or more, and edges shared by more than two surface faces (where two bodies touch along
+  a line). Outward (convex) edges, smooth fillets and holes are not flagged; the turn is
   measured on the curved element faces, so a coarse mesh of a round hole does not count.
+- Line supports (ADR-006) will be flagged whatever directions they hold, once they exist.
 - d = 2 h, where h is the median corner-to-corner element edge length (`node_flags.edge_length`).
 
 The fields:
@@ -432,8 +434,11 @@ The fields:
   not changed.
 - `peak_von_mises`: the same value as a `StressSpot`, with its node, location, face and flags.
 - `clear_peak_von_mises`: the largest von Mises stress at an unflagged node, "away from
-  supports and sharp inside edges"; `None` if every node is flagged. It still depends a little
-  on the mesh, since d shrinks with h; it is not a converged stress.
+  supports and sharp inside edges"; `None` if no unflagged node has a result. It is not a
+  converged stress and can read low: where the highest stress is expected at a support (a
+  clamped base under bending), it is taken about d from the clamp and misses the rise toward
+  it; the true stress there lies between `clear_peak_von_mises` and `peak_von_mises`. Do not
+  quote it alone against a strength in that case; compare two mesh sizes instead.
 - `face_peaks`: the largest von Mises stress on every face that has a result, highest first,
   each with its own flags.
 - `node_flags`: the per-node flags, for use with any other stress result.

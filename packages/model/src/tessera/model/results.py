@@ -17,7 +17,8 @@ class FlagKind(StrEnum):
     """Why the stress at a node is known to depend on the mesh (ADR-007)."""
 
     SUPPORT = "support"
-    """Near a support that holds two or three directions (or a line support)."""
+    """Near a support that holds two or three directions. Line supports (ADR-006) will be
+    flagged regardless of direction once they exist."""
     SHARP_INSIDE_EDGE = "sharp-inside-edge"
     """Near an edge where the outer surface turns inward by 30 degrees or more."""
 

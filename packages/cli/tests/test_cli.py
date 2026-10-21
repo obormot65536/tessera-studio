@@ -220,7 +220,9 @@ def test_container_refusals_leave_the_file_alone(box_step: Path, tmp_path: Path)
     assert path.read_bytes() == before
 
 
-def _solved(peak_flags: tuple[str, ...], clear: bool, n_faces: int = 7) -> StudyResult:
+def _solved(
+    peak_flags: tuple[str, ...], clear: bool, n_faces: int = 7, all_flagged: bool = False
+) -> StudyResult:
     """A hand-made result: the raw peak at (0, 5, 5) on face 1, flagged as asked."""
     import numpy as np
 
@@ -248,8 +250,15 @@ def _solved(peak_flags: tuple[str, ...], clear: bool, n_faces: int = 7) -> Study
         workdir=Path("run"),
         peak_von_mises=peak,
         clear_peak_von_mises=clear_spot if clear else None,
-        face_peaks=(dataclasses.replace(faces[0], flags=flags), *faces[1:]),
-        node_flags=NodeFlags(masks={}, n_nodes=n, distance=5.0, edge_length=2.5),
+        face_peaks=tuple(
+            dataclasses.replace(f, flags=flags) if i == 0 else f for i, f in enumerate(faces)
+        ),
+        node_flags=NodeFlags(
+            masks={flags[0]: np.ones(n, dtype=bool)} if all_flagged else {},
+            n_nodes=n,
+            distance=5.0,
+            edge_length=2.5,
+        ),
     )
 
 
@@ -274,7 +283,8 @@ def test_solve_leads_with_the_clear_peak_then_the_flagged_raw_peak(
         " at (12.5, -5, 5) mm, inside the part",
         "max von Mises stress: 143.79 MPa at (0, 5, 5) mm, face 1",
         "  near support 'root' and near a sharp inside edge (within 5 mm): the stress there"
-        " keeps rising as the mesh is refined, so this value depends on the mesh size",
+        " may keep rising as the mesh is refined; compare two mesh sizes before trusting either"
+        " value",
     ]
     assert lines[5] == "max von Mises stress by face (5 of 7):"
     assert lines[6] == (
@@ -295,8 +305,16 @@ def test_solve_without_flags_or_clear_nodes(monkeypatch: pytest.MonkeyPatch) -> 
     assert not any(line.startswith("  near") for line in lines)
     assert "max von Mises stress by face (2 of 2):" in lines
 
-    lines = _solve_output(monkeypatch, _solved(("root",), clear=False))
+    lines = _solve_output(monkeypatch, _solved(("root",), clear=False, all_flagged=True))
     assert lines[2] == (
         "von Mises stress away from supports and sharp inside edges: none, every node is"
-        " within 5 mm of one"
+        " within 5 mm of a marked support or sharp inside edge"
     )
+
+    # Unflagged nodes exist, but none of them has a stress result; and no face has one either.
+    lines = _solve_output(monkeypatch, _solved(("root",), clear=False, n_faces=0))
+    assert lines[2] == (
+        "von Mises stress away from supports and sharp inside edges: none, no node there has a"
+        " stress result"
+    )
+    assert not any("by face" in line for line in lines)

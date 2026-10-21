@@ -147,6 +147,17 @@ def _tip_deflection(result: Any) -> tuple[float, int]:
     return float(result.solution.displacements[on_tip, 2].mean()), result.mesh.n_nodes
 
 
+def _raw_von_mises_peak(stresses: np.ndarray) -> tuple[float, int]:
+    """(largest von Mises stress, its node), computed here independently of tessera.post."""
+    sxx, syy, szz, sxy, syz, szx = stresses.T
+    vm = np.sqrt(
+        0.5 * ((sxx - syy) ** 2 + (syy - szz) ** 2 + (szz - sxx) ** 2)
+        + 3.0 * (sxy**2 + syz**2 + szx**2)
+    )
+    node = int(np.nanargmax(vm))
+    return float(vm[node]), node
+
+
 @pytest.fixture(scope="module")
 def beam_step(box_step: Callable[..., Path]) -> Path:
     return box_step("cantilever", (0.0, -WIDTH / 2, -HEIGHT / 2), (LENGTH, WIDTH, HEIGHT))
@@ -257,7 +268,9 @@ def test_cantilever_peak_stress_is_flagged_at_the_clamped_root(
     d = result.node_flags.distance
 
     peak = result.peak_von_mises
-    assert peak.value == result.max_von_mises
+    value, node = _raw_von_mises_peak(result.solution.stresses)
+    assert (peak.value, peak.node) == (pytest.approx(value), node)
+    assert result.max_von_mises == pytest.approx(value)
     assert peak.flags == (root,)
     assert peak.location[0] <= d
 

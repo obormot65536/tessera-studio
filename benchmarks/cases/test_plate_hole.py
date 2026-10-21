@@ -231,6 +231,17 @@ def _solve_kt(step_path: Path, mesh_size: float, workdir: Path) -> tuple[float, 
     )
 
 
+def _raw_von_mises_peak(stresses: np.ndarray) -> tuple[float, int]:
+    """(largest von Mises stress, its node), computed here independently of tessera.post."""
+    sxx, syy, szz, sxy, syz, szx = stresses.T
+    vm = np.sqrt(
+        0.5 * ((sxx - syy) ** 2 + (syy - szz) ** 2 + (szz - sxx) ** 2)
+        + 3.0 * (sxy**2 + syz**2 + szx**2)
+    )
+    node = int(np.nanargmax(vm))
+    return float(vm[node]), node
+
+
 @pytest.fixture(scope="module")
 def plate_step(tmp_path_factory: pytest.TempPathFactory) -> Path:
     directory = tmp_path_factory.mktemp("plate-hole-geometry")
@@ -329,7 +340,9 @@ def test_plate_hole_peak_stress_is_clear_at_the_hole_edge(
     assert not result.node_flags.flagged.any()
     peak = result.peak_von_mises
     assert not peak.flagged
-    assert peak.value == result.max_von_mises
+    value, node = _raw_von_mises_peak(result.solution.stresses)
+    assert (peak.value, peak.node) == (pytest.approx(value), node)
+    assert result.max_von_mises == pytest.approx(value)
     assert result.clear_peak_von_mises == peak
     x, y, _ = peak.location
     tol = 1e-6 * HALF_LENGTH

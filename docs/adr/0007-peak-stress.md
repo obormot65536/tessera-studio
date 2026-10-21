@@ -114,9 +114,9 @@ and a warning, so a real stress raiser inside a flagged band (a hole next to a c
 ## Action items
 
 1. [x] Maintainer approves the defaults.
-2. [ ] `model.results`: `StressSpot` (and flag/verdict types); extend `StudyResult` additively.
-3. [ ] `post`: node flags, stress spots, face peaks; `summarize` takes the solve job.
-4. [ ] CLI output: clear peak first, raw peak with location and warning, top 5 faces.
+2. [x] `model.results`: `StressSpot` (and flag/verdict types); extend `StudyResult` additively.
+3. [x] `post`: node flags, stress spots, face peaks; `summarize` takes the solve job.
+4. [x] CLI output: clear peak first, raw peak with location and warning, top 5 faces.
 5. [ ] `core.solve(..., check_mesh=False)` and `tessera solve --check-mesh` (second PR).
-6. [ ] Benchmarks: TS-01 root peak flagged; TS-02 hole peak not flagged.
-7. [ ] Docs: user guide Steps 7 and 9, API reference.
+6. [x] Benchmarks: TS-01 root peak flagged; TS-02 hole peak not flagged.
+7. [x] Docs: user guide Steps 7 and 9, API reference.
