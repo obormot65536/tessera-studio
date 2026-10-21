@@ -9,12 +9,20 @@ connectivity is already in C3D10 order, so it is written unchanged (plus one).
 
 Precision: the ASCII ``.frd`` file stores results as ``E12.5``, i.e. six significant digits.
 Results read back from it carry a relative rounding error of up to 5e-6.
+
+Stopping: ccx runs in its own process group (POSIX) or is stopped with ``taskkill /T``
+(Windows), so a timeout or an interrupt also stops any process it, or a wrapper script set in
+``$TESSERA_CCX``, started. A process that leaves the group itself (``setsid``) can escape.
 """
 
+import contextlib
+import math
 import os
 import re
 import shutil
+import signal
 import subprocess
+import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -23,7 +31,13 @@ import numpy as np
 from numpy.typing import NDArray
 
 from tessera.model.mesh import Mesh
-from tessera.model.solver import AnalysisKind, SolveJob, SolverError, SolveResult
+from tessera.model.solver import (
+    AnalysisKind,
+    SolveJob,
+    SolverError,
+    SolveResult,
+    SolverTimeoutError,
+)
 
 JOB_NAME = "job"
 CCX_ENV_VAR = "TESSERA_CCX"
@@ -319,6 +333,12 @@ class CalculixAdapter:
     name = "calculix"
 
     def __init__(self, timeout: float | None = None) -> None:
+        """``timeout``: seconds each ``run`` may take before ccx is stopped; ``None``: no limit.
+
+        ``tessera.core.solve`` always passes one (``tessera.core.SOLVE_TIMEOUT`` by default).
+        """
+        if timeout is not None and not (math.isfinite(timeout) and timeout > 0):
+            raise ValueError(f"timeout must be a positive number of seconds or None, got {timeout}")
         self.timeout = timeout
 
     def capabilities(self) -> frozenset[AnalysisKind]:
@@ -333,27 +353,13 @@ class CalculixAdapter:
             (workdir / f"{JOB_NAME}{suffix}").unlink(missing_ok=True)
         (workdir / f"{JOB_NAME}.inp").write_text(deck)
 
-        try:
-            proc = subprocess.run(
-                [ccx, "-i", JOB_NAME],
-                cwd=workdir,
-                capture_output=True,
-                text=True,
-                timeout=self.timeout,
-                check=False,
-            )
-        except subprocess.TimeoutExpired as exc:
-            log = _as_text(exc.stdout) + _as_text(exc.stderr)
-            raise SolverError(f"CalculiX timed out after {self.timeout} s", log) from exc
-        except OSError as exc:
-            raise SolverError(f"Could not start CalculiX ({ccx}): {exc}") from exc
-
-        log = proc.stdout + (f"\n--- stderr ---\n{proc.stderr}" if proc.stderr else "")
+        returncode, stdout, stderr = _run_ccx([ccx, "-i", JOB_NAME], workdir, self.timeout)
+        log = _log(stdout, stderr)
         frd = workdir / f"{JOB_NAME}.frd"
-        if "*ERROR" in proc.stdout or "*ERROR" in proc.stderr:
+        if "*ERROR" in stdout or "*ERROR" in stderr:
             raise SolverError(f"CalculiX reported an error: {_first_error(log)}", log)
-        if proc.returncode != 0:
-            raise SolverError(f"CalculiX exited with code {proc.returncode}", log)
+        if returncode != 0:
+            raise SolverError(f"CalculiX exited with code {returncode}", log)
         if not frd.is_file() or frd.stat().st_size == 0:
             raise SolverError("CalculiX produced no results file (job.frd)", log)
 
@@ -377,10 +383,78 @@ class CalculixAdapter:
         )
 
 
-def _as_text(data: str | bytes | None) -> str:
-    if data is None:
-        return ""
-    return data.decode(errors="replace") if isinstance(data, bytes) else data
+_DRAIN_SECONDS = 10.0
+"""How long to wait for the output of a stopped ccx before giving up on it."""
+
+
+def _run_ccx(cmd: list[str], workdir: Path, timeout: float | None) -> tuple[int, str, str]:
+    """Run ccx; return its exit code, stdout and stderr.
+
+    On a timeout, or any exception while waiting (Ctrl+C, a GUI cancel), ccx and every process
+    it started are killed before this returns or re-raises, so no solver keeps running.
+    """
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=workdir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            # POSIX: a new session and process group, so the whole tree can be killed at once.
+            start_new_session=sys.platform != "win32",
+        )
+    except OSError as exc:
+        raise SolverError(f"Could not start CalculiX ({cmd[0]}): {exc}") from exc
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        assert timeout is not None  # communicate only times out with a timeout
+        _kill_tree(proc)
+        stdout, stderr = _drain(proc)
+        raise SolverTimeoutError(
+            f"CalculiX did not finish within {timeout:g} s and was stopped",
+            timeout,
+            _log(stdout, stderr),
+        ) from None
+    except BaseException:
+        _kill_tree(proc)
+        _drain(proc)
+        raise
+    return proc.returncode, stdout, stderr
+
+
+def _kill_tree(proc: subprocess.Popen[str]) -> None:
+    """Kill ``proc`` and the processes it started (its process group / process tree)."""
+    if sys.platform == "win32":
+        # /T: the whole tree by parent pid; /F: forcefully. Works without a Job Object.
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+            capture_output=True,
+            check=False,
+            timeout=_DRAIN_SECONDS,
+        )
+    else:
+        with contextlib.suppress(ProcessLookupError):  # the group is already gone
+            os.killpg(proc.pid, signal.SIGKILL)
+    with contextlib.suppress(OSError):  # in case taskkill failed; the process may be gone
+        proc.kill()
+
+
+def _drain(proc: subprocess.Popen[str]) -> tuple[str, str]:
+    """Collect what a killed ccx wrote; give up if an escaped process holds the pipes open."""
+    try:
+        return proc.communicate(timeout=_DRAIN_SECONDS)
+    except subprocess.TimeoutExpired:
+        for pipe in (proc.stdout, proc.stderr):
+            if pipe is not None:
+                pipe.close()
+        proc.wait()
+        return "", ""
+
+
+def _log(stdout: str | None, stderr: str | None) -> str:
+    stdout, stderr = stdout or "", stderr or ""
+    return stdout + (f"\n--- stderr ---\n{stderr}" if stderr else "")
 
 
 def _first_error(log: str) -> str:

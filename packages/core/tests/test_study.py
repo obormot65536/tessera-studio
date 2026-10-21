@@ -1,5 +1,6 @@
 """core.solve wiring, tested with a fake solver so it runs without CalculiX."""
 
+import math
 from pathlib import Path
 
 import gmsh
@@ -356,3 +357,69 @@ def test_check_mesh_scales_every_element_size(
         calls.clear()
         solve(project, workdir=tmp_path, adapter=RecordingSolver(), check_mesh=True)
         assert calls == [(size, 1.0), (size, MESH_CHECK_REFINEMENT)]
+
+
+class RecordingCalculix(FakeSolver):
+    """Stands in for ``tessera.solvers.CalculixAdapter``; records the timeout of each run."""
+
+    def __init__(self, timeout: float | None = None) -> None:
+        super().__init__()
+        self.timeout = timeout
+        self.run_timeouts: list[float | None] = []
+
+    def run(self, job: SolveJob, workdir: Path) -> SolveResult:
+        self.run_timeouts.append(self.timeout)
+        return super().run(job, workdir)
+
+
+@pytest.fixture
+def recording_calculix(monkeypatch: pytest.MonkeyPatch) -> list[RecordingCalculix]:
+    """Every adapter ``solve`` builds, in order."""
+    import tessera.solvers
+
+    made: list[RecordingCalculix] = []
+
+    def make(timeout: float | None = None) -> RecordingCalculix:
+        made.append(RecordingCalculix(timeout))
+        return made[-1]
+
+    monkeypatch.setattr(tessera.solvers, "CalculixAdapter", make)
+    return made
+
+
+def test_the_built_in_solver_gets_a_finite_default_timeout(
+    bracket_step: Path, tmp_path: Path, recording_calculix: list[RecordingCalculix]
+) -> None:
+    # ADR-004: a hung solve must not block the GUI or MCP server forever.
+    from tessera.core import SOLVE_TIMEOUT
+
+    root, tip = _root_and_tip(bracket_step)
+    solve(_project(bracket_step, root, tip), workdir=tmp_path)
+    (adapter,) = recording_calculix
+    assert adapter.run_timeouts == [SOLVE_TIMEOUT]
+    assert math.isfinite(SOLVE_TIMEOUT) and SOLVE_TIMEOUT > 0
+
+
+def test_the_timeout_can_be_set_per_solve_and_applies_to_each_mesh_of_the_check(
+    bracket_step: Path, tmp_path: Path, recording_calculix: list[RecordingCalculix]
+) -> None:
+    root, tip = _root_and_tip(bracket_step)
+    project = _project(bracket_step, root, tip)
+    project.study.mesh_size = 8.0
+    solve(project, workdir=tmp_path, check_mesh=True, timeout=42.5)
+    (adapter,) = recording_calculix
+    assert adapter.run_timeouts == [42.5, 42.5]
+
+
+@pytest.mark.parametrize("timeout", [0.0, -5.0, math.nan, math.inf])
+def test_the_timeout_must_be_a_positive_number_of_seconds(
+    bracket_step: Path, recording_calculix: list[RecordingCalculix], timeout: float
+) -> None:
+    with pytest.raises(InputError, match="timeout must be a positive number of seconds"):
+        solve(_project(bracket_step, 1, 1), timeout=timeout)
+    assert recording_calculix == []
+
+
+def test_a_timeout_for_an_adapter_you_pass_belongs_on_that_adapter(bracket_step: Path) -> None:
+    with pytest.raises(ValueError, match="set it on the adapter"):
+        solve(_project(bracket_step, 1, 1), adapter=FakeSolver(), timeout=10.0)

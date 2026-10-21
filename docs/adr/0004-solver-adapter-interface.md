@@ -68,8 +68,16 @@ seam: it is exactly what a benchmark or a bug report needs to reproduce a run.
 3. [ ] Extend additively in v0.5: orientations, orthotropic materials, ties, contact, couplings.
 4. [ ] Registry by analysis kind once a second adapter exists (v0.1 core uses CalculiX
        directly but checks `capabilities()`).
-5. [ ] Default solver timeout before the GUI/MCP server can start solves (a hung contact solve
-       must not block them forever).
+5. [x] Default solver timeout before the GUI/MCP server can start solves (a hung contact solve
+       must not block them forever). Done: `tessera.core.solve` gives the built-in solver
+       `SOLVE_TIMEOUT` = 1800 s per solver run, overridable with `solve(timeout=...)` and
+       `tessera solve --timeout SECONDS`. The limit is per run, so `check_mesh` (two solves) can
+       take up to twice as long; meshing is not counted. On a timeout, or an interrupt while
+       waiting, the adapter kills ccx and everything it started (its own process group on
+       POSIX, `taskkill /F /T` on Windows) and raises `SolverTimeoutError`, a `SolverError`.
+       1800 s leaves room for a large fine mesh of the two-mesh check on a slow laptop, where
+       killing a solve that would have finished costs more than waiting for a rare hang; the
+       GUI should still offer a cancel button.
 6. [ ] High-order mesh quality: enable gmsh high-order optimization or report inverted curved
        elements clearly before CalculiX rejects them with a Jacobian error.
 7. [ ] Recover stresses at integration points for failure criteria: CalculiX's nodal frd

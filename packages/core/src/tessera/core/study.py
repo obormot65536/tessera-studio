@@ -45,11 +45,16 @@ def _mesh_part(part: PartInstance, size: float | None, size_factor: float = 1.0)
     raise InputError(f"unsupported geometry file {part.geometry.name!r}: use STEP or STL")
 
 
-def _default_adapter() -> SolverAdapter:
+SOLVE_TIMEOUT = 1800.0
+"""Seconds each run of the built-in solver may take before it is stopped (ADR-004). With
+``check_mesh`` each of the two solves gets this long. Meshing is not counted."""
+
+
+def _default_adapter(timeout: float) -> SolverAdapter:
     # v0.1 has one solver; ADR-004's registry by analysis kind arrives with the second one.
     from tessera.solvers import CalculixAdapter
 
-    return CalculixAdapter()
+    return CalculixAdapter(timeout=timeout)
 
 
 MESH_CHECK_REFINEMENT = 1.0 / math.sqrt(2.0)
@@ -63,6 +68,7 @@ def solve(
     adapter: SolverAdapter | None = None,
     *,
     check_mesh: bool = False,
+    timeout: float | None = None,
 ) -> StudyResult:
     """Mesh and solve the project's static study. v0.1: one part, no connections.
 
@@ -70,7 +76,19 @@ def solve(
     with every element size scaled by ``MESH_CHECK_REFINEMENT``. The result is the fine solve,
     with ``mesh_check`` saying which of its numbers settled between the two (see
     ``tessera.post.compare_meshes``). The coarse solve's files go to ``workdir / "coarse"``.
+
+    ``timeout`` is the seconds each solver run may take before it is stopped and
+    ``SolverTimeoutError`` is raised; ``None`` means ``SOLVE_TIMEOUT``. It applies to every
+    solve on its own, so with ``check_mesh`` the solver may run for up to twice as long. It is
+    for the built-in solver: an ``adapter`` you pass keeps its own limit.
     """
+    if timeout is not None:
+        if adapter is not None:
+            raise ValueError("solve's timeout is for the built-in solver; set it on the adapter")
+        if not (math.isfinite(timeout) and timeout > 0):
+            raise InputError(
+                f"the solver timeout must be a positive number of seconds, got {timeout:g}"
+            )
     project = validated(project)
     parts = project.assembly.parts
     if len(parts) != 1 or project.assembly.connections:
@@ -81,7 +99,7 @@ def solve(
     if part.material_id is None:
         raise InputError(f"part {part.id!r} has no material")
 
-    adapter = adapter or _default_adapter()
+    adapter = adapter or _default_adapter(SOLVE_TIMEOUT if timeout is None else timeout)
     analysis = AnalysisKind(project.study.analysis)
     if analysis not in adapter.capabilities():
         raise InputError(f"solver {adapter.name!r} cannot run a {analysis} analysis")

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Solver timeout (ADR-004): a solve started through `tessera.core` now stops CalculiX after
+  1800 s per solver run instead of waiting forever, and also stops every process it started
+  (on Linux, macOS and Windows). `tessera solve --timeout SECONDS` and
+  `solve(project, timeout=...)` change the limit; with `--check-mesh` each of the two solves
+  gets the full limit. A timeout is a `SolverTimeoutError` (a `SolverError`, in
+  `tessera.model`) and exit code 2 with `solver failed: CalculiX did not finish within ... s
+  and was stopped`. `tessera.core.SOLVE_TIMEOUT` holds the default. `CalculixAdapter` itself
+  still defaults to no limit, and refuses a timeout that is not a positive number.
 - Two-mesh check (ADR-007): `tessera solve --check-mesh` solves the study again with every
   element about 1/√2 as long and marks each printed number `settled` (changed by 5 % or less),
   `mesh-dependent`, or `not judged` where the second mesh did not get finer (its elements there
