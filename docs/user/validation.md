@@ -2,7 +2,7 @@
 
 Tessera is checked against simple problems whose answers are known from textbooks. If Tessera
 gets those right, its mesher, supports, loads and solver are working together. This page
-summarises the six checks that pass today. The full plan, with 31 more checks still to do, is in
+summarises the seven checks that pass today. The full plan, with 30 more checks still to do, is in
 [`benchmarks/CATALOG.md`](../../benchmarks/CATALOG.md).
 
 ## What the checks do not show
@@ -12,7 +12,7 @@ summarises the six checks that pass today. The full plan, with 31 more checks st
 - Passing means the answer is within a stated tolerance at one mesh size. Your own study still
   needs the two-mesh check described in [study-setup.md](study-setup.md), Step 7.
 
-## The six passing checks
+## The seven passing checks
 
 Each row is one check. "Gate" is the largest error allowed. "Error at gate" is the error Tessera
 gave at the mesh size the test uses. Numbers come from one run of the suite on 21 October 2026
@@ -25,6 +25,7 @@ with CalculiX 2.21.
 | **TS-04** Bar under its own weight | Stretch of a 200 mm steel bar hanging under gravity, and stress halfway down | ρgL²/(2E) = 7.334 × 10⁻⁶ mm; stress ρgL/2 = 7.70 × 10⁻³ MPa | 2 % | 5.0 mm | 0.004 % (stretch), 0.001 % (stress) |
 | **TS-06** Thick-walled cylinder | Hoop stress and radial growth of a steel tube (inner radius 10 mm, outer 20 mm) at 10 MPa inside | Lamé's solution: hoop stress 16.67 MPa, radial growth 9.365 × 10⁻⁴ mm | 2 % stress, 1 % growth | 1.25 mm | 0.08 % (stress), 0.003 % (growth) |
 | **TS-07** Thick-walled sphere | Hoop stress and radial growth of a hollow steel ball (inner radius 10 mm, outer 20 mm) at 10 MPa inside | Lamé's solution: hoop stress 7.143 MPa, radial growth 3.810 × 10⁻⁴ mm | 2 % stress, 1 % growth | 1.25 mm | 0.48 % (stress), 0.009 % (growth) |
+| **TS-08** Clamped plate | Centre deflection of a steel disc (radius 20 mm, 2 mm thick) clamped at its rim, under 1 MPa | Plate theory with a shear correction: 0.01699 mm | 2 % | 0.667 mm | 0.65 % |
 | **TS-09** Torsion | Twist and maximum shear stress of a 10 mm round shaft and a 10 mm square bar, 60 mm long, under 10 000 N·mm | Saint-Venant torsion theory | 2 % twist, 3 % shear | 2.5 mm | Round: 0.004 % (twist), 0.22 % (shear). Square: 0.42 % (twist), 0.78 % (shear) |
 
 Notes on the rows:
@@ -37,6 +38,9 @@ Notes on the rows:
 - **TS-06** uses symmetry faces, so one quarter of the tube is modelled.
 - **TS-07** uses three symmetry faces, so one eighth of the sphere is modelled. The pressure acts
   on a surface curved in both directions.
+- **TS-08** models a quarter of the disc. The disc is thick enough that the reference includes a
+  shear term (+4.6 %); without it the error would read 3.5 %. The simply supported version waits
+  for line supports.
 - **TS-09** applies the torque with Tessera's moment load, the same load you can use in a study.
 
 ## Convergence

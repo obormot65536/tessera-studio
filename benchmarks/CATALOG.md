@@ -69,7 +69,7 @@ primary source.
 | TS-05 | v0.1 | Simply supported beam, uniform load | planned |
 | TS-06 | v0.1 | Thick-walled cylinder, internal pressure (Lamé) | passing |
 | TS-07 | v0.1 | Thick-walled sphere, internal pressure (Lamé) | passing |
-| TS-08 | v0.1 | Circular plate, uniform pressure, clamped and simply supported | A: awaiting reference; B: planned (needs line supports) |
+| TS-08 | v0.1 | Circular plate, uniform pressure, clamped and simply supported | A: passing; B: planned (needs line supports) |
 | TS-09 | v0.1 | Torsion of circular and square bars (Saint-Venant) | passing |
 | TS-10 | v0.1 | Thin ring under diametral compression (curved beam) | planned |
 | TS-11 | v0.1 | NAFEMS LE1 elliptic membrane | planned |
@@ -100,7 +100,7 @@ primary source.
 | TT-04 | v3 | Steady radial conduction and thermal stress in a thick cylinder | planned |
 | TF-01 | v4 | Laminar pipe flow (Hagen-Poiseuille) | planned |
 
-Count: v0.1 12 (6 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
+Count: v0.1 12 (7 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
 
 ---
 
@@ -229,10 +229,10 @@ Count: v0.1 12 (6 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
 ### TS-08 Circular plate under uniform pressure
 
 - **Problem:** disc of radius a, thickness h, uniform pressure q on the top face.
-  - Variant A (`awaiting reference`): outer cylindrical face fully clamped. Steel disc a = 20,
+  - Variant A (`passing`): outer cylindrical face fully clamped. Steel disc a = 20,
     h = 2 mm (a/h = 10), q = 1 MPa; quarter disc with symmetry rollers on the two cut planes.
     Case: `benchmarks/cases/test_clamped_plate.py`, reference file
-    `clamped_plate.toml` (proposed, not yet approved).
+    `clamped_plate.toml` (approved).
   - Variant B (`planned`, needs line supports): simply supported, i.e. a ring support
     (u_z = 0 on the bottom outer edge). Tessera has no line/edge supports yet.
 - **Quantity:** centre deflection. A: w0 = q a^4 / (64 D) + q a^2 / (4 kappa G h), i.e. the
@@ -258,7 +258,7 @@ Count: v0.1 12 (6 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
 - **Equivalents:** none recorded.
 - **Features:** pressure, clamped curved face, rollers on cut planes, thin-body meshing (at
   least 3 quadratic elements through the thickness); edge/ring support (variant B, missing).
-- **Tolerance:** 2 % (A, proposed); 3 % (B, the ring-support idealisation is ambiguous in 3D).
+- **Tolerance:** 2 % (A, approved); 3 % (B, the ring-support idealisation is ambiguous in 3D).
 - **Measured, variant A** (CalculiX 2.21; the gate mesh is h/3 = 0.667 mm, 3 elements through
   the thickness; the case runs the sweep 2 / 1 / 0.667 mm, about 12 s in total):
 

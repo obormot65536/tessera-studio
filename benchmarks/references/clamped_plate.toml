@@ -1,0 +1,5 @@
+# Approved by the maintainer for TS-08 variant A.
+description = "Quarter of a clamped steel disc a = 20, h = 2 mm (a/h = 10), steel-generic, uniform pressure 1 MPa on the top face, outer cylindrical face fully fixed, symmetry rollers on the two cut planes, C3D10 with 3 elements through the thickness; centre deflection of the mid-surface node"
+source = "Clamped circular plate under uniform load, Mindlin/Reissner (kappa = 5/6): w0 = q a^4/(64 D) + q a^2/(4 kappa G h) = q a^4/(64 D) [1 + 16/(5(1-nu)) (h/a)^2], D = E h^3/(12(1-nu^2)). Kirchhoff part: Timoshenko & Woinowsky-Krieger, Theory of Plates and Shells, 2nd ed., ch. 3 (section unverified); shear part derived in the case module (unverified against a book)"
+reference_centre_deflection_mm = 0.016992857142857143
+rel_tolerance = 0.02
