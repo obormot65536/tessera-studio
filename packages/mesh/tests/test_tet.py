@@ -62,3 +62,50 @@ def test_mesh_options_do_not_leak_into_a_running_gmsh_session(box_step: Path) ->
         assert mesh_step(box_step, part_id="box").n_nodes == fresh
     finally:
         gmsh.finalize()
+
+
+@pytest.fixture(scope="module")
+def plate_with_small_hole(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """100 x 40 x 3 plate with a 1 mm radius hole at (50, 20): gmsh sizes the hole by its
+    points per circle, not by the size cap."""
+    path = tmp_path_factory.mktemp("geom") / "plate.step"
+    gmsh.initialize(interruptible=False)
+    gmsh.option.setNumber("General.Terminal", 0)
+    plate = gmsh.model.occ.addBox(0, 0, 0, 100, 40, 3)
+    hole = gmsh.model.occ.addCylinder(50, 20, -1, 0, 0, 5, 1.0)
+    gmsh.model.occ.cut([(3, plate)], [(3, hole)])
+    gmsh.model.occ.synchronize()
+    gmsh.write(str(path))
+    gmsh.finalize()
+    return path
+
+
+def _edge_lengths(mesh) -> tuple[float, float]:
+    """(median corner edge length, the same within 2 mm of the hole axis), mm."""
+    el = mesh.elements
+    pairs = np.array(TET10_EDGES)
+    a, b = el[:, pairs[:, 0]].ravel(), el[:, pairs[:, 1]].ravel()
+    length = np.linalg.norm(mesh.nodes[a] - mesh.nodes[b], axis=1)
+    middle = 0.5 * (mesh.nodes[a] + mesh.nodes[b])
+    near = np.hypot(middle[:, 0] - 50.0, middle[:, 1] - 20.0) < 2.0
+    return float(np.median(length)), float(np.median(length[near]))
+
+
+@pytest.mark.parametrize("size", [None, 2.5])
+def test_size_factor_refines_everywhere_including_small_holes(
+    plate_with_small_hole: Path, size: float | None
+) -> None:
+    # A two-mesh check (ADR-007) is only a check where the mesh got finer. Capping the size
+    # alone leaves the hole's elements unchanged (measured 0.96x): the factor must reach them.
+    coarse = _edge_lengths(mesh_step(plate_with_small_hole, part_id="p", size=size))
+    fine = _edge_lengths(
+        mesh_step(plate_with_small_hole, part_id="p", size=size, size_factor=2**-0.5)
+    )
+    assert fine[0] / coarse[0] <= 0.8, "the mesh as a whole did not get finer"
+    assert fine[1] / coarse[1] <= 0.8, "the mesh at the small hole did not get finer"
+
+
+@pytest.mark.parametrize("factor", [0.0, -0.5, 1.5])
+def test_size_factor_must_refine(box_step: Path, factor: float) -> None:
+    with pytest.raises(ValueError, match="size_factor"):
+        mesh_step(box_step, part_id="box", size_factor=factor)

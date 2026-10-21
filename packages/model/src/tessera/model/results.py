@@ -92,6 +92,8 @@ class Verdict(StrEnum):
     """It changed by at most the threshold between the two meshes."""
     MESH_DEPENDENT = "mesh-dependent"
     """It changed by more than the threshold: do not compare it with a strength."""
+    NOT_REFINED = "not-refined"
+    """The fine mesh was not fine enough there to judge it: no verdict, the flags still apply."""
 
 
 @dataclass(frozen=True)
@@ -103,12 +105,15 @@ class SpotCheck:
     """The value reported in the result."""
     change: float
     """|fine - coarse| / |fine|; ``inf`` if only the fine value is zero."""
+    refinement: float
+    """How much finer the fine mesh is there: local element edge length, fine / coarse."""
     verdict: Verdict
 
 
 @dataclass(frozen=True)
 class MeshCheck:
-    """The two-mesh check of a study (ADR-007): solved again with elements 1/sqrt(2) as long.
+    """The two-mesh check of a study (ADR-007): solved again with every element size scaled by
+    1/sqrt(2).
 
     Every number in the ``StudyResult`` carrying this check comes from the fine mesh.
     """
@@ -120,6 +125,8 @@ class MeshCheck:
     coarse_nodes: int
     threshold: float
     """Largest relative change that still counts as settled."""
+    refinement_limit: float
+    """Largest local refinement ratio (fine / coarse edge length) at which a number is judged."""
     max_displacement: SpotCheck
     peak_von_mises: SpotCheck
     clear_peak_von_mises: SpotCheck | None

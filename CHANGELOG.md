@@ -2,11 +2,13 @@
 
 ## Unreleased
 
-- Two-mesh check (ADR-007): `tessera solve --check-mesh` solves the study again with elements
-  1/√2 as long and marks each printed number `settled` (changed by 5 % or less) or
-  `mesh-dependent`. All numbers come from the finer mesh; it takes 3 to 5 times as long. API:
-  `solve(project, check_mesh=True)` fills `StudyResult.mesh_check` (`MeshCheck`, `SpotCheck`,
-  `Verdict` in `tessera.model`; `compare_meshes` in `tessera.post`).
+- Two-mesh check (ADR-007): `tessera solve --check-mesh` solves the study again with every
+  element about 1/√2 as long and marks each printed number `settled` (changed by 5 % or less),
+  `mesh-dependent`, or `not judged` where the second mesh did not get finer (its elements there
+  more than 0.85 times their first size). All numbers come from the finer mesh; it takes 3 to 5
+  times as long. API: `solve(project, check_mesh=True)` fills `StudyResult.mesh_check`
+  (`MeshCheck`, `SpotCheck`, `Verdict` in `tessera.model`; `compare_meshes` in
+  `tessera.post`); `mesh_step` and `mesh_surface` take a `size_factor`.
 - Where the peak stress is, and whether it depends on the mesh (ADR-007): `tessera solve` now
   leads with the largest von Mises stress away from supports and sharp inside edges, then the
   overall peak with its location, face and, when it sits near a fixed support or a sharp

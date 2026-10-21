@@ -35,13 +35,13 @@ def describe_edges(project: Project, part_id: str) -> list[EdgeInfo]:
     return geometry.describe_edges(part_named(validated(project), part_id).geometry)
 
 
-def _mesh_part(part: PartInstance, size: float | None) -> Mesh:
+def _mesh_part(part: PartInstance, size: float | None, size_factor: float = 1.0) -> Mesh:
     suffix = part.geometry.suffix.lower()
     if suffix in geometry.STL_SUFFIXES:
         surface = geometry.read_stl(part.geometry)
-        return mesh.mesh_surface(surface, part_id=part.id, size=size)
+        return mesh.mesh_surface(surface, part_id=part.id, size=size, size_factor=size_factor)
     if suffix in geometry.STEP_SUFFIXES:
-        return mesh.mesh_step(part.geometry, part_id=part.id, size=size)
+        return mesh.mesh_step(part.geometry, part_id=part.id, size=size, size_factor=size_factor)
     raise InputError(f"unsupported geometry file {part.geometry.name!r}: use STEP or STL")
 
 
@@ -53,8 +53,8 @@ def _default_adapter() -> SolverAdapter:
 
 
 MESH_CHECK_REFINEMENT = 1.0 / math.sqrt(2.0)
-"""Element size of the fine mesh in a two-mesh check, as a fraction of the coarse one (ADR-007,
-approved by the maintainer)."""
+"""Every element size of the fine mesh in a two-mesh check, as a fraction of the coarse mesh's
+(ADR-007, approved by the maintainer)."""
 
 
 def solve(
@@ -67,10 +67,9 @@ def solve(
     """Mesh and solve the project's static study. v0.1: one part, no connections.
 
     With ``check_mesh`` the study is solved twice (ADR-007): at the project's mesh size, then
-    with elements ``MESH_CHECK_REFINEMENT`` times as long. The result is the fine solve, with
-    ``mesh_check`` saying which of its numbers changed by more than
-    ``tessera.post.MESH_CHECK_THRESHOLD`` (5 %) between the two. The
-    coarse solve's files go to ``workdir / "coarse"``.
+    with every element size scaled by ``MESH_CHECK_REFINEMENT``. The result is the fine solve,
+    with ``mesh_check`` saying which of its numbers settled between the two (see
+    ``tessera.post.compare_meshes``). The coarse solve's files go to ``workdir / "coarse"``.
     """
     project = validated(project)
     parts = project.assembly.parts
@@ -90,15 +89,16 @@ def solve(
     if workdir is None:
         workdir = Path(tempfile.mkdtemp(prefix="tessera-"))
 
-    def run(size: float | None, where: Path) -> StudyResult:
-        job = physics.build_static_job(project.study, part, _mesh_part(part, size), material)
+    size = project.study.mesh_size
+
+    def run(where: Path, size_factor: float = 1.0) -> StudyResult:
+        part_mesh = _mesh_part(part, size, size_factor)
+        job = physics.build_static_job(project.study, part, part_mesh, material)
         where.mkdir(parents=True, exist_ok=True)
         return post.summarize(job, adapter.run(job, where), workdir=where)
 
-    size = project.study.mesh_size
     if not check_mesh:
-        return run(size, workdir)
-    coarse = run(size, workdir / "coarse")
-    # With an automatic size, refine what the mesher chose: its median element edge.
-    fine = run((size or coarse.node_flags.edge_length) * MESH_CHECK_REFINEMENT, workdir)
+        return run(workdir)
+    coarse = run(workdir / "coarse")
+    fine = run(workdir, MESH_CHECK_REFINEMENT)
     return dataclasses.replace(fine, mesh_check=post.compare_meshes(coarse, fine))

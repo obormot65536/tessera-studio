@@ -375,20 +375,30 @@ def _reasons(spot: StressSpot) -> str:
     return " and ".join(str(flag) for flag in spot.flags)
 
 
+def _percent(fraction: float) -> str:
+    """0.029 %, 4.96 %, 17.4 %, 178 %: enough digits to tell 4.96 from 5.04 at the threshold."""
+    percent = 100 * fraction
+    if percent < 1:
+        return f"{percent:.2g}"
+    return f"{percent:.3g}" if percent < 100 else f"{percent:.0f}"
+
+
 def _change(check: SpotCheck) -> str:
     """How a number moved between the two meshes of ``--check-mesh``."""
+    if check.verdict is Verdict.NOT_REFINED:
+        return (
+            f"not judged: the finer mesh is only {check.refinement:.2f} times the element size here"
+        )
     if math.isinf(check.change):
         return f"{check.verdict}, was {check.coarse:.6g} on the coarse mesh"
-    percent = 100 * check.change
-    shown = f"{percent:.2g}" if percent < 100 else f"{percent:.0f}"  # 17 %, 178 %, not 1.8e+02
-    return f"{check.verdict}, changed {shown} % between the meshes"
+    return f"{check.verdict}, changed {_percent(check.change)} % between the meshes"
 
 
 def _mesh_check_header(check: MeshCheck) -> str:
     return (
         f"mesh check: solved with median element edge {check.coarse_edge_length:.3g} mm "
         f"({check.coarse_nodes} nodes), then {check.fine_edge_length:.3g} mm; the numbers below "
-        f"are from the finer mesh, settled = changed by at most {100 * check.threshold:.2g} %"
+        f"are from the finer mesh, settled = changed by at most {_percent(check.threshold)} %"
     )
 
 
@@ -435,17 +445,22 @@ def solve_cmd(
         )
     typer.echo(f"max von Mises stress: {result.max_von_mises:.6g} MPa {_where(peak)}")
     near = f"{_reasons(peak)} (within {d:.3g} mm)"
-    if check is not None:
+    judged = check is not None and check.peak_von_mises.verdict is not Verdict.NOT_REFINED
+    if check is not None and judged:
         # The measured verdict replaces the flags' guess (ADR-007).
         line = _change(check.peak_von_mises)
         if check.peak_von_mises.verdict is Verdict.MESH_DEPENDENT:
             line += "; do not compare it with a strength"
         typer.echo(f"  {near}: {line}" if peak.flagged else f"  {line}")
     elif peak.flagged:
-        typer.echo(
-            f"  {near}: the stress there may keep rising as the mesh is refined; compare two "
-            "mesh sizes (--check-mesh) before trusting either value"
+        advice = (
+            "compare two mesh sizes (--check-mesh) before trusting either value"
+            if check is None
+            else _change(check.peak_von_mises)
         )
+        typer.echo(f"  {near}: the stress there may keep rising as the mesh is refined; {advice}")
+    elif check is not None:
+        typer.echo(f"  {_change(check.peak_von_mises)}")
     shown = result.face_peaks[:FACE_PEAKS_SHOWN]
     if shown:
         typer.echo(f"max von Mises stress by face ({len(shown)} of {len(result.face_peaks)}):")

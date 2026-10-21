@@ -535,10 +535,10 @@ tessera solve beam.tessera.json --workdir run-1.25
 
 ### Let Tessera compare two meshes
 
-`--check-mesh` solves the study twice: once at your mesh size, then with elements about 1/√2
-as long (about 2.8 times as many nodes). It takes 3 to 5 times as long as one solve. Every
-number it prints comes from the finer mesh, and each one says how much it changed between the
-two:
+`--check-mesh` solves the study twice: once at your mesh size, then with every element about
+1/√2 as long, including the small ones gmsh puts at small holes and short edges (2 to 3 times
+as many nodes). It takes 3 to 5 times as long as one solve. Every number it prints comes from
+the finer mesh, and each one says how much it changed between the two:
 
 ```
 tessera solve beam.tessera.json --workdir run-2.5 --check-mesh
@@ -552,13 +552,13 @@ mesh check: solved with median element edge 2.7 mm (13213 nodes), then 2.05 mm; 
 max displacement: 1.52221 mm (settled, changed 0.029 % between the meshes)
 von Mises stress away from supports and sharp inside edges: 116.484 MPa at (5.251, 3.927, 0) mm, face 5 (settled, changed 0.021 % between the meshes)
 max von Mises stress: 130.572 MPa at (0, 10, 10) mm, face 1
-  near support 'root' (within 4.1 mm): mesh-dependent, changed 7.8 % between the meshes; do not compare it with a strength
+  near support 'root' (within 4.1 mm): mesh-dependent, changed 7.79 % between the meshes; do not compare it with a strength
 max von Mises stress by face (5 of 6):
-  face 1: 130.572 MPa at (0, 10, 10) mm, near support 'root' (mesh-dependent, changed 12 % between the meshes)
-  face 4: 130.572 MPa at (0, 10, 10) mm, near support 'root' (mesh-dependent, changed 10 % between the meshes)
-  face 6: 130.572 MPa at (0, 10, 10) mm, near support 'root' (mesh-dependent, changed 7.8 % between the meshes)
+  face 1: 130.572 MPa at (0, 10, 10) mm, near support 'root' (mesh-dependent, changed 12.4 % between the meshes)
+  face 4: 130.572 MPa at (0, 10, 10) mm, near support 'root' (mesh-dependent, changed 10.1 % between the meshes)
+  face 6: 130.572 MPa at (0, 10, 10) mm, near support 'root' (mesh-dependent, changed 7.79 % between the meshes)
   face 5: 129.983 MPa at (0, 10, 0) mm, near support 'root' (mesh-dependent, changed 7.7 % between the meshes)
-  face 3: 129.891 MPa at (0, 0, 0) mm, near support 'root' (mesh-dependent, changed 9.7 % between the meshes)
+  face 3: 129.891 MPa at (0, 0, 0) mm, near support 'root' (mesh-dependent, changed 9.66 % between the meshes)
 solver files: run-2.5
 ```
 
@@ -566,16 +566,26 @@ solver files: run-2.5
 - **mesh-dependent**: it changed by more than 5 %. Do not compare it with a strength. Use a
   finer mesh, or read it as described in "The stress away from supports and sharp inside edges
   can read low" above.
+- **not judged**: the finer mesh did not get finer enough where this number is (its elements
+  there are more than 0.85 times their size on the first mesh), so the check says nothing about
+  it. Any mark on it still applies.
 - A measured verdict replaces the marks: a marked peak that settled can be used, and an
   unmarked one that did not settle cannot (but see the next paragraph).
+- Each number is compared with the same kind of number on the other mesh: the largest stress
+  with the largest stress, face 3's peak with face 3's peak. If two places have almost the same
+  peak, the two meshes may put it in different places; check that the location is the same.
+- The stress away from supports and sharp inside edges is taken a little closer to the marked
+  places on the finer mesh, because the marked band is twice the element size. Part of its
+  change can come from that.
 - The element edge is measured on the mesh, so it can differ a little from `--mesh-size`.
 - The coarse solve's files go to the `coarse` folder inside `--workdir`.
 
 **A very coarse mesh can hide a problem.** The check sees how much a number moves, and on a
 mesh too coarse to show the stress rise at a clamp, the peak there barely moves. The example
-beam at 5 mm (two elements through its 10 mm depth) reads `settled, changed 1.1 %` at the
-clamped end, while at 2.5 mm (four elements) the same peak is `mesh-dependent`. Use at least
-four elements through the thinnest wall before you trust a `settled`.
+beam at 5 mm, two elements through its 10 mm depth, reads `settled, changed 1.12 %` at the
+clamped end; at 2.5 mm, four elements, the same peak is `mesh-dependent`. If a thin wall
+carries the load and has only one or two elements across it, refine before you trust a
+`settled` there.
 
 ### What to change in the print
 

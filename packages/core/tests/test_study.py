@@ -336,23 +336,23 @@ def test_check_mesh_solves_again_on_a_finer_mesh(bracket_step: Path, tmp_path: P
     assert check.max_displacement.verdict is Verdict.SETTLED
 
 
-def test_check_mesh_refines_an_automatic_size(
+def test_check_mesh_scales_every_element_size(
     bracket_step: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import tessera.core.study as study
 
-    sizes: list[float | None] = []
+    calls: list[tuple[float | None, float]] = []
     mesh_part = study._mesh_part
 
-    def recording(part: PartInstance, size: float | None):
-        sizes.append(size)
-        return mesh_part(part, size)
+    def recording(part: PartInstance, size: float | None, size_factor: float = 1.0):
+        calls.append((size, size_factor))
+        return mesh_part(part, size, size_factor)
 
     monkeypatch.setattr(study, "_mesh_part", recording)
     root, tip = _root_and_tip(bracket_step)
     project = _project(bracket_step, root, tip)
-    project.study.mesh_size = None
-    result = solve(project, workdir=tmp_path, adapter=RecordingSolver(), check_mesh=True)
-    assert result.mesh_check is not None
-    coarse_h = result.mesh_check.coarse_edge_length
-    assert sizes == [None, pytest.approx(coarse_h * MESH_CHECK_REFINEMENT)]
+    for size in (4.0, None):  # the same settings, scaled, also when gmsh picks the size
+        project.study.mesh_size = size
+        calls.clear()
+        solve(project, workdir=tmp_path, adapter=RecordingSolver(), check_mesh=True)
+        assert calls == [(size, 1.0), (size, MESH_CHECK_REFINEMENT)]

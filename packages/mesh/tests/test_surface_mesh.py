@@ -141,3 +141,9 @@ def test_inverted_stl_meshes_like_the_original(
     mesh = mesh_surface(flipped, part_id="box", size=5.0)
     assert _tet_volume(mesh) == pytest.approx(4000.0, rel=1e-6)
     assert len(mesh.surfaces) == box_surface.n_faces
+
+
+def test_size_factor_refines_an_stl_mesh(plate_surface: TriangleSurface) -> None:
+    coarse = mesh_surface(plate_surface, part_id="plate", size=4.0)
+    fine = mesh_surface(plate_surface, part_id="plate", size=4.0, size_factor=2**-0.5)
+    assert fine.n_nodes > 2 * coarse.n_nodes

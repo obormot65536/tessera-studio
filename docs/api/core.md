@@ -513,22 +513,30 @@ and at the edges of loaded faces are not flagged yet.
 
 #### Mesh check
 
-`solve(project, check_mesh=True)` solves the study at the project's `mesh_size`, then again
-with elements `MESH_CHECK_REFINEMENT` (1/√2) times as long. With `mesh_size = None` the fine
-size is 1/√2 of the coarse mesh's median element edge. The returned `StudyResult` is the fine
-solve, so every number in it comes from the fine mesh, and `mesh_check` compares them with the
-coarse solve (ADR-007):
+`solve(project, check_mesh=True)` solves the study at the project's `mesh_size` (or gmsh's own
+sizes when it is `None`), then again with every element size gmsh uses scaled by
+`MESH_CHECK_REFINEMENT` (1/√2), including the small elements it places at small holes and short
+curves. The returned `StudyResult` is the fine solve, so every number in it comes from the fine
+mesh, and `mesh_check` compares them with the coarse solve (ADR-007):
 
 | Type | Fields | Notes |
 |---|---|---|
-| `MeshCheck` | `coarse_edge_length`, `fine_edge_length` (mm), `coarse_nodes: int`, `threshold: float`, `max_displacement: SpotCheck`, `peak_von_mises: SpotCheck`, `clear_peak_von_mises: SpotCheck \| None`, `face_peaks: dict[int, SpotCheck]` | Edge lengths are each mesh's median corner edge length. `clear_peak_von_mises` is `None` unless both meshes have a clear peak; `face_peaks` has the faces with a peak on both meshes. |
-| `SpotCheck` | `coarse: float`, `fine: float`, `change: float`, `verdict: Verdict` | `change` = \|fine − coarse\| / \|fine\|; `inf` if only the fine value is zero. |
-| `Verdict` | `SETTLED = "settled"`, `MESH_DEPENDENT = "mesh-dependent"` | Settled if `change <= threshold`. |
+| `MeshCheck` | `coarse_edge_length`, `fine_edge_length` (mm), `coarse_nodes: int`, `threshold: float`, `refinement_limit: float`, `max_displacement: SpotCheck`, `peak_von_mises: SpotCheck`, `clear_peak_von_mises: SpotCheck \| None`, `face_peaks: dict[int, SpotCheck]` | Edge lengths are each mesh's median corner edge length. `clear_peak_von_mises` is `None` unless both meshes have a clear peak; `face_peaks` has the faces with a peak on both meshes. |
+| `SpotCheck` | `coarse: float`, `fine: float`, `change: float`, `refinement: float`, `verdict: Verdict` | `change` = \|fine − coarse\| / \|fine\|; `inf` if only the fine value is zero. `refinement` is the local element edge length, fine / coarse, where the fine value was taken (for the displacement, the ratio of the median edge lengths). |
+| `Verdict` | `SETTLED = "settled"`, `MESH_DEPENDENT = "mesh-dependent"`, `NOT_REFINED = "not-refined"` | `NOT_REFINED` if `refinement > refinement_limit` (or it could not be measured); otherwise settled if `change <= threshold`. |
 
-Numbers are compared like with like: the raw peak with the raw peak, and each face's peak with
-the same face's peak, wherever on it they sit. `threshold` is `tessera.post.MESH_CHECK_THRESHOLD`
-(5 %). `tessera.post.compare_meshes(coarse, fine, threshold)` and `spot_check(coarse, fine,
-threshold)` do the comparison for results you solved yourself.
+`threshold` is `tessera.post.MESH_CHECK_THRESHOLD` (5 %) and `refinement_limit` is
+`tessera.post.MESH_CHECK_REFINEMENT_LIMIT` (0.85). A number the fine mesh did not refine around
+is not judged: an unchanged value there says nothing, and its flags still apply.
+`tessera.post.compare_meshes(coarse, fine, threshold, refinement_limit)`, `spot_check` and
+`local_edge_length(mesh, point)` (the median corner edge length of the elements at the node
+nearest the point) do the comparison for results you solved yourself.
+
+Numbers are compared like with like, by value: the raw peak with the raw peak, and each face's
+peak with the same face's peak, wherever on it they sit. If two places have nearly the same
+peak, the two meshes may put it in different places; compare the locations. The clear peak is
+taken outside a flag band of 2 h, which narrows on the fine mesh, so part of its change can come
+from the band rather than from convergence.
 
 A verdict is measured, so it replaces the flags: report a flagged spot that settled, not an
 unflagged one that is mesh-dependent. On a mesh too coarse to resolve a clamp (two elements

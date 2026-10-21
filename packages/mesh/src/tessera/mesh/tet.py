@@ -16,22 +16,42 @@ _GMSH_TRI6 = 9
 _GMSH_TO_C3D10 = np.array([0, 1, 2, 3, 4, 5, 6, 7, 9, 8])
 
 
-def _mesh_options(size: float | None) -> dict[str, float | str]:
+# gmsh's defaults for the fewest segments on a circle and on any other curve.
+_MIN_CIRCLE_POINTS = 7
+_MIN_CURVE_POINTS = 3
+
+
+def _mesh_options(size: float | None, size_factor: float = 1.0) -> dict[str, float | str]:
+    if not 0.0 < size_factor <= 1.0:
+        raise ValueError(f"size_factor must be in (0, 1], got {size_factor}")
     options: dict[str, float | str] = {"Mesh.ElementOrder": 2}
     if size is not None:
         options |= {"Mesh.MeshSizeMax": size, "Mesh.MeshSizeMin": size / 4}
+    if size_factor != 1.0:
+        # Scale every size gmsh uses, including the small elements it places at small holes
+        # and short curves, which its point counts per curve set rather than ``size``.
+        options |= {
+            "Mesh.MeshSizeFactor": size_factor,
+            "Mesh.MinimumCirclePoints": math.ceil(_MIN_CIRCLE_POINTS / size_factor),
+            "Mesh.MinimumCurvePoints": math.ceil(_MIN_CURVE_POINTS / size_factor),
+        }
     return options
 
 
-def mesh_step(path: Path, *, part_id: str, size: float | None = None) -> Mesh:
+def mesh_step(
+    path: Path, *, part_id: str, size: float | None = None, size_factor: float = 1.0
+) -> Mesh:
     """Mesh a single-solid STEP file with C3D10 tetrahedra.
+
+    ``size`` caps the element size (mm; ``None`` lets gmsh choose). ``size_factor`` in (0, 1]
+    scales every element size gmsh would use, for a uniformly finer mesh of the same part.
 
     The result has element set ``part:<part_id>`` and, for every geometry face ``i``, a
     surface ``face:<i>`` (tri6) and a node set ``face:<i>``.
     """
     if not path.is_file():
         raise FileNotFoundError(path)
-    with gmsh_model(_mesh_options(size)):
+    with gmsh_model(_mesh_options(size, size_factor)):
         try:
             gmsh.model.occ.importShapes(str(path))
         except Exception as exc:  # gmsh raises plain Exception
@@ -43,8 +63,16 @@ def mesh_step(path: Path, *, part_id: str, size: float | None = None) -> Mesh:
         return _extract(part_id, {face: face for _, face in gmsh.model.getEntities(2)})
 
 
-def mesh_surface(surface: TriangleSurface, *, part_id: str, size: float | None = None) -> Mesh:
+def mesh_surface(
+    surface: TriangleSurface,
+    *,
+    part_id: str,
+    size: float | None = None,
+    size_factor: float = 1.0,
+) -> Mesh:
     """Mesh the solid bounded by a closed triangulated surface (ADR-005).
+
+    ``size`` and ``size_factor`` are as for ``mesh_step``.
 
     gmsh rebuilds and remeshes the surface in patches; each patch is mapped back to the
     Tessera face its original triangles belong to, so ``face:<i>`` matches
@@ -52,7 +80,7 @@ def mesh_surface(surface: TriangleSurface, *, part_id: str, size: float | None =
     """
     # STL geometry is flat facets: midside nodes belong on straight edges, not on gmsh's
     # smooth reparametrized patches (which would bend flat faces).
-    with gmsh_model(_mesh_options(size) | {"Mesh.SecondOrderLinear": 1}):
+    with gmsh_model(_mesh_options(size, size_factor) | {"Mesh.SecondOrderLinear": 1}):
         entity = gmsh.model.addDiscreteEntity(2)
         node_tags = np.arange(1, surface.vertices.shape[0] + 1)
         gmsh.model.mesh.addNodes(2, entity, node_tags.tolist(), surface.vertices.ravel().tolist())

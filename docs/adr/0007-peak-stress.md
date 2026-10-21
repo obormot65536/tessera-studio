@@ -57,10 +57,17 @@ request.
    check_mesh=True)` / `tessera solve --check-mesh` solves at h and again at h/√2. Each reported
    spot gets a verdict: `settled` if it changes by at most X between the meshes, otherwise
    `mesh-dependent`. The verdict overrides the flags. All reported numbers come from the fine mesh.
+   *Amendment (maintainer-approved):* the fine mesh scales every element size the mesher uses
+   (`mesh_step(..., size_factor=1/√2)`, which also raises gmsh's minimum points per circle and
+   curve), not only the size cap: a cap alone leaves the elements at small holes unchanged (0.96
+   times), so a peak there would "settle" untested. A spot is judged only where its local element
+   edge length shrank to at most R times the coarse one; elsewhere it is `not-refined` and its
+   flags still apply.
 4. **What clients show.** The CLI leads with the clear peak, labelled "away from supports and sharp
    inside edges", then the raw peak with location, face and a one-line explanation if flagged, then
    the top face peaks, then the mesh-check verdicts if run. MCP carries the same data as structured
-   fields (`flags`, `trust: "clear" | "flagged" | "settled" | "mesh-dependent"`), and its tool
+   fields (`flags`, `trust: "clear" | "flagged" | "settled" | "mesh-dependent"`; a
+   `not-refined` spot keeps "clear" or "flagged"), and its tool
    descriptions tell agents to quote only `clear` or `settled` values against a strength.
 5. **Downstream rule.** A future safety factor or failure index is reported from unflagged or
    `settled` spots; flagged spots that are not settled are listed separately and never become the
@@ -74,6 +81,7 @@ request.
 | Flag distance | d = 2 × h (median corner edge length) |
 | Mesh-check refinement | h → h/√2 |
 | Mesh-check threshold X | 5 % change |
+| Mesh-check local refinement needed for a verdict R | 0.85 (fine / coarse edge length) |
 | Face peaks shown by the CLI | Top 5 (all in the API) |
 | Mesh check default | Off; opt in with `--check-mesh` |
 
@@ -120,3 +128,5 @@ and a warning, so a real stress raiser inside a flagged band (a hole next to a c
 5. [x] `core.solve(..., check_mesh=False)` and `tessera solve --check-mesh` (second PR).
 6. [x] Benchmarks: TS-01 root peak flagged; TS-02 hole peak not flagged.
 7. [x] Docs: user guide Steps 7 and 9, API reference.
+8. [ ] MCP: `flags` and `trust` fields, and tool descriptions that quote only `clear` or `settled`
+       values (the MCP server does not exist yet).
