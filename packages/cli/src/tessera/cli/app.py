@@ -1,5 +1,6 @@
 """``tessera`` command-line entry point. Thin layer over ``tessera.core``."""
 
+import math
 import re
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -18,7 +19,17 @@ from tessera.core import (
     save_project,
     solve,
 )
-from tessera.model import ForceLoad, InputError, MomentLoad, Project, SolverError, StressSpot
+from tessera.model import (
+    ForceLoad,
+    InputError,
+    MeshCheck,
+    MomentLoad,
+    Project,
+    SolverError,
+    SpotCheck,
+    StressSpot,
+    Verdict,
+)
 
 app = typer.Typer(
     help="Tessera Studio: stress analysis for 3D-printed parts.", no_args_is_help=True
@@ -364,13 +375,59 @@ def _reasons(spot: StressSpot) -> str:
     return " and ".join(str(flag) for flag in spot.flags)
 
 
+def _percent(fraction: float) -> str:
+    """0.029 %, 4.96 %, 17.4 %, 178 %: enough digits to tell 4.96 from 5.04 at the threshold."""
+    percent = 100 * fraction
+    if percent < 1:
+        return f"{percent:.2g}"
+    return f"{percent:.3g}" if percent < 100 else f"{percent:.0f}"
+
+
+def _change(check: SpotCheck) -> str:
+    """How a number moved between the two meshes of ``--check-mesh``."""
+    if check.verdict is Verdict.NOT_REFINED:
+        return (
+            f"not judged: the finer mesh is only {check.refinement:.2f} times the element size here"
+        )
+    if math.isinf(check.change):
+        return f"{check.verdict}, was {check.coarse:.6g} on the coarse mesh"
+    return f"{check.verdict}, changed {_percent(check.change)} % between the meshes"
+
+
+def _mesh_check_header(check: MeshCheck) -> str:
+    return (
+        f"mesh check: solved with median element edge {check.coarse_edge_length:.3g} mm "
+        f"({check.coarse_nodes} nodes), then {check.fine_edge_length:.3g} mm; the numbers below "
+        f"are from the finer mesh, settled = changed by at most {_percent(check.threshold)} %"
+    )
+
+
 @app.command("solve")
-def solve_cmd(path: Path, workdir: Path | None = None) -> None:
+def solve_cmd(
+    path: Path,
+    workdir: Path | None = None,
+    check_mesh: bool = typer.Option(
+        False,
+        "--check-mesh",
+        help="Solve again with elements 1/sqrt(2) as long and say which numbers settled "
+        "(takes 3 to 5 times as long).",
+    ),
+) -> None:
     """Mesh and solve the project's static study, then print a summary."""
     with _user_errors():
-        result = solve(load_project(path), workdir=workdir)
+        result = solve(load_project(path), workdir=workdir, check_mesh=check_mesh)
+    check = result.mesh_check
     typer.echo(f"nodes: {result.mesh.n_nodes}, elements: {result.mesh.n_elements}")
-    typer.echo(f"max displacement: {result.max_displacement:.6g} mm")
+    if check is not None:
+        typer.echo(_mesh_check_header(check))
+
+    def verdict(spot_check: SpotCheck | None) -> str:
+        return "" if spot_check is None else f" ({_change(spot_check)})"
+
+    typer.echo(
+        f"max displacement: {result.max_displacement:.6g} mm"
+        + verdict(check and check.max_displacement)
+    )
 
     clear, peak = result.clear_peak_von_mises, result.peak_von_mises
     d = result.node_flags.distance
@@ -382,20 +439,39 @@ def solve_cmd(path: Path, workdir: Path | None = None) -> None:
     elif clear is None:
         typer.echo(f"von Mises stress {_CLEAR}: none, no node there has a stress result")
     else:
-        typer.echo(f"von Mises stress {_CLEAR}: {clear.value:.6g} MPa {_where(clear)}")
-    typer.echo(f"max von Mises stress: {result.max_von_mises:.6g} MPa {_where(peak)}")
-    if peak.flagged:
         typer.echo(
-            f"  {_reasons(peak)} (within {d:.3g} mm): the stress there may keep rising as the "
-            "mesh is refined; compare two mesh sizes before trusting either value"
+            f"von Mises stress {_CLEAR}: {clear.value:.6g} MPa {_where(clear)}"
+            + verdict(check and check.clear_peak_von_mises)
         )
+    typer.echo(f"max von Mises stress: {result.max_von_mises:.6g} MPa {_where(peak)}")
+    near = f"{_reasons(peak)} (within {d:.3g} mm)"
+    judged = check is not None and check.peak_von_mises.verdict is not Verdict.NOT_REFINED
+    if check is not None and judged:
+        # The measured verdict replaces the flags' guess (ADR-007).
+        line = _change(check.peak_von_mises)
+        if check.peak_von_mises.verdict is Verdict.MESH_DEPENDENT:
+            line += "; do not compare it with a strength"
+        typer.echo(f"  {near}: {line}" if peak.flagged else f"  {line}")
+    elif peak.flagged:
+        advice = (
+            "compare two mesh sizes (--check-mesh) before trusting either value"
+            if check is None
+            else _change(check.peak_von_mises)
+        )
+        typer.echo(f"  {near}: the stress there may keep rising as the mesh is refined; {advice}")
+    elif check is not None:
+        typer.echo(f"  {_change(check.peak_von_mises)}")
     shown = result.face_peaks[:FACE_PEAKS_SHOWN]
     if shown:
         typer.echo(f"max von Mises stress by face ({len(shown)} of {len(result.face_peaks)}):")
     for spot in shown:
         x, y, z = spot.location
         line = f"  face {spot.face}: {spot.value:.6g} MPa at ({x:.4g}, {y:.4g}, {z:.4g}) mm"
-        typer.echo(f"{line}, {_reasons(spot)}" if spot.flagged else line)
+        if spot.flagged:
+            line += f", {_reasons(spot)}"
+        if check is not None and spot.face is not None:
+            line += verdict(check.face_peaks.get(spot.face))
+        typer.echo(line)
     typer.echo(f"solver files: {result.workdir}")
 
 

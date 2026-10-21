@@ -262,13 +262,20 @@ def _solved(
     )
 
 
-def _solve_output(monkeypatch: pytest.MonkeyPatch, result: StudyResult) -> list[str]:
+def _solve_output(monkeypatch: pytest.MonkeyPatch, result: StudyResult, *args: str) -> list[str]:
     import tessera.cli.app as cli
 
+    asked: list[bool] = []
+
+    def fake_solve(_project: object, workdir: Path | None = None, check_mesh: bool = False):
+        asked.append(check_mesh)
+        return result
+
     monkeypatch.setattr(cli, "load_project", lambda _path: None)
-    monkeypatch.setattr(cli, "solve", lambda _project, workdir=None: result)
-    out = runner.invoke(app, ["solve", "p.tessera.json"])
+    monkeypatch.setattr(cli, "solve", fake_solve)
+    out = runner.invoke(app, ["solve", "p.tessera.json", *args])
     assert out.exit_code == 0, out.output
+    assert asked == ["--check-mesh" in args]
     return out.output.splitlines()
 
 
@@ -283,8 +290,8 @@ def test_solve_leads_with_the_clear_peak_then_the_flagged_raw_peak(
         " at (12.5, -5, 5) mm, inside the part",
         "max von Mises stress: 143.79 MPa at (0, 5, 5) mm, face 1",
         "  near support 'root' and near a sharp inside edge (within 5 mm): the stress there"
-        " may keep rising as the mesh is refined; compare two mesh sizes before trusting either"
-        " value",
+        " may keep rising as the mesh is refined; compare two mesh sizes (--check-mesh) before"
+        " trusting either value",
     ]
     assert lines[5] == "max von Mises stress by face (5 of 7):"
     assert lines[6] == (
@@ -390,3 +397,101 @@ def test_edges_of_a_part_without_edges_says_so(tmp_path: Path) -> None:
     _ok("part", "add", path, str(sphere))
     assert _ok("edges", path, "ball").strip() == "part 'ball' has no edges"
     assert _ok("edges", path, "ball", "--face", "1").strip() == "face 1 of part 'ball' has no edges"
+
+
+def _checked(
+    result: StudyResult, peak: float, faces: dict[int, float], peak_refinement: float = 0.7
+) -> StudyResult:
+    """``result`` with a two-mesh check: the coarse raw peak and face peaks as given; every
+    spot refined 0.7 times except the raw peak, refined ``peak_refinement`` times."""
+    from tessera.model import MeshCheck
+    from tessera.post import spot_check
+
+    clear = result.clear_peak_von_mises
+    return dataclasses.replace(
+        result,
+        mesh_check=MeshCheck(
+            coarse_edge_length=3.54,
+            fine_edge_length=2.5,
+            coarse_nodes=4,
+            threshold=0.05,
+            refinement_limit=0.85,
+            max_displacement=spot_check(1.52, result.max_displacement, 0.7),
+            peak_von_mises=spot_check(peak, result.max_von_mises, peak_refinement),
+            clear_peak_von_mises=None if clear is None else spot_check(97.0, clear.value, 0.7),
+            face_peaks={f: spot_check(v, 150.0 - 10 * (f - 1), 0.7) for f, v in faces.items()},
+        ),
+    )
+
+
+def test_check_mesh_gives_each_number_a_verdict(monkeypatch: pytest.MonkeyPatch) -> None:
+    result = _checked(_solved(("root",), clear=True), peak=120.0, faces={1: 120.0, 2: 139.0})
+    lines = _solve_output(monkeypatch, result, "--check-mesh")
+    assert lines[:6] == [
+        "nodes: 10, elements: 1",
+        "mesh check: solved with median element edge 3.54 mm (4 nodes), then 2.5 mm; the numbers"
+        " below are from the finer mesh, settled = changed by at most 5 %",
+        "max displacement: 1.52238 mm (settled, changed 0.16 % between the meshes)",
+        "von Mises stress away from supports and sharp inside edges: 98.25 MPa"
+        " at (12.5, -5, 5) mm, inside the part (settled, changed 1.27 % between the meshes)",
+        "max von Mises stress: 143.79 MPa at (0, 5, 5) mm, face 1",
+        "  near support 'root' (within 5 mm): mesh-dependent, changed 16.5 % between the meshes;"
+        " do not compare it with a strength",
+    ]
+    assert lines[7:10] == [
+        "  face 1: 150 MPa at (0, 0, 0) mm, near support 'root' (mesh-dependent, changed 20 %"
+        " between the meshes)",
+        "  face 2: 140 MPa at (1, 0, 0) mm (settled, changed 0.71 % between the meshes)",
+        "  face 3: 130 MPa at (2, 0, 0) mm",  # no peak on the coarse mesh: no verdict
+    ]
+
+
+def test_check_mesh_verdict_replaces_the_flag_warning(monkeypatch: pytest.MonkeyPatch) -> None:
+    settled = _checked(_solved(("root",), clear=True), peak=143.0, faces={})
+    lines = _solve_output(monkeypatch, settled, "--check-mesh")
+    assert (
+        lines[5]
+        == "  near support 'root' (within 5 mm): settled, changed 0.55 % between the meshes"
+    )
+    assert not any("may keep rising" in line for line in lines)
+
+    unflagged = _checked(_solved((), clear=True), peak=100.0, faces={})
+    lines = _solve_output(monkeypatch, unflagged, "--check-mesh")
+    assert lines[5] == (
+        "  mesh-dependent, changed 30.5 % between the meshes; do not compare it with a strength"
+    )
+
+    overshoot = _checked(_solved((), clear=True), peak=400.0, faces={})
+    lines = _solve_output(monkeypatch, overshoot, "--check-mesh")
+    assert lines[5].startswith("  mesh-dependent, changed 178 % between the meshes")
+
+
+def test_check_mesh_percentages_tell_apart_the_two_sides_of_the_threshold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 143.79 vs 136.66 is 4.96 %, settled; vs 136.54 it is 5.04 %, mesh-dependent.
+    for coarse, expected in (
+        (136.66, "settled, changed 4.96 %"),
+        (136.54, "mesh-dependent, changed 5.04 %"),
+    ):
+        lines = _solve_output(
+            monkeypatch, _checked(_solved((), clear=True), peak=coarse, faces={}), "--check-mesh"
+        )
+        assert lines[5].startswith(f"  {expected} between the meshes")
+
+
+def test_a_spot_the_check_could_not_refine_keeps_its_flag_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The peak barely moved, but the mesh there barely got finer: no verdict, the flag stands.
+    result = _checked(_solved(("root",), clear=True), peak=143.0, faces={}, peak_refinement=0.95)
+    lines = _solve_output(monkeypatch, result, "--check-mesh")
+    assert lines[5] == (
+        "  near support 'root' (within 5 mm): the stress there may keep rising as the mesh is"
+        " refined; not judged: the finer mesh is only 0.95 times the element size here"
+    )
+    assert not any("settled" in line for line in lines[4:6])
+
+    unflagged = _checked(_solved((), clear=True), peak=143.0, faces={}, peak_refinement=0.95)
+    lines = _solve_output(monkeypatch, unflagged, "--check-mesh")
+    assert lines[5] == "  not judged: the finer mesh is only 0.95 times the element size here"

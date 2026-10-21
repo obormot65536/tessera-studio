@@ -6,7 +6,7 @@ import gmsh
 import numpy as np
 import pytest
 
-from tessera.core import describe_faces, solve
+from tessera.core import MESH_CHECK_REFINEMENT, describe_faces, solve
 from tessera.core.project_io import new_project
 from tessera.mesh import mesh_step
 from tessera.model import (
@@ -18,6 +18,7 @@ from tessera.model import (
     SolveJob,
     SolveResult,
     Support,
+    Verdict,
 )
 
 
@@ -291,3 +292,67 @@ def test_solve_flags_the_clamp_and_the_inside_corner_but_not_the_hole(
     assert result.clear_peak_von_mises == peak
     assert result.face_peaks[0].value == pytest.approx(60.0)
     assert {p.face for p in result.face_peaks} == {f.index for f in faces}
+
+
+class RecordingSolver(FakeSolver):
+    """Keeps every job and working directory, in the order solved."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.runs: list[tuple[SolveJob, Path]] = []
+
+    def run(self, job: SolveJob, workdir: Path) -> SolveResult:
+        self.runs.append((job, workdir))
+        return super().run(job, workdir)
+
+
+def test_solve_checks_nothing_unless_asked(bracket_step: Path, tmp_path: Path) -> None:
+    root, tip = _root_and_tip(bracket_step)
+    fake = RecordingSolver()
+    result = solve(_project(bracket_step, root, tip), workdir=tmp_path, adapter=fake)
+    assert len(fake.runs) == 1
+    assert result.mesh_check is None
+
+
+def test_check_mesh_solves_again_on_a_finer_mesh(bracket_step: Path, tmp_path: Path) -> None:
+    root, tip = _root_and_tip(bracket_step)
+    fake = RecordingSolver()
+    project = _project(bracket_step, root, tip)
+    result = solve(project, workdir=tmp_path, adapter=fake, check_mesh=True)
+    (coarse_job, coarse_dir), (fine_job, fine_dir) = fake.runs
+    assert (coarse_dir, fine_dir) == (tmp_path / "coarse", tmp_path)
+    assert result.workdir == tmp_path
+    # Everything reported comes from the fine solve.
+    assert result.mesh is fine_job.mesh
+    check = result.mesh_check
+    assert check is not None
+    assert check.coarse_nodes == coarse_job.mesh.n_nodes < fine_job.mesh.n_nodes
+    # Elements 1/sqrt(2) as long: about twice the elements in 3D would be 2.8x; allow for gmsh.
+    assert check.fine_edge_length / check.coarse_edge_length == pytest.approx(
+        MESH_CHECK_REFINEMENT, rel=0.15
+    )
+    assert project.study.mesh_size == 4.0, "the project is not changed"
+    # The fake bends the bracket linearly in x: the same tip deflection on both meshes.
+    assert check.max_displacement.verdict is Verdict.SETTLED
+
+
+def test_check_mesh_scales_every_element_size(
+    bracket_step: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tessera.core.study as study
+
+    calls: list[tuple[float | None, float]] = []
+    mesh_part = study._mesh_part
+
+    def recording(part: PartInstance, size: float | None, size_factor: float = 1.0):
+        calls.append((size, size_factor))
+        return mesh_part(part, size, size_factor)
+
+    monkeypatch.setattr(study, "_mesh_part", recording)
+    root, tip = _root_and_tip(bracket_step)
+    project = _project(bracket_step, root, tip)
+    for size in (4.0, None):  # the same settings, scaled, also when gmsh picks the size
+        project.study.mesh_size = size
+        calls.clear()
+        solve(project, workdir=tmp_path, adapter=RecordingSolver(), check_mesh=True)
+        assert calls == [(size, 1.0), (size, MESH_CHECK_REFINEMENT)]

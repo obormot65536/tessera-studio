@@ -1,5 +1,7 @@
 """Run a project's study end to end: geometry → mesh → physics → solver → post."""
 
+import dataclasses
+import math
 import tempfile
 from pathlib import Path
 
@@ -33,13 +35,13 @@ def describe_edges(project: Project, part_id: str) -> list[EdgeInfo]:
     return geometry.describe_edges(part_named(validated(project), part_id).geometry)
 
 
-def _mesh_part(part: PartInstance, size: float | None) -> Mesh:
+def _mesh_part(part: PartInstance, size: float | None, size_factor: float = 1.0) -> Mesh:
     suffix = part.geometry.suffix.lower()
     if suffix in geometry.STL_SUFFIXES:
         surface = geometry.read_stl(part.geometry)
-        return mesh.mesh_surface(surface, part_id=part.id, size=size)
+        return mesh.mesh_surface(surface, part_id=part.id, size=size, size_factor=size_factor)
     if suffix in geometry.STEP_SUFFIXES:
-        return mesh.mesh_step(part.geometry, part_id=part.id, size=size)
+        return mesh.mesh_step(part.geometry, part_id=part.id, size=size, size_factor=size_factor)
     raise InputError(f"unsupported geometry file {part.geometry.name!r}: use STEP or STL")
 
 
@@ -50,10 +52,25 @@ def _default_adapter() -> SolverAdapter:
     return CalculixAdapter()
 
 
+MESH_CHECK_REFINEMENT = 1.0 / math.sqrt(2.0)
+"""Every element size of the fine mesh in a two-mesh check, as a fraction of the coarse mesh's
+(ADR-007, approved by the maintainer)."""
+
+
 def solve(
-    project: Project, workdir: Path | None = None, adapter: SolverAdapter | None = None
+    project: Project,
+    workdir: Path | None = None,
+    adapter: SolverAdapter | None = None,
+    *,
+    check_mesh: bool = False,
 ) -> StudyResult:
-    """Mesh and solve the project's static study. v0.1: one part, no connections."""
+    """Mesh and solve the project's static study. v0.1: one part, no connections.
+
+    With ``check_mesh`` the study is solved twice (ADR-007): at the project's mesh size, then
+    with every element size scaled by ``MESH_CHECK_REFINEMENT``. The result is the fine solve,
+    with ``mesh_check`` saying which of its numbers settled between the two (see
+    ``tessera.post.compare_meshes``). The coarse solve's files go to ``workdir / "coarse"``.
+    """
     project = validated(project)
     parts = project.assembly.parts
     if len(parts) != 1 or project.assembly.connections:
@@ -68,13 +85,20 @@ def solve(
     analysis = AnalysisKind(project.study.analysis)
     if analysis not in adapter.capabilities():
         raise InputError(f"solver {adapter.name!r} cannot run a {analysis} analysis")
-
-    part_mesh = _mesh_part(part, project.study.mesh_size)
-    job = physics.build_static_job(
-        project.study, part, part_mesh, materials.get_isotropic(part.material_id)
-    )
+    material = materials.get_isotropic(part.material_id)
     if workdir is None:
         workdir = Path(tempfile.mkdtemp(prefix="tessera-"))
-    workdir.mkdir(parents=True, exist_ok=True)
-    solution = adapter.run(job, workdir)
-    return post.summarize(job, solution, workdir=workdir)
+
+    size = project.study.mesh_size
+
+    def run(where: Path, size_factor: float = 1.0) -> StudyResult:
+        part_mesh = _mesh_part(part, size, size_factor)
+        job = physics.build_static_job(project.study, part, part_mesh, material)
+        where.mkdir(parents=True, exist_ok=True)
+        return post.summarize(job, adapter.run(job, where), workdir=where)
+
+    if not check_mesh:
+        return run(workdir)
+    coarse = run(workdir / "coarse")
+    fine = run(workdir, MESH_CHECK_REFINEMENT)
+    return dataclasses.replace(fine, mesh_check=post.compare_meshes(coarse, fine))

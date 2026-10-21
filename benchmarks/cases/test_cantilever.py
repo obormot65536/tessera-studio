@@ -105,7 +105,9 @@ def _face_with_normal(faces: list[Any], normal: tuple[float, float, float]) -> i
     return matches[0]
 
 
-def _solve_beam(step_path: Path, mesh_size: float, workdir: Path) -> Any:
+def _solve_beam(
+    step_path: Path, mesh_size: float, workdir: Path, *, check_mesh: bool = False
+) -> Any:
     """Run the cantilever through the public API; return the ``StudyResult``."""
     from tessera.core import describe_faces, new_project, solve
     from tessera.model import FaceSet, ForceLoad, PartInstance, Support
@@ -130,7 +132,7 @@ def _solve_beam(step_path: Path, mesh_size: float, workdir: Path) -> Any:
     p.study.mesh_size = mesh_size
 
     workdir.mkdir(parents=True, exist_ok=True)
-    result = solve(p, workdir=workdir)
+    result = solve(p, workdir=workdir, check_mesh=check_mesh)
 
     nodes = result.mesh.nodes
     on_tip = np.isclose(nodes[:, 0], LENGTH, rtol=0.0, atol=1e-6 * LENGTH)
@@ -280,3 +282,28 @@ def test_cantilever_peak_stress_is_flagged_at_the_clamped_root(
     assert clear.value < peak.value
     # The clamped root is the only singular place: the block has no inside edges.
     assert list(result.node_flags.masks) == [root]
+
+
+def test_cantilever_check_mesh_finds_the_root_peak_mesh_dependent(
+    beam_step: Path, tmp_path: Path
+) -> None:
+    """ADR-007 two-mesh check at the gate mesh: the singular root peak moves by more than 5 %
+    (measured +7.8 %, 2.5 mm -> 2.5/sqrt(2) mm), while the tip deflection (0.03 %) and the clear
+    peak away from the root (0.02 %) settle.
+
+    On a much coarser mesh (5 mm, two elements through the depth) the root peak still reads
+    settled (+1.1 %): the singularity only shows once the mesh resolves the root. The check
+    measures convergence; it cannot see a singularity the coarse mesh does not resolve.
+    """
+    from tessera.model import Verdict
+
+    result = _solve_beam(beam_step, GATE_MESH_SIZE, tmp_path, check_mesh=True)
+    check = result.mesh_check
+    assert check is not None
+    assert result.peak_von_mises.flagged
+    assert check.peak_von_mises.fine == result.max_von_mises
+    assert check.peak_von_mises.verdict is Verdict.MESH_DEPENDENT
+    assert check.peak_von_mises.fine > check.peak_von_mises.coarse, "the root peak rises"
+    assert check.max_displacement.verdict is Verdict.SETTLED
+    assert check.clear_peak_von_mises is not None
+    assert check.clear_peak_von_mises.verdict is Verdict.SETTLED

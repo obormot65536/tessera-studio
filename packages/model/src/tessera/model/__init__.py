@@ -21,7 +21,16 @@ from tessera.model.project import (
     Support,
     Transform,
 )
-from tessera.model.results import FlagKind, NodeFlags, StressFlag, StressSpot, StudyResult
+from tessera.model.results import (
+    FlagKind,
+    MeshCheck,
+    NodeFlags,
+    SpotCheck,
+    StressFlag,
+    StressSpot,
+    StudyResult,
+    Verdict,
+)
 from tessera.model.solver import (
     AnalysisKind,
     FixedSupport,
@@ -53,6 +62,7 @@ __all__ = [
     "IsotropicMaterial",
     "Load",
     "Mesh",
+    "MeshCheck",
     "MomentLoad",
     "NodalLoads",
     "NodeFlags",
@@ -65,6 +75,7 @@ __all__ = [
     "SolveResult",
     "SolverAdapter",
     "SolverError",
+    "SpotCheck",
     "StressFlag",
     "StressSpot",
     "Study",
@@ -72,4 +83,5 @@ __all__ = [
     "Support",
     "Transform",
     "TriangleSurface",
+    "Verdict",
 ]

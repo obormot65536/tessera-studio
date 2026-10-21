@@ -164,7 +164,9 @@ def _require_roller_support() -> None:
     assert tuple(support.dofs) == (1,)
 
 
-def _solve_kt(step_path: Path, mesh_size: float, workdir: Path) -> tuple[float, float, int, Any]:
+def _solve_kt(
+    step_path: Path, mesh_size: float, workdir: Path, *, check_mesh: bool = False
+) -> tuple[float, float, int, Any]:
     """Run the eighth model through the public API.
 
     Returns (Kt_n at mid-thickness, Kt_n at the surface, number of nodes, the StudyResult).
@@ -200,7 +202,7 @@ def _solve_kt(step_path: Path, mesh_size: float, workdir: Path) -> tuple[float, 
     p.study.mesh_size = mesh_size
 
     workdir.mkdir(parents=True, exist_ok=True)
-    result = solve(p, workdir=workdir)
+    result = solve(p, workdir=workdir, check_mesh=check_mesh)
 
     nodes = result.mesh.nodes
     u = result.solution.displacements
@@ -348,3 +350,20 @@ def test_plate_hole_peak_stress_is_clear_at_the_hole_edge(
     tol = 1e-6 * HALF_LENGTH
     assert math.hypot(x, y) == pytest.approx(HOLE_DIAMETER / 2, abs=tol), "peak not on the hole"
     assert abs(x) < 0.1 * HOLE_DIAMETER, "peak not on the net section of the hole edge"
+
+
+def test_plate_hole_check_mesh_settles_the_hole_peak(plate_step: Path, tmp_path: Path) -> None:
+    """ADR-007 two-mesh check: the hole edge is a real, finite stress raiser, so its peak
+    settles (measured -1.3 % from 2 mm to 2/sqrt(2) mm, +0.22 % from 1 mm), unlike a singular
+    peak. Run at the coarsest sweep mesh to keep it cheap."""
+    from tessera.model import Verdict
+
+    _require_roller_support()
+    *_, result = _solve_kt(plate_step, CONVERGENCE_MESH_SIZES[0], tmp_path, check_mesh=True)
+    check = result.mesh_check
+    assert check is not None
+    assert not result.peak_von_mises.flagged
+    assert check.peak_von_mises.verdict is Verdict.SETTLED
+    assert check.clear_peak_von_mises is not None
+    assert check.clear_peak_von_mises.verdict is Verdict.SETTLED
+    assert check.max_displacement.verdict is Verdict.SETTLED
