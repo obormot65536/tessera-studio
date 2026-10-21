@@ -68,7 +68,7 @@ primary source.
 | TS-04 | v0.1 | Bar hanging under its own weight | passing |
 | TS-05 | v0.1 | Simply supported beam, uniform load | planned |
 | TS-06 | v0.1 | Thick-walled cylinder, internal pressure (Lamé) | passing |
-| TS-07 | v0.1 | Thick-walled sphere, internal pressure (Lamé) | planned |
+| TS-07 | v0.1 | Thick-walled sphere, internal pressure (Lamé) | awaiting reference |
 | TS-08 | v0.1 | Circular plate, uniform pressure, clamped and simply supported | planned |
 | TS-09 | v0.1 | Torsion of circular and square bars (Saint-Venant) | passing |
 | TS-10 | v0.1 | Thin ring under diametral compression (curved beam) | planned |
@@ -190,18 +190,41 @@ Count: v0.1 12 (5 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
   components (post-processing).
 - **Tolerance:** 2 % on sigma_theta(a), 1 % on u_r(a).
 
-### TS-07 Thick-walled sphere under internal pressure (Lamé)
+### TS-07 Thick-walled sphere under internal pressure (Lamé) (awaiting reference)
 
-- **Problem:** hollow sphere a = 10, b = 20 mm, internal pressure p, one-eighth model.
-- **Quantity:** sigma_t(a) = p (b^3 + 2a^3) / (2 (b^3 - a^3)), sigma_r(a) = -p.
+- **Problem:** hollow steel sphere a = 10, b = 20 mm, internal pressure p = 10 MPa, outer
+  surface free. One octant with symmetry rollers (u_x = 0 on x = 0, u_y = 0 on y = 0,
+  u_z = 0 on z = 0), which are exact for the point-symmetric field. Case:
+  `benchmarks/cases/test_lame_sphere.py`.
+- **Quantity:** sigma_t(a) = p (b^3 + 2a^3) / (2 (b^3 - a^3)) = 5p/7 = 7.142857 MPa
+  (`computed`), measured as the mean of sigma_kk over the inner-surface nodes on the plane
+  normal to k (k = x, y, z); u_r(a) = p a^4 / (E (b^3 - a^3)) [(1 - 2 nu) + (1 + nu) b^3 /
+  (2 a^3)] = 3.809524e-4 mm (`computed`), mean over all inner-surface nodes. sigma_r(a) = -p is
+  not gated (nodal extrapolation gives -1.5 % at the gate mesh).
 - **Reference:** Timoshenko & Goodier, *Theory of Elasticity*, spherical vessel (section
-  `unverified`); Air Force Stress Analysis Manual "Thick pressure vessels" (seen as a search
-  result only, formula not read). Formula `unverified`: it is the standard result, but this
-  draft did not see it in a source.
+  `unverified`); Ugural & Fenster, *Advanced Strength and Applied Elasticity*, thick-walled
+  spheres (section `unverified`); Air Force Stress Analysis Manual "Thick pressure vessels" (seen
+  as a search result only, formula not read). Formula `unverified`: it is the standard result,
+  but no source was opened. The case checks it internally (sigma_r(a) = -p, sigma_r(b) = 0,
+  sigma_r + 2 sigma_t constant, u_r consistent with Hooke's law).
 - **Licence:** formula only.
 - **Equivalents:** none recorded.
-- **Features:** pressure, three symmetry planes, spherical result components.
-- **Tolerance:** 2 %.
+- **Features:** pressure on a doubly curved face, rollers on three cut planes (both exist).
+- **Tolerance:** 2 % on sigma_t(a), 1 % on u_r(a), as TS-06 (proposed, `lame_sphere.toml`).
+- **Measured** (CalculiX 2.21; the gate mesh is 1.25 mm, 8 elements through the
+  wall, about 14 s):
+
+  | h [mm] | nodes | sigma_t(a) | u_r(a) |
+  |---|---|---|---|
+  | 2.5 | 2 561 | +1.39 % | -0.084 % |
+  | 1.667 | 7 066 | +0.66 % | -0.023 % |
+  | 1.25 | 15 483 | +0.48 % | -0.009 % |
+  | 1.0 | 27 785 | +0.23 % | -0.005 % |
+  | 0.833 | 45 103 | +0.15 % | -0.003 % |
+
+  The sweep in the case runs 2.5 / 1.667 / 1.25. The hoop mean converges from above. Single
+  nodes scatter from -0.5 % to +1.6 % at 1.25 mm (up to +3.6 % at 2.5 mm), so the measure
+  averages them.
 
 ### TS-08 Circular plate under uniform pressure
 
