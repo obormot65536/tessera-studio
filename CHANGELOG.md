@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Gravity and materials without a density are refused when you set them up (turning gravity
+  on, or choosing such a material while gravity is on), not only when you solve.
 - Faster study setup: a part's geometry is read once, not again for every support and load
   added to it (it is read again if the file changes).
 - CLI: set up a study from the command line with `tessera part add`, `part material`, `support add`, `load force|pressure|moment`, `study`, `remove` and `materials`; `tessera info` summarises the project.

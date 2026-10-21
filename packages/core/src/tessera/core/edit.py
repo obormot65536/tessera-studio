@@ -88,11 +88,26 @@ def _face_set(project: Project, part_id: str, faces: Iterable[int]) -> FaceSet:
     return FaceSet(part_id=part_id, faces=chosen)
 
 
+def _check_gravity_densities(project: Project) -> None:
+    """Gravity needs every part's material to have a density; say so now, not at solve time."""
+    if project.study.gravity is None:
+        return
+    for part in project.assembly.parts:
+        if part.material_id is None:
+            continue  # solving refuses a part without a material anyway
+        if materials.get_isotropic(part.material_id).density is None:
+            raise InputError(
+                f"part {part.id!r}: material {part.material_id!r} has no density, "
+                "which gravity needs; choose another material or turn gravity off"
+            )
+
+
 def _commit(project: Project, change: Callable[[Project], None]) -> None:
     """Apply ``change`` to a copy, validate it, then apply it to ``project``."""
     trial = project.model_copy(deep=True)
     change(trial)
     validated(trial)
+    _check_gravity_densities(trial)
     change(project)
 
 
@@ -135,8 +150,12 @@ def add_part(
 
 def set_material(project: Project, part_id: str, material_id: str) -> None:
     _check_material(material_id)
-    part = part_named(project, part_id)
-    part.material_id = material_id
+    part_named(project, part_id)
+
+    def change(p: Project) -> None:
+        part_named(p, part_id).material_id = material_id
+
+    _commit(project, change)
 
 
 def add_support(
