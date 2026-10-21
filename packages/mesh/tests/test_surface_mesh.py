@@ -146,4 +146,5 @@ def test_inverted_stl_meshes_like_the_original(
 def test_size_factor_refines_an_stl_mesh(plate_surface: TriangleSurface) -> None:
     coarse = mesh_surface(plate_surface, part_id="plate", size=4.0)
     fine = mesh_surface(plate_surface, part_id="plate", size=4.0, size_factor=2**-0.5)
-    assert fine.n_nodes > 2 * coarse.n_nodes
+    # Measured 2.0x on this thin plate (a solid would be nearer 2.8x); 1.5x shows it refined.
+    assert fine.n_nodes > 1.5 * coarse.n_nodes
