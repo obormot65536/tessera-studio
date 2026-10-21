@@ -68,7 +68,7 @@ primary source.
 | TS-04 | v0.1 | Bar hanging under its own weight | passing |
 | TS-05 | v0.1 | Simply supported beam, uniform load | planned |
 | TS-06 | v0.1 | Thick-walled cylinder, internal pressure (Lamé) | passing |
-| TS-07 | v0.1 | Thick-walled sphere, internal pressure (Lamé) | awaiting reference |
+| TS-07 | v0.1 | Thick-walled sphere, internal pressure (Lamé) | passing |
 | TS-08 | v0.1 | Circular plate, uniform pressure, clamped and simply supported | planned |
 | TS-09 | v0.1 | Torsion of circular and square bars (Saint-Venant) | passing |
 | TS-10 | v0.1 | Thin ring under diametral compression (curved beam) | planned |
@@ -100,7 +100,7 @@ primary source.
 | TT-04 | v3 | Steady radial conduction and thermal stress in a thick cylinder | planned |
 | TF-01 | v4 | Laminar pipe flow (Hagen-Poiseuille) | planned |
 
-Count: v0.1 12 (5 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
+Count: v0.1 12 (6 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
 
 ---
 
@@ -190,7 +190,7 @@ Count: v0.1 12 (5 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
   components (post-processing).
 - **Tolerance:** 2 % on sigma_theta(a), 1 % on u_r(a).
 
-### TS-07 Thick-walled sphere under internal pressure (Lamé) (awaiting reference)
+### TS-07 Thick-walled sphere under internal pressure (Lamé) (passing)
 
 - **Problem:** hollow steel sphere a = 10, b = 20 mm, internal pressure p = 10 MPa, outer
   surface free. One octant with symmetry rollers (u_x = 0 on x = 0, u_y = 0 on y = 0,
@@ -210,7 +210,7 @@ Count: v0.1 12 (5 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
 - **Licence:** formula only.
 - **Equivalents:** none recorded.
 - **Features:** pressure on a doubly curved face, rollers on three cut planes (both exist).
-- **Tolerance:** 2 % on sigma_t(a), 1 % on u_r(a), as TS-06 (proposed, `lame_sphere.toml`).
+- **Tolerance:** 2 % on sigma_t(a), 1 % on u_r(a), as TS-06 (approved, `lame_sphere.toml`).
 - **Measured** (CalculiX 2.21; the gate mesh is 1.25 mm, 8 elements through the
   wall, about 14 s):
 

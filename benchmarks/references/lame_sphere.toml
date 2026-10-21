@@ -1,0 +1,7 @@
+# Approved by the maintainer for TS-07.
+description = "Octant of a hollow sphere a = 10, b = 20 mm, steel-generic, internal pressure 10 MPa, symmetry rollers on the three cut planes, C3D10; mean sigma_t of inner-surface nodes on the cut planes (sigma_kk on the plane normal to k), mean u_r of inner-surface nodes"
+source = "Lamé, thick spherical shell: sigma_t(a) = p(b^3+2a^3)/(2(b^3-a^3)); u_r(a) = p a^4/(E(b^3-a^3)) [(1-2nu) + (1+nu) b^3/(2a^3)]. Timoshenko & Goodier, Theory of Elasticity, 3rd ed. (1970), spherical vessel (section unverified); Ugural & Fenster, Advanced Strength and Applied Elasticity (section unverified)"
+reference_hoop_stress_inner_mpa = 7.142857142857143
+reference_radial_displacement_inner_mm = 0.00038095238095238096
+rel_tolerance_hoop_stress = 0.02
+rel_tolerance_radial_displacement = 0.01
