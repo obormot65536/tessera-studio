@@ -156,6 +156,12 @@ def add_support(
     return project.study.supports[-1]
 
 
+def _check_nonzero(kind: str, *values: float) -> None:
+    """A load of zero does nothing, so it is almost certainly a typo."""
+    if not any(values):
+        raise InputError(f"a {kind} of zero does nothing; give a non-zero value")
+
+
 def _add_load[L: ForceLoad | PressureLoad | MomentLoad](project: Project, load: L) -> L:
     _commit(project, lambda p: p.study.loads.append(load.model_copy()))
     return load
@@ -172,7 +178,9 @@ def add_force_load(
     """Total force in N, spread uniformly over the faces."""
     item_id = _checked_id(load_id, "load", _all_ids(project))
     face_set = _face_set(project, part_id, faces)
-    return _add_load(project, _build(ForceLoad, id=item_id, faces=face_set, force=force))
+    load = _build(ForceLoad, id=item_id, faces=face_set, force=force)
+    _check_nonzero("force", *load.force)
+    return _add_load(project, load)
 
 
 def add_pressure_load(
@@ -186,7 +194,9 @@ def add_pressure_load(
     """Pressure in MPa normal to the faces; positive pushes into the part."""
     item_id = _checked_id(load_id, "load", _all_ids(project))
     face_set = _face_set(project, part_id, faces)
-    return _add_load(project, _build(PressureLoad, id=item_id, faces=face_set, pressure=pressure))
+    load = _build(PressureLoad, id=item_id, faces=face_set, pressure=pressure)
+    _check_nonzero("pressure", load.pressure)
+    return _add_load(project, load)
 
 
 def add_moment_load(
@@ -200,7 +210,9 @@ def add_moment_load(
     """Moment in N mm about the faces' area centroid."""
     item_id = _checked_id(load_id, "load", _all_ids(project))
     face_set = _face_set(project, part_id, faces)
-    return _add_load(project, _build(MomentLoad, id=item_id, faces=face_set, moment=moment))
+    load = _build(MomentLoad, id=item_id, faces=face_set, moment=moment)
+    _check_nonzero("moment", *load.moment)
+    return _add_load(project, load)
 
 
 def set_gravity(project: Project, acceleration: Vec3 | None) -> None:

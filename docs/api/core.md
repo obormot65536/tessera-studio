@@ -292,8 +292,8 @@ def add_force_load(
 
 A total force in N (`FX, FY, FZ`), spread evenly over the faces' area.
 
-Raises `InputError` for an empty or used id, a bad face list (see the common rules) or a
-non-finite component.
+Raises `InputError` for an empty or used id, a bad face list (see the common rules), a
+non-finite component, or a force of zero.
 
 #### `add_pressure_load`
 
@@ -310,7 +310,8 @@ def add_pressure_load(
 
 A pressure in MPa, normal to the faces. Positive pushes into the part.
 
-Raises `InputError` for an empty or used id, a bad face list, or a non-finite pressure.
+Raises `InputError` for an empty or used id, a bad face list, or a pressure that is zero or
+not finite.
 
 #### `add_moment_load`
 
@@ -327,7 +328,8 @@ def add_moment_load(
 
 A moment in N·mm (`MX, MY, MZ`) about the faces' area centroid.
 
-Raises `InputError` for an empty or used id, a bad face list, or a non-finite component.
+Raises `InputError` for an empty or used id, a bad face list, a non-finite component, or a
+moment of zero.
 
 #### `set_gravity`
 

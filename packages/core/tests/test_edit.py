@@ -177,3 +177,13 @@ def test_a_part_is_read_once_however_many_supports_and_loads_it_gets(
     edit.add_force_load(p, "box", [2], (0.0, 0.0, -100.0))
     edit.add_pressure_load(p, "box", [3], 0.5)
     assert reads == [box_step]
+
+
+def test_a_load_of_zero_is_refused(project: Project) -> None:
+    with pytest.raises(InputError, match="force of zero"):
+        edit.add_force_load(project, "box", [2], (0.0, 0.0, 0.0))
+    with pytest.raises(InputError, match="pressure of zero"):
+        edit.add_pressure_load(project, "box", [3], 0.0)
+    with pytest.raises(InputError, match="moment of zero"):
+        edit.add_moment_load(project, "box", [2], (0.0, -0.0, 0.0))
+    assert project.study.loads == []
