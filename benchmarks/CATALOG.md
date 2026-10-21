@@ -69,7 +69,7 @@ primary source.
 | TS-05 | v0.1 | Simply supported beam, uniform load | passing |
 | TS-06 | v0.1 | Thick-walled cylinder, internal pressure (Lamé) | passing |
 | TS-07 | v0.1 | Thick-walled sphere, internal pressure (Lamé) | passing |
-| TS-08 | v0.1 | Circular plate, uniform pressure, clamped and simply supported | A: passing; B: planned |
+| TS-08 | v0.1 | Circular plate, uniform pressure, clamped and simply supported | passing (A and B) |
 | TS-09 | v0.1 | Torsion of circular and square bars (Saint-Venant) | passing |
 | TS-10 | v0.1 | Thin ring under diametral compression (curved beam) | planned |
 | TS-11 | v0.1 | NAFEMS LE1 elliptic membrane | planned |
@@ -276,14 +276,18 @@ Count: v0.1 12 (9 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
     h = 2 mm (a/h = 10), q = 1 MPa; quarter disc with symmetry rollers on the two cut planes.
     Case: `benchmarks/cases/test_clamped_plate.py`, reference file
     `clamped_plate.toml` (approved).
-  - Variant B (`planned`): simply supported, i.e. a ring support (u_z = 0 on the bottom outer
-    edge), as a line support (ADR-006).
+  - Variant B (`passing`): simply supported, the same disc on a ring line support
+    (ADR-006) holding only u_z on the bottom outer edge, the edge between the bottom face and
+    the rim. Case: `benchmarks/cases/test_simply_supported_plate.py`, reference file
+    `simply_supported_plate.toml` (approved).
 - **Quantity:** centre deflection. A: w0 = q a^4 / (64 D) + q a^2 / (4 kappa G h), i.e. the
   Kirchhoff value times [1 + 16 / (5 (1 - nu)) (h/a)^2] for kappa = 5/6; w0 = 0.016992857 mm
   (`computed`; Kirchhoff part 0.01625 mm, shear part +4.57 %). Measured on the mid-surface node
   at the centre: the top and bottom surfaces sit 0.40 % lower because of the Poisson
-  through-thickness strain of bending. B: w0 = (5 + nu)/(1 + nu) q a^4 / (64 D), with
-  D = E h^3 / (12 (1 - nu^2)) (thin plate).
+  through-thickness strain of bending. B: w0 = (5 + nu)/(1 + nu) q a^4 / (64 D) +
+  q a^2 / (4 kappa G h), with D = E h^3 / (12 (1 - nu^2)). The shear term is the same as in A
+  because Q_r = -q r / 2 is statically determinate. w0 = 0.066992857 mm (`computed`; Kirchhoff
+  part 0.06625 mm, shear part +1.12 %).
 - **Reference:** Timoshenko & Woinowsky-Krieger, *Theory of Plates and Shells*, 2nd ed. (1959),
   chapter 3, symmetrical bending of circular plates (section numbers `unverified`). Thin-plate
   formulas `verified` (structville.com derivation, tge.readthedocs.io page excerpts). The
@@ -302,7 +306,8 @@ Count: v0.1 12 (9 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
 - **Features:** pressure, clamped curved face, rollers on cut planes, thin-body meshing (at
   least 3 quadratic elements through the thickness); edge/ring support (variant B: a line support
   on the edge between the bottom face and the rim, exists since ADR-006).
-- **Tolerance:** 2 % (A, approved); 3 % (B, the ring-support idealisation is ambiguous in 3D).
+- **Tolerance:** 2 % (A, approved); 3 % (B, approved; the ring-support idealisation is ambiguous
+  in 3D).
 - **Measured, variant A** (CalculiX 2.21; the gate mesh is h/3 = 0.667 mm, 3 elements through
   the thickness; the case runs the sweep 2 / 1 / 0.667 mm, about 12 s in total):
 
@@ -317,6 +322,22 @@ Count: v0.1 12 (9 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
   The last two rows are from the same problem scaled to a = 10, h = 1. Convergence is from
   below and roughly first order in the element size (stress singularities at the corners of
   the clamped face).
+- **Measured, variant B** (same machine and gate mesh; mid-surface centre node; "rim" is the
+  mid-surface deflection at r = a in % of w0, i.e. how far it sinks below the held bottom
+  corner):
+
+  | size [mm] | nodes | w0 (mid-surface) | rim | runtime |
+  |---|---|---|---|---|
+  | 2.0 | 1 597 | -0.08 % | +0.23 % | ~0.7 s |
+  | 1.0 | 6 771 | +0.14 % | +0.32 % | ~3 s |
+  | 0.667 | 20 193 | +0.22 % | +0.37 % | ~12 s |
+  | 0.5 | ~40 k | +0.25 % | +0.41 % | ~31 s |
+  | 0.4 | ~75 k | +0.29 % | +0.45 % | ~92 s |
+
+  The rim value grows like ln(1 / size), because a line force at a 90 degree corner has a
+  logarithmically singular local displacement. As a result w0 creeps up slowly instead of
+  converging. With the ring on the mid-surface instead (rim split at z = h/2), the solid sits
+  at -0.20 % at the gate mesh, like variant A. A pinned ring (all directions held) gives -52 %.
 
 ### TS-09 Torsion of a circular and a square bar
 
