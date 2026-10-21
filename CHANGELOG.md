@@ -2,8 +2,28 @@
 
 ## Unreleased
 
-- STL import (binary and ASCII): faces are split at sharp edges (40° default), parts must be
-  a single closed solid, lengths are taken as mm (ADR-005).
-- Directional (roller) supports; plate-with-hole benchmark; validation catalog.
-- Repository scaffold: uv workspace with 12 packages, data model for assemblies, `tessera` CLI
-  (`new`, `info`, `version`), Claude Code hooks and subagents, CI.
+- Moment loads: apply a torque (N mm) to a face. It is spread over the face as forces that
+  add no net push or pull (`MomentLoad`).
+- Pressure loads (MPa, normal to the face, positive pushes into the part; works on curved
+  faces) and gravity (mm/s²; uses the material density).
+- `.tessera` project files: one file that holds the project and a copy of its STEP or STL
+  geometry, so it still opens after the original files move. `.tessera.json` stays the
+  hand-editable form.
+- `tessera pack` bundles a `.tessera.json` project and its geometry into a `.tessera` file.
+- Project files carry a schema version (now 4). Older files still open; files from a newer
+  Tessera are refused with a message that names both versions.
+- CLI: `tessera faces` lists a part's faces for choosing supports and loads; `tessera solve`
+  meshes and solves a one-part study and prints the largest displacement and von Mises stress.
+- Linear static analysis of one part with CalculiX (needs `ccx` on the PATH, or set
+  `TESSERA_CCX` to its location).
+- Built-in materials: `steel-generic` and `aluminium-6061-t6`, both isotropic.
+- Validation: five textbook cases now pass (cantilever, plate with a hole, bar under its own
+  weight, thick-walled cylinder, torsion); see `docs/user/validation.md`.
+- STL import (binary and ASCII): faces are split at edges sharper than 40°, the file must be a
+  single closed solid, and lengths are taken as mm (ADR-005).
+- Roller supports: a support can hold only chosen directions (x, y or z), for symmetry planes
+  and sliding faces.
+- Python API in `tessera.core` (`new_project`, `load_project`, `save_project`,
+  `describe_faces`, `solve`); see `docs/api/core.md`.
+- `tessera` CLI commands `new`, `info` and `version`. The model can describe assemblies, but
+  assemblies cannot be solved yet.

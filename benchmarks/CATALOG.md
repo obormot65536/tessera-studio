@@ -100,7 +100,7 @@ primary source.
 | TT-04 | v3 | Steady radial conduction and thermal stress in a thick cylinder | planned |
 | TF-01 | v4 | Laminar pipe flow (Hagen-Poiseuille) | planned |
 
-Count: v0.1 12 (2 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
+Count: v0.1 12 (5 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
 
 ---
 
