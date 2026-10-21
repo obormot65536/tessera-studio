@@ -239,7 +239,8 @@ Raises:
 - `FileNotFoundError`: the geometry file does not exist.
 - `InputError`: the file is not a STEP or STL file (by extension); the material is unknown; the
   id is empty or already used; the geometry cannot be read (for example, it is not a single
-  closed STL solid); or the project is invalid after the change.
+  closed STL solid); gravity is on and the material has no density; or the project is invalid
+  after the change.
 
 #### `set_material`
 
@@ -251,7 +252,8 @@ Sets the material of a part.
 
 Raises:
 
-- `InputError`: no part has `part_id`; the material is unknown.
+- `InputError`: no part has `part_id`; the material is unknown; gravity is on and the material
+  has no density.
 - `FileNotFoundError`: the part's geometry file does not exist.
 
 #### `add_support`
@@ -338,9 +340,9 @@ def set_gravity(project: Project, acceleration: Vec3 | None) -> None
 ```
 
 Gravity in mm/s² for every part, for example `(0, 0, -9810)`. `None` turns gravity off.
-It does not check the material's density; `solve` does that.
 
-Raises `InputError` for a non-finite component or an invalid project.
+Raises `InputError` for a non-finite component, an invalid project, or a part whose material
+has no density (gravity needs it).
 
 #### `set_mesh_size`
 

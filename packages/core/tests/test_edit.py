@@ -6,8 +6,17 @@ import gmsh
 import pytest
 
 import tessera.geometry as geometry
+import tessera.materials.library as material_library
 from tessera.core import edit, new_project
-from tessera.model import FaceInfo, ForceLoad, InputError, MomentLoad, PressureLoad, Project
+from tessera.model import (
+    FaceInfo,
+    ForceLoad,
+    InputError,
+    IsotropicMaterial,
+    MomentLoad,
+    PressureLoad,
+    Project,
+)
 
 
 @pytest.fixture(scope="module")
@@ -187,3 +196,31 @@ def test_a_load_of_zero_is_refused(project: Project) -> None:
     with pytest.raises(InputError, match="moment of zero"):
         edit.add_moment_load(project, "box", [2], (0.0, -0.0, 0.0))
     assert project.study.loads == []
+
+
+@pytest.fixture
+def no_density(monkeypatch: pytest.MonkeyPatch) -> str:
+    """A library material without a density, as printed materials may arrive."""
+    material = IsotropicMaterial(name="mystery-resin", youngs_modulus=2000.0, poisson_ratio=0.35)
+    monkeypatch.setitem(material_library._ISOTROPIC, material.name, material)
+    return material.name
+
+
+def test_gravity_needs_a_density_for_every_part(project: Project, no_density: str) -> None:
+    edit.set_material(project, "box", no_density)
+    with pytest.raises(InputError, match=r"mystery-resin.*no density"):
+        edit.set_gravity(project, (0.0, 0.0, -9810.0))
+    assert project.study.gravity is None
+
+
+def test_a_material_without_density_is_refused_while_gravity_is_on(
+    project: Project, box_step: Path, no_density: str
+) -> None:
+    edit.set_gravity(project, (0.0, 0.0, -9810.0))
+    with pytest.raises(InputError, match="no density"):
+        edit.set_material(project, "box", no_density)
+    with pytest.raises(InputError, match="no density"):
+        edit.add_part(project, box_step, material_id=no_density)
+    assert [p.material_id for p in project.assembly.parts] == ["steel-generic"]
+    edit.set_gravity(project, None)
+    edit.set_material(project, "box", no_density)  # fine without gravity
