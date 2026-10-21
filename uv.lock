@@ -800,12 +800,14 @@ version = "0.0.1"
 source = { editable = "packages/post" }
 dependencies = [
     { name = "numpy" },
+    { name = "scipy" },
     { name = "tessera-model" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "numpy", specifier = ">=1.26" },
+    { name = "scipy", specifier = ">=1.11" },
     { name = "tessera-model", editable = "packages/model" },
 ]
 

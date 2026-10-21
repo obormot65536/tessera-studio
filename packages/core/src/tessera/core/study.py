@@ -77,4 +77,4 @@ def solve(
         workdir = Path(tempfile.mkdtemp(prefix="tessera-"))
     workdir.mkdir(parents=True, exist_ok=True)
     solution = adapter.run(job, workdir)
-    return post.summarize(job.mesh, solution, workdir=workdir)
+    return post.summarize(job, solution, workdir=workdir)

@@ -195,7 +195,8 @@ Raises:
   run timed out, CalculiX reported an error, or it produced no usable results. `SolverError.log`
   holds the solver output.
 
-Returns a `StudyResult`.
+Returns a `StudyResult`: the largest displacement, the raw peak von Mises stress, the peak away
+from supports and sharp inside edges, and the peak on each face (see "Peak stress" below).
 
 ### `tessera.core.edit`
 
@@ -459,14 +460,48 @@ so `solve`, `describe_faces` and `save_project` check the whole project again an
 
 | Type | Fields | Notes |
 |---|---|---|
-| `StudyResult` | `mesh: Mesh`, `solution: SolveResult`, `max_displacement: float` (mm), `max_von_mises: float` (MPa), `workdir: Path \| None` | Returned by `solve`. `displacement_magnitude` gives the per-node displacement length. |
+| `StudyResult` | `mesh: Mesh`, `solution: SolveResult`, `max_displacement: float` (mm), `max_von_mises: float` (MPa), `workdir: Path \| None`, `peak_von_mises: StressSpot`, `clear_peak_von_mises: StressSpot \| None`, `face_peaks: tuple[StressSpot, ...]`, `node_flags: NodeFlags` | Returned by `solve`. `displacement_magnitude` gives the per-node displacement length. See "Peak stress" below. |
+| `StressSpot` | `value: float` (MPa), `node: int`, `location: (x, y, z)` (mm), `face: int \| None`, `flags: tuple[StressFlag, ...]` | A stress at one node. `face` is the face the node lies on (the lowest number on an edge between faces), `None` inside the part. `flagged` is `True` when `flags` is not empty. |
+| `StressFlag` | `kind: FlagKind`, `support: str \| None` | Why a node is flagged. `support` is the support's id for `FlagKind.SUPPORT`. `str()` gives `near support 'root'` or `near a sharp inside edge`. |
+| `FlagKind` | `"support"`, `"sharp-inside-edge"` | |
+| `NodeFlags` | `masks: dict[StressFlag, (N,) bool]`, `n_nodes: int`, `distance: float` (mm), `edge_length: float` (mm) | One mask per reason that flags at least one node. `flagged` is the (N,) union; `at(node)` lists the reasons for one node. `edge_length` is h, `distance` is d = 2 h. |
 | `SolveResult` | `displacements: (N, 3)` mm, `stresses: (N, 6)` MPa in the order xx, yy, zz, xy, yz, zx, `solver: str`, `log: str`, `metadata: dict[str, str]` | Per node, 0-based. Nodes that no element uses are NaN. |
 | `Mesh` | `nodes: (N, 3)` mm, `elements: (M, 10)` quadratic tetrahedra (C3D10 order), `element_sets`, `node_sets`, `surfaces` | `n_nodes` and `n_elements` properties. |
 | `EdgeInfo` | `faces: (int, int)`, `kind: str`, `length: float` (mm), `start: (x, y, z) \| None`, `end: (x, y, z) \| None`, `point: (x, y, z)`, `curves: int` | `kind` is the CAD curve type (`"Line"`, `"Circle"`, ..., `"Mixed"` when the curves differ) for STEP, and for STL `"Line"` when every curve is straight, otherwise `"Curved"`. `start` and `end` are `None` for a closed edge or several separate curves. `point` lies on the edge (the middle of a single straight edge). |
 | `FaceInfo` | `index: int`, `kind: str`, `area: float` (mm²), `centroid: (x, y, z)` (mm), `normal: (x, y, z) \| None` | `kind` is the CAD surface type (`"Plane"`, `"Cylinder"`, ...) for STEP, and `"Plane"` or `"Curved"` for STL. `normal` is `None` for curved faces. |
 
-`max_von_mises` is the largest nodal von Mises stress. Peak values at corners, load points and
-line supports depend on the mesh size; see `docs/user/study-setup.md`.
+#### Peak stress
+
+In a linear model the stress has no finite value at the edges of a support that holds two or
+three directions, along a line support and at sharp inside edges, so the nodal stress there keeps rising as the mesh
+is refined. `solve` flags those places (ADR-007):
+
+- **Supports:** nodes within d of a node of a face support that holds two or three directions.
+  A face support that holds one direction (a symmetry plane or roller) is never flagged.
+- **Sharp inside edges:** nodes within d of an edge of the outer surface that turns inward by
+  30° or more, and edges shared by more than two surface faces (where two bodies touch along
+  a line). Outward (convex) edges, smooth fillets and holes are not flagged; the turn is
+  measured on the curved element faces, so a coarse mesh of a round hole does not count.
+- **Line supports** (ADR-006): nodes within d of a line support, whatever directions it holds.
+- d = 2 h, where h is the median corner-to-corner element edge length (`node_flags.edge_length`).
+
+The fields:
+
+- `max_von_mises`: the largest nodal von Mises stress anywhere, flagged or not. Its meaning has
+  not changed.
+- `peak_von_mises`: the same value as a `StressSpot`, with its node, location, face and flags.
+- `clear_peak_von_mises`: the largest von Mises stress at an unflagged node, "away from
+  supports and sharp inside edges"; `None` if no unflagged node has a result. It is not a
+  converged stress and can read low: where the highest stress is expected at a support (a
+  clamped base under bending), it is taken about d from the clamp and misses the rise toward
+  it; the true stress there lies between `clear_peak_von_mises` and `peak_von_mises`. Do not
+  quote it alone against a strength in that case; compare two mesh sizes instead.
+- `face_peaks`: the largest von Mises stress on every face that has a result, highest first,
+  each with its own flags.
+- `node_flags`: the per-node flags, for use with any other stress result.
+
+Nodes that no element uses have no result (NaN) and are skipped. Peaks under point-like loads
+and at the edges of loaded faces are not flagged yet.
 
 In the `SolveJob` that physics builds, each support is a `FixedSupport` whose node set is named
 `support:<id>`. A line support has `FixedSupport.line = True`, so results code can find the
@@ -521,6 +556,11 @@ project.study.mesh_size = 2.5
 
 result = solve(project, workdir=Path("run-coarse"))
 print(result.max_displacement, result.max_von_mises)
+clear = result.clear_peak_von_mises
+if clear is not None:
+    print(f"{clear.value:.1f} MPa away from supports and sharp inside edges, face {clear.face}")
+for flag in result.peak_von_mises.flags:
+    print(f"the raw peak is {flag}")
 
 save_project(project, Path("bar-with-study.tessera"))
 ```

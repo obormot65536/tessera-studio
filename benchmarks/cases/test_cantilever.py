@@ -105,8 +105,8 @@ def _face_with_normal(faces: list[Any], normal: tuple[float, float, float]) -> i
     return matches[0]
 
 
-def _solve_tip_deflection(step_path: Path, mesh_size: float, workdir: Path) -> tuple[float, int]:
-    """Run the cantilever through the public API; return (mean tip u_z, number of nodes)."""
+def _solve_beam(step_path: Path, mesh_size: float, workdir: Path) -> Any:
+    """Run the cantilever through the public API; return the ``StudyResult``."""
     from tessera.core import describe_faces, new_project, solve
     from tessera.model import FaceSet, ForceLoad, PartInstance, Support
 
@@ -137,7 +137,25 @@ def _solve_tip_deflection(step_path: Path, mesh_size: float, workdir: Path) -> t
     assert on_tip.sum() >= 6, "no mesh nodes found on the tip face"
     on_root = np.isclose(nodes[:, 0], 0.0, rtol=0.0, atol=1e-6 * LENGTH)
     assert np.abs(result.solution.displacements[on_root]).max() < 1e-12, "root is not clamped"
+    return result
+
+
+def _tip_deflection(result: Any) -> tuple[float, int]:
+    """(mean u_z of the tip-face nodes, number of nodes)."""
+    nodes = result.mesh.nodes
+    on_tip = np.isclose(nodes[:, 0], LENGTH, rtol=0.0, atol=1e-6 * LENGTH)
     return float(result.solution.displacements[on_tip, 2].mean()), result.mesh.n_nodes
+
+
+def _raw_von_mises_peak(stresses: np.ndarray) -> tuple[float, int]:
+    """(largest von Mises stress, its node), computed here independently of tessera.post."""
+    sxx, syy, szz, sxy, syz, szx = stresses.T
+    vm = np.sqrt(
+        0.5 * ((sxx - syy) ** 2 + (syy - szz) ** 2 + (szz - sxx) ** 2)
+        + 3.0 * (sxy**2 + syz**2 + szx**2)
+    )
+    node = int(np.nanargmax(vm))
+    return float(vm[node]), node
 
 
 @pytest.fixture(scope="module")
@@ -146,19 +164,25 @@ def beam_step(box_step: Callable[..., Path]) -> Path:
 
 
 @pytest.fixture(scope="module")
-def tip_deflection(
+def beam_result(
     beam_step: Path, tmp_path_factory: pytest.TempPathFactory
-) -> Callable[[float], tuple[float, int]]:
-    """Cached ``mesh_size -> (mean tip u_z, n_nodes)`` so the gate and the sweep share runs."""
-    cache: dict[float, tuple[float, int]] = {}
+) -> Callable[[float], Any]:
+    """Cached ``mesh_size -> StudyResult`` so the gate, the sweep and the peak checks share runs."""
+    cache: dict[float, Any] = {}
 
-    def run(mesh_size: float) -> tuple[float, int]:
+    def run(mesh_size: float) -> Any:
         if mesh_size not in cache:
             workdir = tmp_path_factory.mktemp(f"cantilever-h{mesh_size:g}")
-            cache[mesh_size] = _solve_tip_deflection(beam_step, mesh_size, workdir)
+            cache[mesh_size] = _solve_beam(beam_step, mesh_size, workdir)
         return cache[mesh_size]
 
     return run
+
+
+@pytest.fixture(scope="module")
+def tip_deflection(beam_result: Callable[[float], Any]) -> Callable[[float], tuple[float, int]]:
+    """``mesh_size -> (mean tip u_z, n_nodes)``."""
+    return lambda mesh_size: _tip_deflection(beam_result(mesh_size))
 
 
 def test_reference_matches_formula(load_reference: Callable[[str], dict[str, Any]]) -> None:
@@ -194,7 +218,7 @@ def test_cantilever_tip_deflection_from_stl(
     """Same gate from an STL of the beam: STL import must not change the answer (ADR-005)."""
     ref = load_reference(REFERENCE)
     stl = box_stl("cantilever", (0.0, -WIDTH / 2, -HEIGHT / 2), (LENGTH, WIDTH, HEIGHT))
-    u_z, _ = _solve_tip_deflection(stl, GATE_MESH_SIZE, tmp_path)
+    u_z, _ = _tip_deflection(_solve_beam(stl, GATE_MESH_SIZE, tmp_path))
     assert u_z < 0.0, "tip must deflect in the load direction (-z)"
     assert -u_z == pytest.approx(ref["reference_tip_deflection_mm"], rel=ref["rel_tolerance"])
 
@@ -230,3 +254,29 @@ def test_cantilever_mesh_convergence(
         # converged value differs from beam theory by ~0.35 % because of the clamped root).
         assert fine <= coarse + CONVERGENCE_SLACK or fine < tolerance / 4
     assert errors[-1] < tolerance
+
+
+def test_cantilever_peak_stress_is_flagged_at_the_clamped_root(
+    beam_result: Callable[[float], Any],
+) -> None:
+    """ADR-007: the raw peak sits at the clamped root and is flagged as the root support; the
+    clear peak is away from it. No reference value: this checks where and why, not how much."""
+    from tessera.model import FlagKind, StressFlag
+
+    result = beam_result(GATE_MESH_SIZE)
+    root = StressFlag(FlagKind.SUPPORT, support="root")
+    d = result.node_flags.distance
+
+    peak = result.peak_von_mises
+    value, node = _raw_von_mises_peak(result.solution.stresses)
+    assert (peak.value, peak.node) == (pytest.approx(value), node)
+    assert result.max_von_mises == pytest.approx(value)
+    assert peak.flags == (root,)
+    assert peak.location[0] <= d
+
+    clear = result.clear_peak_von_mises
+    assert clear is not None and not clear.flagged
+    assert clear.location[0] > d
+    assert clear.value < peak.value
+    # The clamped root is the only singular place: the block has no inside edges.
+    assert list(result.node_flags.masks) == [root]

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Where the peak stress is, and whether it depends on the mesh (ADR-007): `tessera solve` now
+  leads with the largest von Mises stress away from supports and sharp inside edges, then the
+  overall peak with its location, face and, when it sits near a fixed support or a sharp
+  inside edge, a note that it may keep rising as the mesh is refined, then the highest stress on
+  the top five faces. The API adds `StudyResult.peak_von_mises`, `clear_peak_von_mises`,
+  `face_peaks` and `node_flags` (`StressSpot`, `StressFlag`, `NodeFlags` in `tessera.model`).
+  `max_von_mises` is unchanged. Where the highest stress is at a support (a clamped base under
+  bending), the value away from supports reads low; the user guide explains how to read both.
 - Line supports (ADR-006): hold a part along an edge, named by the two faces that meet there,
   so it can still turn about the line (a pinned or roller line, e.g. a simply supported beam).
   CLI: `tessera support add PATH PART --edge 3-5 [--edge 4-5] --dofs z`, and `tessera edges

@@ -164,10 +164,10 @@ def _require_roller_support() -> None:
     assert tuple(support.dofs) == (1,)
 
 
-def _solve_kt(step_path: Path, mesh_size: float, workdir: Path) -> tuple[float, float, int]:
+def _solve_kt(step_path: Path, mesh_size: float, workdir: Path) -> tuple[float, float, int, Any]:
     """Run the eighth model through the public API.
 
-    Returns (Kt_n at mid-thickness, Kt_n at the surface, number of nodes).
+    Returns (Kt_n at mid-thickness, Kt_n at the surface, number of nodes, the StudyResult).
     """
     from tessera.core import describe_faces, new_project, solve
     from tessera.model import FaceSet, ForceLoad, PartInstance, Support
@@ -227,7 +227,19 @@ def _solve_kt(step_path: Path, mesh_size: float, workdir: Path) -> tuple[float, 
         float(sigma_xx[mid[0]] / s_net),
         float(sigma_xx[surface[0]] / s_net),
         result.mesh.n_nodes,
+        result,
     )
+
+
+def _raw_von_mises_peak(stresses: np.ndarray) -> tuple[float, int]:
+    """(largest von Mises stress, its node), computed here independently of tessera.post."""
+    sxx, syy, szz, sxy, syz, szx = stresses.T
+    vm = np.sqrt(
+        0.5 * ((sxx - syy) ** 2 + (syy - szz) ** 2 + (szz - sxx) ** 2)
+        + 3.0 * (sxy**2 + syz**2 + szx**2)
+    )
+    node = int(np.nanargmax(vm))
+    return float(vm[node]), node
 
 
 @pytest.fixture(scope="module")
@@ -237,19 +249,27 @@ def plate_step(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="module")
-def plate_kt(
+def plate_runs(
     plate_step: Path, tmp_path_factory: pytest.TempPathFactory
-) -> Callable[[float], tuple[float, float, int]]:
-    """Cached ``mesh_size -> (Kt_n mid, Kt_n surface, n_nodes)`` shared by gate and sweep."""
-    cache: dict[float, tuple[float, float, int]] = {}
+) -> Callable[[float], tuple[float, float, int, Any]]:
+    """Cached ``mesh_size -> (Kt_n mid, Kt_n surface, n_nodes, StudyResult)``."""
+    cache: dict[float, tuple[float, float, int, Any]] = {}
 
-    def run(mesh_size: float) -> tuple[float, float, int]:
+    def run(mesh_size: float) -> tuple[float, float, int, Any]:
         if mesh_size not in cache:
             workdir = tmp_path_factory.mktemp(f"plate-hole-h{mesh_size:g}")
             cache[mesh_size] = _solve_kt(plate_step, mesh_size, workdir)
         return cache[mesh_size]
 
     return run
+
+
+@pytest.fixture(scope="module")
+def plate_kt(
+    plate_runs: Callable[[float], tuple[float, float, int, Any]],
+) -> Callable[[float], tuple[float, float, int]]:
+    """``mesh_size -> (Kt_n mid, Kt_n surface, n_nodes)``, shared by gate and sweep."""
+    return lambda mesh_size: plate_runs(mesh_size)[:3]
 
 
 def test_reference_matches_formula(load_reference: Callable[[str], dict[str, Any]]) -> None:
@@ -306,3 +326,25 @@ def test_plate_hole_mesh_convergence(
         # (the converged 3D mid-thickness value is ~0.3 % above the plane-stress reference).
         assert fine <= coarse + CONVERGENCE_SLACK or fine < tolerance / 4
     assert errors[-1] < tolerance
+
+
+def test_plate_hole_peak_stress_is_clear_at_the_hole_edge(
+    plate_runs: Callable[[float], tuple[float, float, int, Any]],
+) -> None:
+    """ADR-007: symmetry rollers hold one direction and the plate has no inside edges, so no
+    node is flagged; the raw peak is the hole-edge stress and the clear peak is the same spot.
+    No reference value: this checks where and why, not how much."""
+    _require_roller_support()
+    result = plate_runs(GATE_MESH_SIZE)[3]
+
+    assert not result.node_flags.flagged.any()
+    peak = result.peak_von_mises
+    assert not peak.flagged
+    value, node = _raw_von_mises_peak(result.solution.stresses)
+    assert (peak.value, peak.node) == (pytest.approx(value), node)
+    assert result.max_von_mises == pytest.approx(value)
+    assert result.clear_peak_von_mises == peak
+    x, y, _ = peak.location
+    tol = 1e-6 * HALF_LENGTH
+    assert math.hypot(x, y) == pytest.approx(HOLE_DIAMETER / 2, abs=tol), "peak not on the hole"
+    assert abs(x) < 0.1 * HOLE_DIAMETER, "peak not on the net section of the hole edge"
