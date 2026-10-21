@@ -9,6 +9,7 @@ import tessera.geometry as geometry
 import tessera.materials.library as material_library
 from tessera.core import edit, new_project
 from tessera.model import (
+    EdgeInfo,
     FaceInfo,
     ForceLoad,
     InputError,
@@ -17,6 +18,8 @@ from tessera.model import (
     PressureLoad,
     Project,
 )
+
+_Parsed = tuple[list[FaceInfo], list[EdgeInfo]]
 
 
 @pytest.fixture(scope="module")
@@ -71,6 +74,7 @@ def test_supports_check_faces_and_get_unique_ids(project: Project) -> None:
     fixed = edit.add_support(project, "box", [1])
     roller = edit.add_support(project, "box", [2, 3], dofs=(3,))
     assert (fixed.id, fixed.dofs) == ("support-1", (1, 2, 3))
+    assert roller.faces is not None and roller.edges is None
     assert (roller.id, roller.faces.faces, roller.dofs) == ("support-2", (2, 3), (3,))
     with pytest.raises(InputError, match="face 7"):
         edit.add_support(project, "box", [7])  # a box has faces 1..6
@@ -173,13 +177,13 @@ def test_a_part_is_read_once_however_many_supports_and_loads_it_gets(
     box_step: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     reads: list[Path] = []
-    parse = geometry.describe_step_faces
+    parse = geometry.describe_step
 
-    def counting(path: Path) -> list[FaceInfo]:
+    def counting(path: Path) -> _Parsed:
         reads.append(path)
         return parse(path)
 
-    monkeypatch.setattr(geometry, "describe_step_faces", counting)
+    monkeypatch.setattr(geometry, "describe_step", counting)
     p = new_project("p")
     edit.add_part(p, box_step)
     edit.add_support(p, "box", [1])

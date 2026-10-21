@@ -5,16 +5,18 @@ import threading
 from collections import OrderedDict
 from pathlib import Path
 
-from tessera.geometry.step import describe_step_faces
+from tessera.geometry.edges import describe_surface_edges
+from tessera.geometry.step import describe_step, describe_step_faces
 from tessera.geometry.stl import describe_surface, read_stl
-from tessera.model import FaceInfo, InputError
+from tessera.model import EdgeInfo, FaceInfo, InputError
 
 STEP_SUFFIXES = (".step", ".stp")
 STL_SUFFIXES = (".stl",)
 FACE_CACHE_SIZE = 32
-"""How many files' faces are kept in memory."""
+"""How many files' faces and edges are kept in memory."""
 
-_face_cache: OrderedDict[tuple[str, bytes], tuple[FaceInfo, ...]] = OrderedDict()
+_Description = tuple[tuple[FaceInfo, ...], tuple[EdgeInfo, ...]]
+_face_cache: OrderedDict[tuple[str, bytes], _Description] = OrderedDict()
 _face_cache_lock = threading.Lock()
 
 
@@ -24,6 +26,19 @@ def describe_faces(path: Path) -> list[FaceInfo]:
     Faces are remembered by file content, so asking again for an unchanged file (for every
     support and load added to a part) does not parse it again, and a changed file is re-read.
     """
+    return list(_describe(path)[0])
+
+
+def describe_edges(path: Path) -> list[EdgeInfo]:
+    """Edges of a single-solid STEP or STL file, each named by its two faces (ADR-006).
+
+    Ordered by face pair. Seams and zero-length curves are left out. Remembered together with
+    the faces, by file content.
+    """
+    return list(_describe(path)[1])
+
+
+def _describe(path: Path) -> _Description:
     suffix = path.suffix.lower()
     if suffix in STL_SUFFIXES:
         kind = "stl"
@@ -45,8 +60,13 @@ def describe_faces(path: Path) -> list[FaceInfo]:
     with _face_cache_lock:
         if key in _face_cache:
             _face_cache.move_to_end(key)
-            return list(_face_cache[key])
-    faces = describe_surface(read_stl(path)) if kind == "stl" else describe_step_faces(path)
+            return _face_cache[key]
+    if kind == "stl":
+        surface = read_stl(path)
+        found = (tuple(describe_surface(surface)), tuple(describe_surface_edges(surface)))
+    else:
+        faces, edges = describe_step(path)
+        found = (tuple(faces), tuple(edges))
     # Not cached if the file changed while it was being parsed. A change that is undone before
     # the second hash goes unnoticed; that needs two writes within one parse.
     try:
@@ -55,14 +75,14 @@ def describe_faces(path: Path) -> list[FaceInfo]:
         unchanged = False
     if unchanged:
         with _face_cache_lock:
-            _face_cache[key] = tuple(faces)
+            _face_cache[key] = found
             while len(_face_cache) > FACE_CACHE_SIZE:
                 _face_cache.popitem(last=False)
-    return list(faces)
+    return found
 
 
 def clear_face_cache() -> None:
-    """Forget all remembered faces, so the next ``describe_faces`` reads its file again."""
+    """Forget all remembered faces and edges, so the next query reads its file again."""
     with _face_cache_lock:
         _face_cache.clear()
 
@@ -77,8 +97,11 @@ __all__ = [
     "STEP_SUFFIXES",
     "STL_SUFFIXES",
     "clear_face_cache",
+    "describe_edges",
     "describe_faces",
+    "describe_step",
     "describe_step_faces",
     "describe_surface",
+    "describe_surface_edges",
     "read_stl",
 ]
