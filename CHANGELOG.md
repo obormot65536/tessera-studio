@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Faster study setup: a part's geometry is read once, not again for every support and load
+  added to it (it is read again if the file changes).
 - CLI: set up a study from the command line with `tessera part add`, `part material`, `support add`, `load force|pressure|moment`, `study`, `remove` and `materials`; `tessera info` summarises the project.
 - Clearer errors: a support or load on a part that does not exist is refused instead of
   being applied to the only part, and a missing geometry file names the part.

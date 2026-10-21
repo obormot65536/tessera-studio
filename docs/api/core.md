@@ -117,6 +117,10 @@ for planar faces, the outward unit normal.
 For STEP the indices are the CAD kernel's face numbers. For STL they are numbered by Tessera
 from the triangles (ADR-005), so they change if the STL file changes.
 
+Faces are remembered by the file's content for the rest of the process, so asking again for an
+unchanged file (as `tessera.core.edit` does for every support and load) does not read it again;
+a file that changed on disk is read again.
+
 Raises:
 
 - `InputError`:
