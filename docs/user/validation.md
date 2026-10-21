@@ -1,0 +1,60 @@
+# How we know the results are right
+
+Tessera is checked against simple problems whose answers are known from textbooks. If Tessera
+gets those right, its mesher, supports, loads and solver are working together. This page
+summarises the five checks that pass today. The full plan, with 32 more checks still to do, is in
+[`benchmarks/CATALOG.md`](../../benchmarks/CATALOG.md).
+
+## What the checks do not show
+
+- They do not check printed parts. No printed material is in the v0.1 library yet.
+- They check simple shapes and loads. They do not prove that a complicated part is right.
+- Passing means the answer is within a stated tolerance at one mesh size. Your own study still
+  needs the two-mesh check described in [study-setup.md](study-setup.md), Step 7.
+
+## The five passing checks
+
+Each row is one check. "Gate" is the largest error allowed. "Error at gate" is the error Tessera
+gave at the mesh size the test uses. Numbers come from one run of the suite on 21 October 2026
+with CalculiX 2.21.
+
+| Check | What it tests | Reference answer | Gate | Mesh size | Error at gate |
+|---|---|---|---|---|---|
+| **TS-01** Cantilever | Tip deflection of a steel bar, 200 × 10 × 10 mm, clamped at one end, 100 N pulling its free end down | Beam theory (Timoshenko): 1.5267 mm | 2 % | 2.5 mm | 0.39 % |
+| **TS-02** Plate with a hole | Stress at the edge of a 10 mm hole in a 50 mm wide steel strip under tension | Howland's strip solution: stress concentration 2.512 | 2 % | 1.0 mm | 0.32 % |
+| **TS-04** Bar under its own weight | Stretch of a 200 mm steel bar hanging under gravity, and stress halfway down | ρgL²/(2E) = 7.334 × 10⁻⁶ mm; stress ρgL/2 = 7.70 × 10⁻³ MPa | 2 % | 5.0 mm | 0.004 % (stretch), 0.001 % (stress) |
+| **TS-06** Thick-walled cylinder | Hoop stress and radial growth of a steel tube (inner radius 10 mm, outer 20 mm) at 10 MPa inside | Lamé's solution: hoop stress 16.67 MPa, radial growth 9.365 × 10⁻⁴ mm | 2 % stress, 1 % growth | 1.25 mm | 0.08 % (stress), 0.003 % (growth) |
+| **TS-09** Torsion | Twist and maximum shear stress of a 10 mm round shaft and a 10 mm square bar, 60 mm long, under 10 000 N·mm | Saint-Venant torsion theory | 2 % twist, 3 % shear | 2.5 mm | Round: 0.004 % (twist), 0.22 % (shear). Square: 0.42 % (twist), 0.78 % (shear) |
+
+Notes on the rows:
+
+- **TS-02** uses a value from Timoshenko and Goodier's *Theory of Elasticity* that the
+  maintainer has approved but not yet re-checked against the book. The reference is marked
+  provisional in the repository. Treat the 2 % gate as provisional too.
+- **TS-04** holds the top face so it can slide sideways but not move in z. A full clamp would add
+  a small sideways effect that has nothing to do with gravity.
+- **TS-06** uses symmetry faces, so one quarter of the tube is modelled.
+- **TS-09** applies the torque with Tessera's moment load, the same load you can use in a study.
+
+## Convergence
+
+Each check also runs at a coarser and a finer mesh. The error must not grow as the mesh gets
+finer, unless it is already well inside the gate. This shows the answer is settling on the
+reference and not drifting.
+
+## Run the checks yourself
+
+The checks need CalculiX (`ccx`) on the PATH, or `TESSERA_CCX` set. From the repository root:
+
+```
+uv run pytest benchmarks -m benchmark -s
+```
+
+The `-s` flag prints the convergence tables. The run takes a few minutes. The continuous
+integration pipeline runs the solver checks on Linux.
+
+## Where the references live
+
+Reference values and their tolerances are kept in `benchmarks/references/`. Only the maintainer
+changes them. A change to a reference or tolerance is made in a pull request with an explicit
+approval.
