@@ -66,7 +66,7 @@ primary source.
 | TS-02 | v0.1 | Strip with central hole in tension, Kt (Howland) | passing |
 | TS-03 | v0.1 | Uniform tension patch test (isotropic) | passing |
 | TS-04 | v0.1 | Bar hanging under its own weight | passing |
-| TS-05 | v0.1 | Simply supported beam, uniform load | planned |
+| TS-05 | v0.1 | Simply supported beam, uniform load | passing |
 | TS-06 | v0.1 | Thick-walled cylinder, internal pressure (Lamé) | passing |
 | TS-07 | v0.1 | Thick-walled sphere, internal pressure (Lamé) | passing |
 | TS-08 | v0.1 | Circular plate, uniform pressure, clamped and simply supported | A: passing; B: planned |
@@ -100,7 +100,7 @@ primary source.
 | TT-04 | v3 | Steady radial conduction and thermal stress in a thick cylinder | planned |
 | TF-01 | v4 | Laminar pipe flow (Hagen-Poiseuille) | planned |
 
-Count: v0.1 12 (8 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
+Count: v0.1 12 (9 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
 
 ---
 
@@ -180,18 +180,40 @@ Count: v0.1 12 (8 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
 - **Features:** gravity/body load, material density.
 - **Tolerance:** 2 % (the clamped top end adds a local Poisson effect).
 
-### TS-05 Simply supported beam, uniform load
+### TS-05 Simply supported beam, uniform load (passing)
 
-- **Problem:** prismatic beam on two line supports (one pinned line, one roller line), with
-  uniform pressure on the top face.
-- **Quantity:** midspan deflection 5qL^4/(384EI), plus a Timoshenko shear term qL^2/(8 kappa G A).
-- **Reference:** Timoshenko & Gere, *Mechanics of Materials* (deflection tables appendix;
-  `unverified`); Roark's *Formulas for Stress and Strain*, beam table (`unverified`).
+- **Problem:** steel beam L = 200, b = 10, h = 10 mm (L/h = 20), 0.5 MPa on the top face
+  (q = 5 N/mm). Line supports (ADR-006) on the bottom edges of the end faces: pinned (xyz) at
+  x = 0, roller (z) at x = L. Half model (0 <= y <= b/2) with an exact symmetry roller u_y = 0
+  on y = 0; no other restraint is needed (the pin line leaves only the rotation about itself,
+  which the roller line removes). A quarter model is not exact with a pinned end (the pin and a
+  midspan symmetry plane would both hold u_x). Case:
+  `benchmarks/cases/test_simply_supported_beam.py`, reference file
+  `simply_supported_beam.toml` (approved).
+- **Quantity:** -u_z of the midspan centroid node (x = L/2, y = 0, z = h/2). The y = 0 face is
+  split along the neutral axis in the STEP file, so that point lies on a straight geometry edge
+  and is a node on every quadratic mesh.
+- **Reference:** w = 5qL^4/(384EI) + qL^2/(8 kappa G A), Cowper's kappa (as TS-01);
+  0.598881 mm (`computed`; shear +0.61 %). Bending part: Timoshenko & Gere, *Mechanics of
+  Materials* (deflection tables appendix; `unverified`); Roark's *Formulas for Stress and
+  Strain*, beam table (`unverified`); re-derived from the beam equation in the case module.
+  Shear part derived in the case module from V = q (L/2 - x) (`unverified` against a book).
 - **Licence:** formula only.
 - **Equivalents:** none recorded.
 - **Features:** pressure load, line supports on the bottom edges of the end faces (exist since
   ADR-006: `Support.edges`, a pinned line and a roller line with `dofs`), roller dofs.
-- **Tolerance:** 2 %. Choose L/h >= 20 so that support indentation stays negligible.
+- **Tolerance:** 2 % (approved; gate mesh 2.5 mm, 4 elements through the depth, ~2 s).
+- **Measured** (CalculiX 2.21): the line supports indent the beam by an amount that grows like
+  ln(1/size) (Flamant), so the deflection creeps up by about 0.06 % per unit of ln(1/size);
+  at L/h = 20 this is far below the gate. Peak stress at the support lines is flagged
+  (ADR-007); the clear peak is the midspan bending stress.
+
+  | size [mm] | nodes | w_mid vs reference | runtime |
+  |---|---|---|---|
+  | 5.0 | 2 243 | +0.086 % | ~0.5 s |
+  | 2.5 | 7 315 | +0.136 % | ~2 s |
+  | 1.667 | 22 630 | +0.154 % | ~6 s |
+  | 1.25 | 45 138 | +0.172 % | ~20 s |
 
 ### TS-06 Thick-walled cylinder under internal pressure (Lamé)
 
