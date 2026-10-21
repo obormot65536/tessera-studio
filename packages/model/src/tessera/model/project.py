@@ -128,8 +128,9 @@ class PressureLoad(_Model):
 class MomentLoad(_Model):
     """Moment in N mm about the area centroid of the faces, e.g. a torque on a shaft end.
 
-    It is spread like a distributing coupling: the traction varies linearly over the faces,
-    adds no stiffness, and has zero net force.
+    It is spread like a distributing coupling: nodal forces proportional to each node's area
+    share times its distance from the centroid, statically equivalent to the moment, with zero
+    net force and no added stiffness.
     """
 
     kind: Literal["moment"] = "moment"

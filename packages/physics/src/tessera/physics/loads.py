@@ -238,6 +238,9 @@ def moment_face_load(
 ) -> tuple[NDArray[np.int64], NDArray[np.float64]]:
     """Spread a moment (N mm) about the faces' area centroid like a distributing coupling.
 
+    The nodal forces are statically equivalent to the moment; like CalculiX's
+    ``*DISTRIBUTING`` coupling they are lumped by area share, not a consistent traction.
+
     Node i gets F_i = w_i (omega x r_i), with w_i its share of the area and r_i its position
     from the weighted centroid. omega solves I omega = M for the weighted polar inertia I, so
     the forces sum to zero and their moment about the centroid is exactly M.
@@ -247,8 +250,10 @@ def moment_face_load(
     w = np.bincount(inverse, weights=weights.ravel(), minlength=node_ids.size)
     if w.sum() <= 0:
         raise InputError("the faces of a moment load must span an area, not a line")
-    centroid = w @ nodes[node_ids] / w.sum()
-    r = nodes[node_ids] - centroid
+    # Centre on a node first, then on the centroid: keeps sum(w r) = 0 to rounding even for
+    # small faces far from the origin, where a large omega would amplify any residual.
+    r = nodes[node_ids] - nodes[node_ids[0]]
+    r -= w @ r / w.sum()
     inertia = (w * np.einsum("ij,ij->i", r, r)).sum() * np.eye(3) - np.einsum(
         "i,ij,ik->jk", w, r, r
     )

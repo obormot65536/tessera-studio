@@ -16,8 +16,10 @@ cyclic or antisymmetry constraints that Tessera does not offer.
 
 ``MomentLoad`` spreads the torque like a distributing coupling: nodal forces
 F_i = w_i (omega x r_i), w_i = integral of N_i dA, r_i relative to the weighted face centroid,
-omega = I^-1 M with I = sum w_i (|r_i|^2 1 - r_i r_i^T). On these end faces I is diagonal
-and omega = (0, 0, T / I_zz): a traction (T / I_zz) e_z x r, linear in position, zero net force.
+omega = I^-1 M with I = sum w_i (|r_i|^2 1 - r_i r_i^T). On these flat end faces r_z = 0, so
+I_xz = I_yz = 0 and omega = (0, 0, T / I_zz): nodal forces statically equivalent to the
+traction (T / I_zz) e_z x r (lumped by area share, as CalculiX's *DISTRIBUTING does), with zero
+net force.
 
 Measured quantities
 -------------------
@@ -48,7 +50,8 @@ Numbers: J = 981.7477 mm^4, theta = 1.261113e-4 rad/mm, tau_max = 50.92958 MPa.
 
 This case is exact everywhere, not only in the window: the Saint-Venant field vanishes at
 z = 0 (the clamp is exact, a circle does not warp), and its end traction G theta e_z x r is
-exactly the linear traction of the distributing coupling. The field is linear in x, y, z times
+statically equivalent to the distributing coupling's nodal forces (lumped, not consistent, so
+the end differs only within an element or so of z = L). The field is linear in x, y, z times
 z (quadratic), which C3D10 holds exactly; only the faceted-curved boundary is approximate.
 
 Reference (b): square bar
@@ -86,8 +89,9 @@ Why these choices
 - Gate mesh h = 2.5 (2 elements per radius, 4 across the square). It passes with margin and
   keeps both gate solves to a few seconds; the convergence sweep adds h = 5 and h = 1.25.
 
-Independent check (Tessera's mesher and deck writer, the distributing-coupling forces
-F_i = w_i omega x r_i computed by hand from ``tri6_load_weights`` and added as ``NodalLoads``,
+Check (Tessera's mesher and deck writer, the distributing-coupling forces
+F_i = w_i omega x r_i computed by hand from ``tri6_load_weights`` and added as ``NodalLoads``;
+not independent of those weights, see the *DISTRIBUTING run below for that,
 CalculiX 2.21, October 2026), measured with ``_measure`` from this file, errors against the
 references:
 

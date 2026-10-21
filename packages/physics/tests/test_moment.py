@@ -57,3 +57,42 @@ def test_a_line_cannot_carry_a_moment() -> None:
     nodes = np.array([[0.0, 0, 0], [1, 0, 0], [2, 0, 0], [0.5, 0, 0], [1.5, 0, 0], [1, 0, 0]])
     with pytest.raises(InputError, match="span an area"):
         moment_face_load(nodes, np.array([[0, 1, 2, 3, 4, 5]]), np.array([0.0, 0, 1]))
+
+
+def _strip(length: float, width: float, origin: tuple[float, float, float]) -> tuple:
+    """Two flat tri6 forming a length x width rectangle in z = origin z."""
+    corners = np.array([[0, 0, 0], [length, 0, 0], [length, width, 0], [0, width, 0]], float)
+    corners += origin
+    nodes = list(corners)
+    tris = []
+    for a, b, c in ((0, 1, 2), (0, 2, 3)):
+        mids = []
+        for i, j in ((a, b), (b, c), (c, a)):
+            nodes.append(0.5 * (corners[i] + corners[j]))
+            mids.append(len(nodes) - 1)
+        tris.append([a, b, c, *mids])
+    return np.array(nodes), np.array(tris)
+
+
+@pytest.mark.parametrize("origin", [(0.0, 0.0, 0.0), (1e4, -1e4, 5e3), (1e5, 1e5, 1e5)])
+def test_thin_strip_far_from_the_origin_keeps_zero_net_force(origin: tuple) -> None:
+    nodes, tris = _strip(200.0, 0.01, origin)
+    _, forces = moment_face_load(nodes, tris, np.array([1e3, 1e3, 1e3]))
+    assert np.linalg.norm(forces.sum(axis=0)) <= 1e-12 * np.abs(forces).max()
+
+
+def test_disjoint_faces_share_one_moment_about_their_common_centroid() -> None:
+    a_nodes, a_tris = _strip(10.0, 10.0, (0.0, 0.0, 0.0))
+    b_nodes, b_tris = _strip(10.0, 10.0, (30.0, 0.0, 0.0))
+    nodes = np.vstack([a_nodes, b_nodes])
+    tris = np.vstack([a_tris, b_tris + len(a_nodes)])
+    ids, forces = moment_face_load(nodes, tris, np.array([0.0, 0.0, 500.0]))
+    np.testing.assert_allclose(forces.sum(axis=0), 0.0, atol=1e-10)
+    lever = nodes[ids] - [20.0, 5.0, 0.0]
+    np.testing.assert_allclose(np.cross(lever, forces).sum(axis=0), [0, 0, 500.0], atol=1e-9)
+
+
+def test_a_needle_too_thin_to_carry_a_moment_is_refused() -> None:
+    nodes, tris = _strip(1.0, 1e-7, (0.0, 0.0, 0.0))
+    with pytest.raises(InputError, match="span an area"):
+        moment_face_load(nodes, tris, np.array([1.0, 0.0, 0.0]))
