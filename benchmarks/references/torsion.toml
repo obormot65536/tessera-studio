@@ -1,0 +1,9 @@
+# Approved by the maintainer in iteration 6.
+description = "Steel bars L = 60 mm along z, root face clamped, torque 1e4 N mm about +z on the end face (MomentLoad, distributing coupling), steel-generic, C3D10. (a) circular R = 5, (b) square a = 10. Twist rate fitted over 20 <= z <= 40; tau_max from surface nodal stresses in the same window (circle: mean; square: midside fit)"
+source = "Saint-Venant torsion. Circle: theta = T/(G J), J = pi R^4/2, tau = T R/J (Timoshenko, Strength of Materials Part I). Square: J = k1 a^4, tau_max = T/(k2 a^3), k1 = 0.1405770, k2 = 0.2081653 from the series (Timoshenko & Goodier, Theory of Elasticity ch. 10; section unverified)"
+reference_twist_rate_circle = 0.00012611134538329232
+reference_max_shear_circle_mpa = 50.929581789406505
+reference_twist_rate_square = 8.80723807153118e-05
+reference_max_shear_square_mpa = 48.03875537754187
+rel_tolerance_twist_rate = 0.02
+rel_tolerance_max_shear = 0.03

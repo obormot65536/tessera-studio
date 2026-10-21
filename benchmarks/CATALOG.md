@@ -70,7 +70,7 @@ primary source.
 | TS-06 | v0.1 | Thick-walled cylinder, internal pressure (Lamé) | passing |
 | TS-07 | v0.1 | Thick-walled sphere, internal pressure (Lamé) | planned |
 | TS-08 | v0.1 | Circular plate, uniform pressure, clamped and simply supported | planned |
-| TS-09 | v0.1 | Torsion of circular and square bars (Saint-Venant) | awaiting reference |
+| TS-09 | v0.1 | Torsion of circular and square bars (Saint-Venant) | passing |
 | TS-10 | v0.1 | Thin ring under diametral compression (curved beam) | planned |
 | TS-11 | v0.1 | NAFEMS LE1 elliptic membrane | planned |
 | TS-12 | v0.1 | NAFEMS LE10 thick plate under pressure (3D) | planned |
