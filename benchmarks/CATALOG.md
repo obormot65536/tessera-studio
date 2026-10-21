@@ -64,7 +64,7 @@ primary source.
 |---|---|---|---|
 | TS-01 | v0.1 | End-loaded cantilever, tip deflection | passing |
 | TS-02 | v0.1 | Strip with central hole in tension, Kt (Howland) | passing |
-| TS-03 | v0.1 | Uniform tension patch test (isotropic) | awaiting reference |
+| TS-03 | v0.1 | Uniform tension patch test (isotropic) | passing |
 | TS-04 | v0.1 | Bar hanging under its own weight | passing |
 | TS-05 | v0.1 | Simply supported beam, uniform load | planned |
 | TS-06 | v0.1 | Thick-walled cylinder, internal pressure (Lamé) | passing |
@@ -100,7 +100,7 @@ primary source.
 | TT-04 | v3 | Steady radial conduction and thermal stress in a thick cylinder | planned |
 | TF-01 | v4 | Laminar pipe flow (Hagen-Poiseuille) | planned |
 
-Count: v0.1 12 (6 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
+Count: v0.1 12 (7 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
 
 ---
 
@@ -132,7 +132,7 @@ Count: v0.1 12 (6 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
 - **Features:** directional (roller) supports (`Support.dofs`, exists).
 - **Tolerance:** 2 % (approved, `plate_hole_kt.toml`).
 
-### TS-03 Uniform tension patch test (awaiting reference)
+### TS-03 Uniform tension patch test (passing)
 
 - **Problem:** steel cube 10 x 10 x 10 mm, rollers u_x = 0 on x = 0, u_y = 0 on y = 0,
   u_z = 0 on z = 0, uniform traction sigma = 10 MPa in +x on x = 10 (`ForceLoad` of 1000 N,
@@ -149,7 +149,7 @@ Count: v0.1 12 (6 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
 - **Licence:** no reuse issue.
 - **Equivalents:** none recorded.
 - **Features:** directional supports, face force (exist).
-- **Tolerance:** proposed `patch_test.toml`: sigma_xx within 2e-5 relative, other stresses within
+- **Tolerance:** approved `patch_test.toml`: sigma_xx within 2e-5 relative, other stresses within
   1e-6 MPa (1e-7 sigma), displacements within 1e-5 of sigma L / E, at every node and on every
   mesh. The 1e-6 relative first proposed here cannot be met: the `.frd` file holds six
   significant digits (up to 5e-6 rounding), and CalculiX's nodal stress extrapolation gives

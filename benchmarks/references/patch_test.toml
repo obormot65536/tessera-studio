@@ -1,0 +1,9 @@
+# Approved by the maintainer for TS-03.
+description = "Cube 10 x 10 x 10 mm, steel-generic, rollers u_x = 0 on x = 0, u_y = 0 on y = 0, u_z = 0 on z = 0, uniform traction 10 MPa in +x on x = 10 (ForceLoad 1000 N), unstructured C3D10 mesh; checked at every node: sigma_xx, the five other stress components, and u against the exact linear field"
+source = "Exact homogeneous uniaxial tension: sigma_xx = sigma, other stresses 0, u = (sigma x, -nu sigma y, -nu sigma z) / E. Patch test (Irons); MacNeal & Harder, Finite Elements in Analysis and Design 1 (1985) 3-20 (unverified)"
+reference_stress_xx_mpa = 10.0
+reference_displacement_x_mm = 0.0004761904761904762
+reference_displacement_lateral_mm = -0.00014285714285714287
+rel_tolerance_stress_xx = 2e-5
+abs_tolerance_other_stress_mpa = 1e-6
+rel_tolerance_displacement = 1e-5

@@ -28,8 +28,9 @@
 - Linear static analysis of one part with CalculiX (needs `ccx` on the PATH, or set
   `TESSERA_CCX` to its location).
 - Built-in materials: `steel-generic` and `aluminium-6061-t6`, both isotropic.
-- Validation: six textbook cases now pass (cantilever, plate with a hole, bar under its own
-  weight, thick-walled cylinder, thick-walled sphere, torsion); see `docs/user/validation.md`.
+- Validation: seven textbook cases now pass (patch test, cantilever, plate with a hole, bar under its
+  own weight, thick-walled cylinder, thick-walled sphere, torsion); see
+  `docs/user/validation.md`.
 - STL import (binary and ASCII): faces are split at edges sharper than 40°, the file must be a
   single closed solid, and lengths are taken as mm (ADR-005).
 - Roller supports: a support can hold only chosen directions (x, y or z), for symmetry planes
