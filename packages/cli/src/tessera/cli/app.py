@@ -16,7 +16,7 @@ from tessera.core import (
     save_project,
     solve,
 )
-from tessera.model import ForceLoad, InputError, MomentLoad, Project, SolverError
+from tessera.model import ForceLoad, InputError, MomentLoad, Project, SolverError, StressSpot
 
 app = typer.Typer(
     help="Tessera Studio: stress analysis for 3D-printed parts.", no_args_is_help=True
@@ -282,6 +282,21 @@ def faces(path: Path, part: str) -> None:
         typer.echo(f"{f.index:4d}  {f.kind:<10} {f.area:12.3f} mm2  {centroid}  {normal}")
 
 
+FACE_PEAKS_SHOWN = 5
+"""Faces listed by ``tessera solve`` (ADR-007); the API has them all."""
+_CLEAR = "away from supports and sharp inside edges"
+
+
+def _where(spot: StressSpot) -> str:
+    x, y, z = spot.location
+    face = "inside the part" if spot.face is None else f"face {spot.face}"
+    return f"at ({x:.4g}, {y:.4g}, {z:.4g}) mm, {face}"
+
+
+def _reasons(spot: StressSpot) -> str:
+    return " and ".join(str(flag) for flag in spot.flags)
+
+
 @app.command("solve")
 def solve_cmd(path: Path, workdir: Path | None = None) -> None:
     """Mesh and solve the project's static study, then print a summary."""
@@ -289,7 +304,25 @@ def solve_cmd(path: Path, workdir: Path | None = None) -> None:
         result = solve(load_project(path), workdir=workdir)
     typer.echo(f"nodes: {result.mesh.n_nodes}, elements: {result.mesh.n_elements}")
     typer.echo(f"max displacement: {result.max_displacement:.6g} mm")
-    typer.echo(f"max von Mises stress: {result.max_von_mises:.6g} MPa")
+
+    clear, peak = result.clear_peak_von_mises, result.peak_von_mises
+    d = result.node_flags.distance
+    if clear is None:
+        typer.echo(f"von Mises stress {_CLEAR}: none, every node is within {d:.3g} mm of one")
+    else:
+        typer.echo(f"von Mises stress {_CLEAR}: {clear.value:.6g} MPa {_where(clear)}")
+    typer.echo(f"max von Mises stress: {result.max_von_mises:.6g} MPa {_where(peak)}")
+    if peak.flagged:
+        typer.echo(
+            f"  {_reasons(peak)} (within {d:.3g} mm): the stress there keeps rising as the "
+            "mesh is refined, so this value depends on the mesh size"
+        )
+    shown = result.face_peaks[:FACE_PEAKS_SHOWN]
+    typer.echo(f"max von Mises stress by face ({len(shown)} of {len(result.face_peaks)}):")
+    for spot in shown:
+        x, y, z = spot.location
+        line = f"  face {spot.face}: {spot.value:.6g} MPa at ({x:.4g}, {y:.4g}, {z:.4g}) mm"
+        typer.echo(f"{line}, {_reasons(spot)}" if spot.flagged else line)
     typer.echo(f"solver files: {result.workdir}")
 
 

@@ -1,9 +1,11 @@
+import dataclasses
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
 from tessera.cli.app import app
+from tessera.model import StudyResult
 
 runner = CliRunner()
 
@@ -216,3 +218,85 @@ def test_container_refusals_leave_the_file_alone(box_step: Path, tmp_path: Path)
     result = runner.invoke(app, ["support", "add", str(path), "bracket", "9"])
     assert result.exit_code == 1
     assert path.read_bytes() == before
+
+
+def _solved(peak_flags: tuple[str, ...], clear: bool, n_faces: int = 7) -> StudyResult:
+    """A hand-made result: the raw peak at (0, 5, 5) on face 1, flagged as asked."""
+    import numpy as np
+
+    from tessera.model import FlagKind, Mesh, NodeFlags, SolveResult, StressFlag, StressSpot
+
+    flags = tuple(
+        StressFlag(FlagKind.SUPPORT, support=name)
+        if name != "edge"
+        else StressFlag(FlagKind.SHARP_INSIDE_EDGE)
+        for name in peak_flags
+    )
+    n = 10
+    mesh = Mesh(nodes=np.zeros((n, 3)), elements=np.arange(10).reshape(1, 10))
+    peak = StressSpot(value=143.79, node=0, location=(0.0, 5.0, 5.0), face=1, flags=flags)
+    clear_spot = StressSpot(value=98.25, node=1, location=(12.5, -5.0, 5.0), face=None)
+    faces = tuple(
+        StressSpot(value=150.0 - 10 * i, node=i, location=(float(i), 0.0, 0.0), face=i + 1)
+        for i in range(n_faces)
+    )
+    return StudyResult(
+        mesh=mesh,
+        solution=SolveResult(np.zeros((n, 3)), np.zeros((n, 6)), solver="fake"),
+        max_displacement=1.52238,
+        max_von_mises=143.79,
+        workdir=Path("run"),
+        peak_von_mises=peak,
+        clear_peak_von_mises=clear_spot if clear else None,
+        face_peaks=(dataclasses.replace(faces[0], flags=flags), *faces[1:]),
+        node_flags=NodeFlags(masks={}, n_nodes=n, distance=5.0, edge_length=2.5),
+    )
+
+
+def _solve_output(monkeypatch: pytest.MonkeyPatch, result: StudyResult) -> list[str]:
+    import tessera.cli.app as cli
+
+    monkeypatch.setattr(cli, "load_project", lambda _path: None)
+    monkeypatch.setattr(cli, "solve", lambda _project, workdir=None: result)
+    out = runner.invoke(app, ["solve", "p.tessera.json"])
+    assert out.exit_code == 0, out.output
+    return out.output.splitlines()
+
+
+def test_solve_leads_with_the_clear_peak_then_the_flagged_raw_peak(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lines = _solve_output(monkeypatch, _solved(("root", "edge"), clear=True))
+    assert lines[:5] == [
+        "nodes: 10, elements: 1",
+        "max displacement: 1.52238 mm",
+        "von Mises stress away from supports and sharp inside edges: 98.25 MPa"
+        " at (12.5, -5, 5) mm, inside the part",
+        "max von Mises stress: 143.79 MPa at (0, 5, 5) mm, face 1",
+        "  near support 'root' and near a sharp inside edge (within 5 mm): the stress there"
+        " keeps rising as the mesh is refined, so this value depends on the mesh size",
+    ]
+    assert lines[5] == "max von Mises stress by face (5 of 7):"
+    assert lines[6] == (
+        "  face 1: 150 MPa at (0, 0, 0) mm, near support 'root' and near a sharp inside edge"
+    )
+    assert lines[7:10] == [
+        "  face 2: 140 MPa at (1, 0, 0) mm",
+        "  face 3: 130 MPa at (2, 0, 0) mm",
+        "  face 4: 120 MPa at (3, 0, 0) mm",
+    ]
+    assert lines[10] == "  face 5: 110 MPa at (4, 0, 0) mm"
+    assert lines[11:] == ["solver files: run"]
+
+
+def test_solve_without_flags_or_clear_nodes(monkeypatch: pytest.MonkeyPatch) -> None:
+    lines = _solve_output(monkeypatch, _solved((), clear=True, n_faces=2))
+    assert "max von Mises stress: 143.79 MPa at (0, 5, 5) mm, face 1" in lines
+    assert not any(line.startswith("  near") for line in lines)
+    assert "max von Mises stress by face (2 of 2):" in lines
+
+    lines = _solve_output(monkeypatch, _solved(("root",), clear=False))
+    assert lines[2] == (
+        "von Mises stress away from supports and sharp inside edges: none, every node is"
+        " within 5 mm of one"
+    )

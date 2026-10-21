@@ -247,3 +247,46 @@ def test_missing_geometry_names_the_part(tmp_path: Path) -> None:
         describe_faces(project, "b")
     with pytest.raises(FileNotFoundError, match="geometry of part 'b' not found"):
         solve(project, adapter=FakeSolver())
+
+
+class StressAlongX(FakeSolver):
+    """Von Mises stress equal to x (uniaxial), so the peak sits at the tip of the arm."""
+
+    def run(self, job: SolveJob, workdir: Path) -> SolveResult:
+        result = super().run(job, workdir)
+        stresses = np.zeros((job.mesh.n_nodes, 6))
+        stresses[:, 0] = job.mesh.nodes[:, 0]
+        return SolveResult(displacements=result.displacements, stresses=stresses, solver="fake")
+
+
+def test_solve_flags_the_clamp_and_the_inside_corner_but_not_the_hole(
+    bracket_step: Path, tmp_path: Path
+) -> None:
+    from tessera.model import FlagKind, StressFlag
+
+    root, tip = _root_and_tip(bracket_step)
+    result = solve(_project(bracket_step, root, tip), workdir=tmp_path, adapter=StressAlongX())
+    flags = result.node_flags
+    x = result.mesh.nodes
+    wall = StressFlag(FlagKind.SUPPORT, support="wall")
+    corner = StressFlag(FlagKind.SHARP_INSIDE_EDGE)
+    assert list(flags.masks) == [wall, corner]
+    # Distances go to the nodes of the clamped face x = 0, so the band ends near x = d.
+    assert flags.masks[wall][x[:, 0] < 0.9 * flags.distance].all()
+    assert not flags.masks[wall][x[:, 0] > flags.distance + 1e-9].any()
+    # The inside edge where the arm (z <= 5) meets the leg (x <= 5) runs along y at x = z = 5.
+    to_corner = np.hypot(x[:, 0] - 5.0, x[:, 2] - 5.0)
+    assert flags.masks[corner][to_corner < 0.5 * flags.distance].all()
+    assert not flags.masks[corner][to_corner > 1.5 * flags.distance].any()
+
+    faces = describe_faces(_project(bracket_step, root, tip), "b")
+    hole = next(f.index for f in faces if f.kind == "Cylinder")
+    assert not flags.flagged[result.mesh.node_sets[f"face:{hole}"]].any()
+
+    assert result.max_von_mises == pytest.approx(60.0)
+    peak = result.peak_von_mises
+    assert peak.value == result.max_von_mises
+    assert peak.location[0] == pytest.approx(60.0) and not peak.flagged
+    assert result.clear_peak_von_mises == peak
+    assert result.face_peaks[0].value == pytest.approx(60.0)
+    assert {p.face for p in result.face_peaks} == {f.index for f in faces}
