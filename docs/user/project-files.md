@@ -109,8 +109,9 @@ tessera pack bracket/project.json bracket-edited.tessera
 
 ## What a project file records
 
-Every file stores a `schema_version` number. The current number is **4**. It is the version of
-the file layout, not of Tessera. Tessera saves every file in the current version.
+Every file stores a `schema_version` number. The current number is **5** (5 added line
+supports). It is the version of the file layout, not of Tessera. Tessera saves every file in
+the current version.
 
 - **Older files open.** A project saved by an earlier version of Tessera still loads. Saving it
   again writes the current version.
@@ -118,7 +119,7 @@ the file layout, not of Tessera. Tessera saves every file in the current version
   Tessera stops with a message such as:
 
   ```
-  error: bracket.tessera uses project schema 5; this version of Tessera reads up to 4
+  error: bracket.tessera uses project schema 6; this version of Tessera reads up to 5
   ```
 
   Update Tessera to open the file. Do not edit the number to make it open; the file may use

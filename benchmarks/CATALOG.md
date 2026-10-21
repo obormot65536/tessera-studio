@@ -169,7 +169,8 @@ Count: v0.1 12 (6 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
   `unverified`); Roark's *Formulas for Stress and Strain*, beam table (`unverified`).
 - **Licence:** formula only.
 - **Equivalents:** none recorded.
-- **Features:** pressure load, supports on edges/lines (or narrow faces), roller dofs.
+- **Features:** pressure load, line supports on the bottom edges of the end faces (exist since
+  ADR-006: `Support.edges`, a pinned line and a roller line with `dofs`), roller dofs.
 - **Tolerance:** 2 %. Choose L/h >= 20 so that support indentation stays negligible.
 
 ### TS-06 Thick-walled cylinder under internal pressure (Lamé)
@@ -240,8 +241,9 @@ Count: v0.1 12 (6 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
   1 %, so the case should either use it or use a/h >= 40.
 - **Licence:** formula only.
 - **Equivalents:** none recorded.
-- **Features:** pressure, edge/ring support (variant B), thin-body meshing (at least 3
-  quadratic elements through the thickness).
+- **Features:** pressure, edge/ring support (variant B: a line support on the edge between the
+  bottom face and the rim, exists since ADR-006), thin-body meshing (at least 3 quadratic
+  elements through the thickness).
 - **Tolerance:** 2 % (A), 3 % (B, the ring-support idealisation is ambiguous in 3D).
 
 ### TS-09 Torsion of a circular and a square bar
