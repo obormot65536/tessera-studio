@@ -390,7 +390,8 @@ know what you get.
 
 Always run the study at two sizes, for example 2.5 mm and 1.25 mm. If the numbers change
 little, the mesh is fine enough. The peak stress at a support or a sharp inside corner changes
-most; `solve` marks it (see Step 9).
+most; `solve` marks it (see Step 9). `tessera solve --check-mesh` runs both sizes for you and
+says which numbers settled (see "Let Tessera compare two meshes" in Step 9).
 
 ## Step 8: Check the project and fix it
 
@@ -440,7 +441,7 @@ nodes: 13213, elements: 7263
 max displacement: 1.52177 mm
 von Mises stress away from supports and sharp inside edges: 116.508 MPa at (5.684, 5.092, 0) mm, face 5
 max von Mises stress: 120.398 MPa at (1.83, 8.17, 10) mm, face 6
-  near support 'root' (within 5.39 mm): the stress there may keep rising as the mesh is refined; compare two mesh sizes before trusting either value
+  near support 'root' (within 5.39 mm): the stress there may keep rising as the mesh is refined; compare two mesh sizes (--check-mesh) before trusting either value
 max von Mises stress by face (5 of 6):
   face 6: 120.398 MPa at (1.83, 8.17, 10) mm, near support 'root'
   face 5: 119.969 MPa at (1.83, 8.17, 0) mm, near support 'root'
@@ -517,8 +518,8 @@ the gap can be a third of the stress or more.
 In such a case the real stress lies between the two numbers: the stress away from supports and
 sharp inside edges, and the marked peak. Do not take either one on its own as the answer:
 
-- Run the two-mesh check of Step 7 and see which numbers settle. A later release adds
-  `--check-mesh` to do this for you.
+- Run the two-mesh check and see which numbers settle: `tessera solve --check-mesh` (below),
+  or two solves by hand as in Step 7.
 - Or judge from the trend: if the stress away from the support sits next to the marked area
   and rises toward it, the stress at the support is higher than that value.
 
@@ -531,6 +532,50 @@ To run the 1.25 mm check, change the mesh size and solve again:
 tessera study beam.tessera.json --mesh-size 1.25
 tessera solve beam.tessera.json --workdir run-1.25
 ```
+
+### Let Tessera compare two meshes
+
+`--check-mesh` solves the study twice: once at your mesh size, then with elements about 1/√2
+as long (about 2.8 times as many nodes). It takes 3 to 5 times as long as one solve. Every
+number it prints comes from the finer mesh, and each one says how much it changed between the
+two:
+
+```
+tessera solve beam.tessera.json --workdir run-2.5 --check-mesh
+```
+
+Output:
+
+```
+nodes: 31807, elements: 18911
+mesh check: solved with median element edge 2.7 mm (13213 nodes), then 2.05 mm; the numbers below are from the finer mesh, settled = changed by at most 5 %
+max displacement: 1.52221 mm (settled, changed 0.029 % between the meshes)
+von Mises stress away from supports and sharp inside edges: 116.484 MPa at (5.251, 3.927, 0) mm, face 5 (settled, changed 0.021 % between the meshes)
+max von Mises stress: 130.572 MPa at (0, 10, 10) mm, face 1
+  near support 'root' (within 4.1 mm): mesh-dependent, changed 7.8 % between the meshes; do not compare it with a strength
+max von Mises stress by face (5 of 6):
+  face 1: 130.572 MPa at (0, 10, 10) mm, near support 'root' (mesh-dependent, changed 12 % between the meshes)
+  face 4: 130.572 MPa at (0, 10, 10) mm, near support 'root' (mesh-dependent, changed 10 % between the meshes)
+  face 6: 130.572 MPa at (0, 10, 10) mm, near support 'root' (mesh-dependent, changed 7.8 % between the meshes)
+  face 5: 129.983 MPa at (0, 10, 0) mm, near support 'root' (mesh-dependent, changed 7.7 % between the meshes)
+  face 3: 129.891 MPa at (0, 0, 0) mm, near support 'root' (mesh-dependent, changed 9.7 % between the meshes)
+solver files: run-2.5
+```
+
+- **settled**: the number changed by 5 % or less, so a finer mesh would not change it much.
+- **mesh-dependent**: it changed by more than 5 %. Do not compare it with a strength. Use a
+  finer mesh, or read it as described in "The stress away from supports and sharp inside edges
+  can read low" above.
+- A measured verdict replaces the marks: a marked peak that settled can be used, and an
+  unmarked one that did not settle cannot (but see the next paragraph).
+- The element edge is measured on the mesh, so it can differ a little from `--mesh-size`.
+- The coarse solve's files go to the `coarse` folder inside `--workdir`.
+
+**A very coarse mesh can hide a problem.** The check sees how much a number moves, and on a
+mesh too coarse to show the stress rise at a clamp, the peak there barely moves. The example
+beam at 5 mm (two elements through its 10 mm depth) reads `settled, changed 1.1 %` at the
+clamped end, while at 2.5 mm (four elements) the same peak is `mesh-dependent`. Use at least
+four elements through the thinnest wall before you trust a `settled`.
 
 ### What to change in the print
 

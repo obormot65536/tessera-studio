@@ -7,6 +7,7 @@ it, and so can your own scripts. Import it like this:
 from pathlib import Path
 
 from tessera.core import (
+    MESH_CHECK_REFINEMENT,
     describe_edges,
     describe_faces,
     edit,
@@ -18,7 +19,7 @@ from tessera.core import (
 )
 ```
 
-Those eight names are the whole public surface (`tessera.core.__all__`). `edit` is a module
+Those nine names are the whole public surface (`tessera.core.__all__`). `edit` is a module
 with the functions that change a project (see below). Everything else in the package is
 internal.
 
@@ -161,7 +162,11 @@ Edges are remembered together with the faces, by file content. Raises the same e
 
 ```python
 def solve(
-    project: Project, workdir: Path | None = None, adapter: SolverAdapter | None = None
+    project: Project,
+    workdir: Path | None = None,
+    adapter: SolverAdapter | None = None,
+    *,
+    check_mesh: bool = False,
 ) -> StudyResult
 ```
 
@@ -172,6 +177,8 @@ Meshes the part, builds the static problem, runs the solver and summarises the r
   temporary directory. Tessera does not delete it.
 - `adapter`: the solver. `None` uses CalculiX (`tessera.solvers.CalculixAdapter`). The adapter
   must support the `static` analysis.
+- `check_mesh`: also run the two-mesh check (see "Mesh check" below). The study is solved twice,
+  so it takes 3 to 5 times as long. The coarse solve's files go to `workdir / "coarse"`.
 
 v0.1 solves exactly one part with no connections and no placement (identity transform). The
 study must have at least one support. The part must have a `material_id` from the built-in
@@ -196,7 +203,8 @@ Raises:
   holds the solver output.
 
 Returns a `StudyResult`: the largest displacement, the raw peak von Mises stress, the peak away
-from supports and sharp inside edges, and the peak on each face (see "Peak stress" below).
+from supports and sharp inside edges, and the peak on each face (see "Peak stress" below). With
+`check_mesh`, also `mesh_check`.
 
 ### `tessera.core.edit`
 
@@ -460,7 +468,7 @@ so `solve`, `describe_faces` and `save_project` check the whole project again an
 
 | Type | Fields | Notes |
 |---|---|---|
-| `StudyResult` | `mesh: Mesh`, `solution: SolveResult`, `max_displacement: float` (mm), `max_von_mises: float` (MPa), `workdir: Path \| None`, `peak_von_mises: StressSpot`, `clear_peak_von_mises: StressSpot \| None`, `face_peaks: tuple[StressSpot, ...]`, `node_flags: NodeFlags` | Returned by `solve`. `displacement_magnitude` gives the per-node displacement length. See "Peak stress" below. |
+| `StudyResult` | `mesh: Mesh`, `solution: SolveResult`, `max_displacement: float` (mm), `max_von_mises: float` (MPa), `workdir: Path \| None`, `peak_von_mises: StressSpot`, `clear_peak_von_mises: StressSpot \| None`, `face_peaks: tuple[StressSpot, ...]`, `node_flags: NodeFlags`, `mesh_check: MeshCheck \| None` | Returned by `solve`. `displacement_magnitude` gives the per-node displacement length. See "Peak stress" below. |
 | `StressSpot` | `value: float` (MPa), `node: int`, `location: (x, y, z)` (mm), `face: int \| None`, `flags: tuple[StressFlag, ...]` | A stress at one node. `face` is the face the node lies on (the lowest number on an edge between faces), `None` inside the part. `flagged` is `True` when `flags` is not empty. |
 | `StressFlag` | `kind: FlagKind`, `support: str \| None` | Why a node is flagged. `support` is the support's id for `FlagKind.SUPPORT`. `str()` gives `near support 'root'` or `near a sharp inside edge`. |
 | `FlagKind` | `"support"`, `"sharp-inside-edge"` | |
@@ -502,6 +510,30 @@ The fields:
 
 Nodes that no element uses have no result (NaN) and are skipped. Peaks under point-like loads
 and at the edges of loaded faces are not flagged yet.
+
+#### Mesh check
+
+`solve(project, check_mesh=True)` solves the study at the project's `mesh_size`, then again
+with elements `MESH_CHECK_REFINEMENT` (1/√2) times as long. With `mesh_size = None` the fine
+size is 1/√2 of the coarse mesh's median element edge. The returned `StudyResult` is the fine
+solve, so every number in it comes from the fine mesh, and `mesh_check` compares them with the
+coarse solve (ADR-007):
+
+| Type | Fields | Notes |
+|---|---|---|
+| `MeshCheck` | `coarse_edge_length`, `fine_edge_length` (mm), `coarse_nodes: int`, `threshold: float`, `max_displacement: SpotCheck`, `peak_von_mises: SpotCheck`, `clear_peak_von_mises: SpotCheck \| None`, `face_peaks: dict[int, SpotCheck]` | Edge lengths are each mesh's median corner edge length. `clear_peak_von_mises` is `None` unless both meshes have a clear peak; `face_peaks` has the faces with a peak on both meshes. |
+| `SpotCheck` | `coarse: float`, `fine: float`, `change: float`, `verdict: Verdict` | `change` = \|fine − coarse\| / \|fine\|; `inf` if only the fine value is zero. |
+| `Verdict` | `SETTLED = "settled"`, `MESH_DEPENDENT = "mesh-dependent"` | Settled if `change <= threshold`. |
+
+Numbers are compared like with like: the raw peak with the raw peak, and each face's peak with
+the same face's peak, wherever on it they sit. `threshold` is `tessera.post.MESH_CHECK_THRESHOLD`
+(5 %). `tessera.post.compare_meshes(coarse, fine, threshold)` and `spot_check(coarse, fine,
+threshold)` do the comparison for results you solved yourself.
+
+A verdict is measured, so it replaces the flags: report a flagged spot that settled, not an
+unflagged one that is mesh-dependent. On a mesh too coarse to resolve a clamp (two elements
+through a beam's depth in TS-01) the singular peak there can still read settled; the check
+needs a mesh that already shows the rise.
 
 In the `SolveJob` that physics builds, each support is a `FixedSupport` whose node set is named
 `support:<id>`. A line support has `FixedSupport.line = True`, so results code can find the

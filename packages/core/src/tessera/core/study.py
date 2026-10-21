@@ -1,5 +1,7 @@
 """Run a project's study end to end: geometry → mesh → physics → solver → post."""
 
+import dataclasses
+import math
 import tempfile
 from pathlib import Path
 
@@ -50,10 +52,26 @@ def _default_adapter() -> SolverAdapter:
     return CalculixAdapter()
 
 
+MESH_CHECK_REFINEMENT = 1.0 / math.sqrt(2.0)
+"""Element size of the fine mesh in a two-mesh check, as a fraction of the coarse one (ADR-007,
+approved by the maintainer)."""
+
+
 def solve(
-    project: Project, workdir: Path | None = None, adapter: SolverAdapter | None = None
+    project: Project,
+    workdir: Path | None = None,
+    adapter: SolverAdapter | None = None,
+    *,
+    check_mesh: bool = False,
 ) -> StudyResult:
-    """Mesh and solve the project's static study. v0.1: one part, no connections."""
+    """Mesh and solve the project's static study. v0.1: one part, no connections.
+
+    With ``check_mesh`` the study is solved twice (ADR-007): at the project's mesh size, then
+    with elements ``MESH_CHECK_REFINEMENT`` times as long. The result is the fine solve, with
+    ``mesh_check`` saying which of its numbers changed by more than
+    ``tessera.post.MESH_CHECK_THRESHOLD`` (5 %) between the two. The
+    coarse solve's files go to ``workdir / "coarse"``.
+    """
     project = validated(project)
     parts = project.assembly.parts
     if len(parts) != 1 or project.assembly.connections:
@@ -68,13 +86,19 @@ def solve(
     analysis = AnalysisKind(project.study.analysis)
     if analysis not in adapter.capabilities():
         raise InputError(f"solver {adapter.name!r} cannot run a {analysis} analysis")
-
-    part_mesh = _mesh_part(part, project.study.mesh_size)
-    job = physics.build_static_job(
-        project.study, part, part_mesh, materials.get_isotropic(part.material_id)
-    )
+    material = materials.get_isotropic(part.material_id)
     if workdir is None:
         workdir = Path(tempfile.mkdtemp(prefix="tessera-"))
-    workdir.mkdir(parents=True, exist_ok=True)
-    solution = adapter.run(job, workdir)
-    return post.summarize(job, solution, workdir=workdir)
+
+    def run(size: float | None, where: Path) -> StudyResult:
+        job = physics.build_static_job(project.study, part, _mesh_part(part, size), material)
+        where.mkdir(parents=True, exist_ok=True)
+        return post.summarize(job, adapter.run(job, where), workdir=where)
+
+    size = project.study.mesh_size
+    if not check_mesh:
+        return run(size, workdir)
+    coarse = run(size, workdir / "coarse")
+    # With an automatic size, refine what the mesher chose: its median element edge.
+    fine = run((size or coarse.node_flags.edge_length) * MESH_CHECK_REFINEMENT, workdir)
+    return dataclasses.replace(fine, mesh_check=post.compare_meshes(coarse, fine))
