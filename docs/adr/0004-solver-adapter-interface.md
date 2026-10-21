@@ -63,8 +63,8 @@ seam: it is exactly what a benchmark or a bug report needs to reproduce a run.
 
 ## Action items
 
-1. [ ] Add `Mesh`, `SolveJob`, `SolveResult`, `SolverAdapter`, `SolverError` to `tessera.model`.
-2. [ ] Implement `CalculixAdapter` (static, isotropic) with a patch test.
+1. [x] Add `Mesh`, `SolveJob`, `SolveResult`, `SolverAdapter`, `SolverError` to `tessera.model`.
+2. [x] Implement `CalculixAdapter` (static, isotropic) with a patch test.
 3. [ ] Extend additively in v0.5: orientations, orthotropic materials, ties, contact, couplings.
 4. [ ] Registry by analysis kind once a second adapter exists (v0.1 core uses CalculiX
        directly but checks `capabilities()`).
