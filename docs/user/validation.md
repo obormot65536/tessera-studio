@@ -26,7 +26,7 @@ with CalculiX 2.21.
 | **TS-04** Bar under its own weight | Stretch of a 200 mm steel bar hanging under gravity, and stress halfway down | ρgL²/(2E) = 7.334 × 10⁻⁶ mm; stress ρgL/2 = 7.70 × 10⁻³ MPa | 2 % | 5.0 mm | 0.004 % (stretch), 0.001 % (stress) |
 | **TS-06** Thick-walled cylinder | Hoop stress and radial growth of a steel tube (inner radius 10 mm, outer 20 mm) at 10 MPa inside | Lamé's solution: hoop stress 16.67 MPa, radial growth 9.365 × 10⁻⁴ mm | 2 % stress, 1 % growth | 1.25 mm | 0.08 % (stress), 0.003 % (growth) |
 | **TS-07** Thick-walled sphere | Hoop stress and radial growth of a hollow steel ball (inner radius 10 mm, outer 20 mm) at 10 MPa inside | Lamé's solution: hoop stress 7.143 MPa, radial growth 3.810 × 10⁻⁴ mm | 2 % stress, 1 % growth | 1.25 mm | 0.48 % (stress), 0.009 % (growth) |
-| **TS-08** Clamped plate | Centre deflection of a steel disc (radius 20 mm, 2 mm thick) clamped at its rim, under 1 MPa | Plate theory with a shear correction: 0.01699 mm | 2 % | 0.667 mm | 0.65 % |
+| **TS-08** Circular plate | Centre deflection of a steel disc (radius 20 mm, 2 mm thick) under 1 MPa, clamped at its rim (A) or resting on a ring (B) | Plate theory with a shear correction: 0.01699 mm (A), 0.06699 mm (B) | 2 % (A), 3 % (B) | 0.667 mm | A: 0.65 %. B: 0.22 % |
 | **TS-09** Torsion | Twist and maximum shear stress of a 10 mm round shaft and a 10 mm square bar, 60 mm long, under 10 000 N·mm | Saint-Venant torsion theory | 2 % twist, 3 % shear | 2.5 mm | Round: 0.004 % (twist), 0.22 % (shear). Square: 0.42 % (twist), 0.78 % (shear) |
 
 Notes on the rows:
@@ -43,8 +43,9 @@ Notes on the rows:
 - **TS-07** uses three symmetry faces, so one eighth of the sphere is modelled. The pressure acts
   on a surface curved in both directions.
 - **TS-08** models a quarter of the disc. The disc is thick enough that the reference includes a
-  shear term (+4.6 %); without it the error would read 3.5 %. The simply supported version, on a
-  line support, is still to come.
+  shear term (+4.6 %); without it the error would read 3.5 %. Variant B rests the disc on a ring
+  line support at its bottom outer edge, which holds it only vertically. Its gate is wider
+  because a ring support has no single exact 3D form; the measured gap is about 0.4 %.
 - **TS-09** applies the torque with Tessera's moment load, the same load you can use in a study.
 
 ## Convergence

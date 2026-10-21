@@ -69,7 +69,7 @@ primary source.
 | TS-05 | v0.1 | Simply supported beam, uniform load | planned |
 | TS-06 | v0.1 | Thick-walled cylinder, internal pressure (Lamé) | passing |
 | TS-07 | v0.1 | Thick-walled sphere, internal pressure (Lamé) | passing |
-| TS-08 | v0.1 | Circular plate, uniform pressure, clamped and simply supported | A: passing; B: awaiting reference approval |
+| TS-08 | v0.1 | Circular plate, uniform pressure, clamped and simply supported | passing (A and B) |
 | TS-09 | v0.1 | Torsion of circular and square bars (Saint-Venant) | passing |
 | TS-10 | v0.1 | Thin ring under diametral compression (curved beam) | planned |
 | TS-11 | v0.1 | NAFEMS LE1 elliptic membrane | planned |
@@ -254,10 +254,10 @@ Count: v0.1 12 (8 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
     h = 2 mm (a/h = 10), q = 1 MPa; quarter disc with symmetry rollers on the two cut planes.
     Case: `benchmarks/cases/test_clamped_plate.py`, reference file
     `clamped_plate.toml` (approved).
-  - Variant B (`awaiting reference`): simply supported, the same disc on a ring line support
+  - Variant B (`passing`): simply supported, the same disc on a ring line support
     (ADR-006) holding only u_z on the bottom outer edge, the edge between the bottom face and
     the rim. Case: `benchmarks/cases/test_simply_supported_plate.py`, reference file
-    `simply_supported_plate.toml` (proposed, not yet approved).
+    `simply_supported_plate.toml` (approved).
 - **Quantity:** centre deflection. A: w0 = q a^4 / (64 D) + q a^2 / (4 kappa G h), i.e. the
   Kirchhoff value times [1 + 16 / (5 (1 - nu)) (h/a)^2] for kappa = 5/6; w0 = 0.016992857 mm
   (`computed`; Kirchhoff part 0.01625 mm, shear part +4.57 %). Measured on the mid-surface node
@@ -284,7 +284,8 @@ Count: v0.1 12 (8 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
 - **Features:** pressure, clamped curved face, rollers on cut planes, thin-body meshing (at
   least 3 quadratic elements through the thickness); edge/ring support (variant B: a line support
   on the edge between the bottom face and the rim, exists since ADR-006).
-- **Tolerance:** 2 % (A, approved); 3 % (B, the ring-support idealisation is ambiguous in 3D).
+- **Tolerance:** 2 % (A, approved); 3 % (B, approved; the ring-support idealisation is ambiguous
+  in 3D).
 - **Measured, variant A** (CalculiX 2.21; the gate mesh is h/3 = 0.667 mm, 3 elements through
   the thickness; the case runs the sweep 2 / 1 / 0.667 mm, about 12 s in total):
 
