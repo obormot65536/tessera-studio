@@ -3,6 +3,8 @@
 import tempfile
 from pathlib import Path
 
+from pydantic import ValidationError
+
 import tessera.geometry as geometry
 import tessera.materials as materials
 import tessera.mesh as mesh
@@ -21,16 +23,26 @@ from tessera.model import (
 )
 
 
+def _validated(project: Project) -> Project:
+    """Check the whole project again: lists edited after it was built skip validation."""
+    try:
+        return Project.model_validate(project.model_dump())
+    except ValidationError as exc:
+        raise InputError(f"project {project.name!r} is not valid:\n{exc}") from None
+
+
 def _part(project: Project, part_id: str) -> PartInstance:
     for part in project.assembly.parts:
         if part.id == part_id:
+            if not part.geometry.is_file():
+                raise FileNotFoundError(f"geometry of part {part.id!r} not found: {part.geometry}")
             return part
     raise InputError(f"no part {part_id!r} in project {project.name!r}")
 
 
 def describe_faces(project: Project, part_id: str) -> list[FaceInfo]:
     """Faces of a part, for choosing where supports and loads go."""
-    return geometry.describe_faces(_part(project, part_id).geometry)
+    return geometry.describe_faces(_part(_validated(project), part_id).geometry)
 
 
 def _mesh_part(part: PartInstance, size: float | None) -> Mesh:
@@ -54,10 +66,11 @@ def solve(
     project: Project, workdir: Path | None = None, adapter: SolverAdapter | None = None
 ) -> StudyResult:
     """Mesh and solve the project's static study. v0.1: one part, no connections."""
+    project = _validated(project)
     parts = project.assembly.parts
     if len(parts) != 1 or project.assembly.connections:
         raise NotImplementedError("v0.1 solves a single part; assemblies arrive in v0.5")
-    part = parts[0]
+    part = _part(project, parts[0].id)
     if part.transform != Transform():
         raise NotImplementedError("v0.1 does not apply part placements yet")
     if part.material_id is None:

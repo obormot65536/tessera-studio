@@ -217,3 +217,46 @@ def test_moment_load_twists_the_tip_face_without_a_net_force(bracket_step: Path)
     # Tip face x = 60, 0 <= y <= 20, 0 <= z <= 5: centroid (60, 10, 2.5).
     lever = job.mesh.nodes[twist.nodes] - [60.0, 10.0, 2.5]
     np.testing.assert_allclose(np.cross(lever, twist.forces).sum(axis=0), [2e4, 0, 0], atol=1e-6)
+
+
+def test_loads_and_supports_on_an_unknown_part_are_refused(bracket_step: Path) -> None:
+    # Appending to a built project bypasses pydantic validation; solve must still check.
+    root, tip = _root_and_tip(bracket_step)
+    project = _project(bracket_step, root, tip)
+    project.study.loads.append(
+        ForceLoad(id="typo", faces=FaceSet(part_id="ghost", faces=(tip,)), force=(1.0, 0, 0))
+    )
+    with pytest.raises(InputError, match="unknown part 'ghost'"):
+        solve(project, adapter=FakeSolver())
+    project.study.loads.pop()
+    project.study.supports.append(Support(id="s2", faces=FaceSet(part_id="ghost", faces=(1,))))
+    with pytest.raises(InputError, match="unknown part 'ghost'"):
+        solve(project, adapter=FakeSolver())
+
+
+def test_duplicate_part_ids_added_later_are_refused(bracket_step: Path) -> None:
+    project = _project(bracket_step, 1, 1)
+    project.assembly.parts.append(project.assembly.parts[0].model_copy())
+    with pytest.raises(InputError, match="unique"):
+        describe_faces(project, "b")
+
+
+def test_missing_geometry_names_the_part(tmp_path: Path) -> None:
+    project = _project(tmp_path / "gone.step", 1, 1)
+    with pytest.raises(FileNotFoundError, match="geometry of part 'b' not found"):
+        describe_faces(project, "b")
+    with pytest.raises(FileNotFoundError, match="geometry of part 'b' not found"):
+        solve(project, adapter=FakeSolver())
+
+
+def test_physics_refuses_faces_of_another_part(bracket_step: Path) -> None:
+    from tessera.materials import get_isotropic
+    from tessera.physics import build_static_job
+
+    root, tip = _root_and_tip(bracket_step)
+    project = _project(bracket_step, root, tip)
+    part = project.assembly.parts[0]
+    part_mesh = mesh_step(bracket_step, part_id="b", size=8.0)
+    project.study.loads[0].faces = FaceSet(part_id="other", faces=(tip,))
+    with pytest.raises(InputError, match="part 'other'"):
+        build_static_job(project.study, part, part_mesh, get_isotropic("steel-generic"))

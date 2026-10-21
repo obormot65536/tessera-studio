@@ -29,7 +29,9 @@ from tessera.physics.loads import (
 )
 
 
-def _surface(mesh: Mesh, faces: FaceSet) -> np.ndarray:
+def _surface(mesh: Mesh, faces: FaceSet, part: PartInstance) -> np.ndarray:
+    if faces.part_id != part.id:
+        raise InputError(f"faces of part {faces.part_id!r} used in a study of part {part.id!r}")
     try:
         return np.concatenate([mesh.surfaces[f"face:{f}"] for f in faces.faces])
     except KeyError as missing:
@@ -46,13 +48,13 @@ def build_static_job(
     supports = []
     for support in study.supports:
         name = f"support:{support.id}"
-        node_sets[name] = np.unique(_surface(mesh, support.faces))
+        node_sets[name] = np.unique(_surface(mesh, support.faces, part))
         supports.append(FixedSupport(node_set=name, dofs=support.dofs))
 
     elements = mesh.elements[mesh.element_sets[f"part:{part.id}"]]
     loads = []
     for load in study.loads:
-        tris = _surface(mesh, load.faces)
+        tris = _surface(mesh, load.faces, part)
         match load:
             case ForceLoad():
                 force = np.asarray(load.force, dtype=float)

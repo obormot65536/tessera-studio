@@ -95,3 +95,15 @@ def test_pack_with_missing_geometry_is_a_clean_error(tmp_path: Path) -> None:
     result = runner.invoke(app, ["pack", str(source), str(tmp_path / "p.tessera")])
     assert result.exit_code == 1
     assert "not found" in result.output
+
+
+def test_missing_geometry_is_a_clear_one_line_error(tmp_path: Path) -> None:
+    import json
+
+    path = tmp_path / "p.tessera.json"
+    part = {"id": "a", "name": "a", "geometry": "gone.step"}
+    path.write_text(json.dumps({"name": "p", "assembly": {"parts": [part]}}), encoding="utf-8")
+    result = runner.invoke(app, ["faces", str(path), "a"])
+    assert result.exit_code == 1
+    assert "geometry of part 'a' not found" in result.output
+    assert "Traceback" not in result.output

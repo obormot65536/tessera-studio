@@ -114,7 +114,10 @@ def _dump(data: dict[str, Any]) -> str:
 
     Dumping through the model would turn them back into ``Path`` and use ``\\`` on Windows.
     """
-    Project.model_validate(data)
+    try:
+        Project.model_validate(data)
+    except ValidationError as exc:
+        raise InputError(f"project {data.get('name')!r} is not valid:\n{exc}") from None
     return json.dumps(data, indent=2, ensure_ascii=False)
 
 

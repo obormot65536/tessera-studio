@@ -141,3 +141,13 @@ def test_inverted_stl_meshes_like_the_original(
     mesh = mesh_surface(flipped, part_id="box", size=5.0)
     assert _tet_volume(mesh) == pytest.approx(4000.0, rel=1e-6)
     assert len(mesh.surfaces) == box_surface.n_faces
+
+
+def test_a_patch_across_two_faces_is_an_input_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tessera.mesh.tet import _face_of_patch
+    from tessera.model import InputError
+
+    surface = TriangleSurface(np.zeros((4, 3)), np.array([[0, 1, 2], [0, 2, 3]]), np.array([1, 2]))
+    monkeypatch.setattr(gmsh.model.mesh, "getElementsByType", lambda *_: ([1, 2], []))
+    with pytest.raises(InputError, match=r"faces \[1, 2\]"):
+        _face_of_patch(7, surface)

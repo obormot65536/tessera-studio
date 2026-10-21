@@ -67,9 +67,8 @@ Raises:
     (`.stl`);
   - JSON is requested and a part uses geometry from a container that was opened in this
     process (that geometry lives in a temporary folder).
-- `pydantic.ValidationError` (a subclass of `ValueError`): the in-memory project is invalid, for
-  example a support or load names a part id that is not in `assembly.parts`. This is not
-  wrapped as `InputError`. Nothing is written.
+  - the in-memory project is invalid, for example a support or load names a part id that is
+    not in `assembly.parts`. Nothing is written.
 - `OSError`: the file cannot be written, for example because its folder does not exist.
 
 ### `load_project`
@@ -119,6 +118,8 @@ from the triangles (ADR-005), so they change if the STL file changes.
 Raises:
 
 - `InputError`:
+  - the project is invalid (for example two parts share an id, or a support names an unknown
+    part);
   - no part has the id `part_id`;
   - the part's geometry is not STEP or STL;
   - the file cannot be read, or a STEP file does not contain exactly one solid;
@@ -151,6 +152,7 @@ Raises:
 - `NotImplementedError`: the project has more than one part, any connection, or a placement
   other than the identity transform. These are planned for later versions.
 - `InputError`:
+  - the project is invalid, for example a support or load names a part that does not exist;
   - a face number in a support or load that the part does not have;
   - the part has no material, or the material id is unknown;
   - the study has no supports;
@@ -190,10 +192,10 @@ them from `tessera.model` for the full set.
 `Load` is the union `ForceLoad | PressureLoad | MomentLoad`. Files without a `kind` are read as
 force loads.
 
-Validation: when a project is built or loaded, a `Study` item that names a part id not in
-`assembly.parts` is an error. Items you add later with `append` are not checked against the
-part list, and `solve` does not check `part_id` in a support or load (v0.1 solves one part, so
-it uses that part's faces). Use the ids from `assembly.parts`.
+Validation: a `Study` item that names a part id not in `assembly.parts`, or two parts with the
+same id, is an error. Items you add later with `append` skip pydantic's checks at that moment,
+so `solve`, `describe_faces` and `save_project` check the whole project again and raise
+`InputError`.
 
 ### Results and geometry
 
