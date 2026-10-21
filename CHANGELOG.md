@@ -10,6 +10,14 @@
   `face_peaks` and `node_flags` (`StressSpot`, `StressFlag`, `NodeFlags` in `tessera.model`).
   `max_von_mises` is unchanged. Where the highest stress is at a support (a clamped base under
   bending), the value away from supports reads low; the user guide explains how to read both.
+- Line supports (ADR-006): hold a part along an edge, named by the two faces that meet there,
+  so it can still turn about the line (a pinned or roller line, e.g. a simply supported beam).
+  CLI: `tessera support add PATH PART --edge 3-5 [--edge 4-5] --dofs z`, and `tessera edges
+  PATH PART [--face N]` lists a part's edges; `tessera info` shows them. API:
+  `edit.add_edge_support`, `describe_edges`, `EdgeSet`, `EdgeInfo`, `Support.edges` and
+  `Support.part_id`. Peak stress right at a line support depends on the mesh.
+- Project files are now schema 5. Schema 4 files open unchanged; older Tessera versions refuse
+  schema 5 files.
 - A force, pressure or moment of zero is refused when it is added, since it does nothing and is
   almost always a typo. Project files that already contain one still open.
 - Gravity and materials without a density are refused when you set them up (turning gravity
@@ -36,8 +44,9 @@
 - Linear static analysis of one part with CalculiX (needs `ccx` on the PATH, or set
   `TESSERA_CCX` to its location).
 - Built-in materials: `steel-generic` and `aluminium-6061-t6`, both isotropic.
-- Validation: six textbook cases now pass (cantilever, plate with a hole, bar under its own
-  weight, thick-walled cylinder, thick-walled sphere, torsion); see `docs/user/validation.md`.
+- Validation: eight textbook cases now pass (patch test, cantilever, plate with a hole, bar under
+  its own weight, thick-walled cylinder, thick-walled sphere, clamped circular plate, torsion); see
+  `docs/user/validation.md`.
 - STL import (binary and ASCII): faces are split at edges sharper than 40°, the file must be a
   single closed solid, and lengths are taken as mm (ADR-005).
 - Roller supports: a support can hold only chosen directions (x, y or z), for symmetry planes

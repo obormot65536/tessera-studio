@@ -19,7 +19,9 @@ from tessera.model import (
     Section,
     SolveJob,
     Study,
+    Support,
 )
+from tessera.physics.edges import edge_nodes
 from tessera.physics.loads import (
     body_force_load,
     moment_face_load,
@@ -39,6 +41,19 @@ def _surface(mesh: Mesh, faces: FaceSet, part: PartInstance) -> np.ndarray:
         raise InputError(f"part {faces.part_id!r} has no face {face}") from None
 
 
+def _support_nodes(mesh: Mesh, support: Support, part: PartInstance) -> np.ndarray:
+    if support.faces is not None:
+        return np.unique(_surface(mesh, support.faces, part))
+    assert support.edges is not None  # a support holds faces or edges
+    if support.edges.part_id != part.id:
+        raise InputError(
+            f"edges of part {support.edges.part_id!r} used in a study of part {part.id!r}"
+        )
+    return np.unique(
+        np.concatenate([edge_nodes(mesh, part.id, a, b) for a, b in support.edges.edges])
+    )
+
+
 def build_static_job(
     study: Study, part: PartInstance, mesh: Mesh, material: IsotropicMaterial
 ) -> SolveJob:
@@ -48,8 +63,11 @@ def build_static_job(
     supports = []
     for support in study.supports:
         name = f"support:{support.id}"
-        node_sets[name] = np.unique(_surface(mesh, support.faces, part))
-        supports.append(FixedSupport(node_set=name, dofs=support.dofs))
+        node_sets[name] = _support_nodes(mesh, support, part)
+        # ``line`` marks supports on edges, whose peak stress is mesh-dependent (ADR-006).
+        supports.append(
+            FixedSupport(node_set=name, dofs=support.dofs, line=support.edges is not None)
+        )
 
     elements = mesh.elements[mesh.element_sets[f"part:{part.id}"]]
     loads = []

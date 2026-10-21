@@ -22,6 +22,27 @@ class FaceInfo:
     """Outward unit normal for planar faces, ``None`` for curved faces."""
 
 
+@dataclass(frozen=True)
+class EdgeInfo:
+    """Where two faces of a part meet, named by the face pair as in ``EdgeSet`` (ADR-006)."""
+
+    faces: tuple[int, int]
+    """The two face indices, ascending."""
+    kind: str
+    """Curve type, e.g. "Line", "Circle" (STEP: from the CAD kernel, "Mixed" when the curves
+    differ; STL: "Line" when every curve is straight, else "Curved")."""
+    length: float
+    """Total length of everything the two faces share, mm."""
+    start: Vec3 | None
+    """One end, mm; ``None`` for a closed edge (e.g. a circle) or several separate curves."""
+    end: Vec3 | None
+    """The other end, mm; ``None`` like ``start``."""
+    point: Vec3
+    """A point on the edge, mm (the middle of a single straight edge)."""
+    curves: int
+    """Number of separate connected curves the two faces share."""
+
+
 @dataclass(frozen=True, eq=False)
 class TriangleSurface:
     """A closed triangulated solid boundary with Tessera-defined faces (ADR-005)."""

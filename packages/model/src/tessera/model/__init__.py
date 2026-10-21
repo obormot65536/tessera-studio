@@ -1,13 +1,14 @@
 """Shared data model, units and interfaces (bottom layer)."""
 
 from tessera.model.errors import InputError
-from tessera.model.geometry_info import FaceInfo, TriangleSurface
+from tessera.model.geometry_info import EdgeInfo, FaceInfo, TriangleSurface
 from tessera.model.mesh import TET10_EDGES, TRI6_EDGES, Mesh
 from tessera.model.project import (
     SCHEMA_VERSION,
     Assembly,
     Connection,
     ConnectionKind,
+    EdgeSet,
     FaceSet,
     ForceLoad,
     Load,
@@ -41,6 +42,8 @@ __all__ = [
     "Assembly",
     "Connection",
     "ConnectionKind",
+    "EdgeInfo",
+    "EdgeSet",
     "FaceInfo",
     "FaceSet",
     "FixedSupport",

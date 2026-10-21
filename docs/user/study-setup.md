@@ -194,6 +194,69 @@ Rules:
 - A fixed face is stiffer than a real clamp that grips only part of the surface. Keep a fixed
   support to the area that is really fixed. Use a roller where the real part can slide.
 
+### Line supports (on an edge)
+
+A face support is a clamp: the face cannot turn. Where the real part rests on a line, such as a
+shelf on a ledge, a beam on two rods or a plate on a ring, hold an **edge** instead. The part
+can then turn about the line, as the real one does.
+
+An edge is named by the two faces that meet there, written `A-B`. List a part's edges with:
+
+```
+tessera edges beam.tessera.json beam --face 5
+```
+
+`--face 5` shows only the edges of face 5 (the underside); leave it out to see them all. For
+the example beam, the output is:
+
+```
+      1-5  Line             10.000 mm  at (0.00, 5.00, 0.00)  from (0.00, 0.00, 0.00) to (0.00, 10.00, 0.00)
+      2-5  Line             10.000 mm  at (200.00, 5.00, 0.00)  from (200.00, 0.00, 0.00) to (200.00, 10.00, 0.00)
+      3-5  Line            200.000 mm  at (100.00, 0.00, 0.00)  from (0.00, 0.00, 0.00) to (200.00, 0.00, 0.00)
+      4-5  Line            200.000 mm  at (100.00, 10.00, 0.00)  from (0.00, 10.00, 0.00) to (200.00, 10.00, 0.00)
+```
+
+Columns: the two faces, the curve type, the length, a point on the edge, and its two ends. A
+circle or another closed edge shows `closed` instead of the ends.
+
+A beam simply supported at both ends rests on the bottom edge of each end face: a pinned line
+at one end (all directions held) and a roller line at the other (only z held, so the beam can
+get longer as it bends):
+
+```
+tessera support add beam.tessera.json beam --edge 1-5 --id pin
+tessera support add beam.tessera.json beam --edge 2-5 --dofs z --id roller
+```
+
+`tessera info` then shows:
+
+```
+  support pin: beam edges 1-5, fixed
+  support roller: beam edges 2-5, holds z
+```
+
+Rules:
+
+- Give face numbers or `--edge`, not both. Repeat `--edge` to hold several edges in one
+  support, for example `--edge 3-5 --edge 4-5` (both long bottom edges of the beam).
+- The two faces must meet. `--edge 1-2` on the beam is refused, because its two end faces do
+  not touch: `faces 1 and 2 of part 'beam' do not meet at an edge (list the edges with
+  `tessera edges`)`.
+- If two faces meet along more than one separate curve, the edge holds all of them.
+- **A line in the middle of a face is not an edge.** To hold a line across a face, add a split
+  line in your CAD program and export again. The split line divides the face in two, and the
+  line becomes the edge between them.
+- The seam of a cylinder wall (the joint line where the CAD kernel closes the surface) is not
+  an edge and cannot be held.
+- **Peak stress at a line support depends on the mesh.** A line that carries a force has, in
+  theory, an infinite stress right at the line. A finer mesh shows a higher peak there, without
+  limit. Displacements away from the line are reliable. For this beam under 0.1 MPa on its top
+  face, a 2.5 mm mesh gave 0.120414 mm and a peak of 30.8 MPa, and a 1.25 mm mesh gave
+  0.120482 mm and a peak of 62.4 MPa, at the supports. `tessera solve` marks every line
+  support, so that peak is listed as near the support (see "Why the peak stress changes with
+  the mesh" in Step 9). Read the stress away from the support line (here, in the middle of the
+  span), or check the displacement.
+
 ## Step 6: Add loads
 
 Each load has an `--id`, the part and face numbers it acts on, and a value. Give the value
@@ -416,8 +479,9 @@ A model of a part has places where the stress does not settle to one value as th
 refined. It keeps rising with every finer mesh. Two kinds of place are marked in the output:
 
 - **near a support** that holds two or three directions, such as a fixed face. The clamped
-  edge is the problem. A support that holds one direction (a roller or symmetry plane) is not
-  marked, because it does not cause this.
+  edge is the problem. A face support that holds one direction (a roller or symmetry plane) is
+  not marked, because it does not cause this. Every line support is marked, whatever it holds,
+  because the force it carries is squeezed onto a line.
 - **near a sharp inside edge**: an edge where the surface turns inward (into the material) by
   30° or more, like the inside corner of an L-bracket. Outside edges, rounded fillets and holes
   are not marked.
@@ -496,7 +560,7 @@ folder as `beam.step`:
 
 ```json
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "name": "Beam cantilever",
   "assembly": {
     "parts": [
@@ -537,6 +601,7 @@ The same fields take these forms. Add them to the lists shown:
 - in `study.loads`: `{"kind": "pressure", "id": "press", "faces": {"part_id": "beam", "faces": [3]}, "pressure": 0.5}`
 - in `study.loads`: `{"kind": "moment", "id": "twist", "faces": {"part_id": "beam", "faces": [2]}, "moment": [0.0, 0.0, 1000.0]}`
 - in `study.supports`: `{"id": "side", "faces": {"part_id": "beam", "faces": [5]}, "dofs": [3]}`
+- in `study.supports`, a line support: `{"id": "pin", "edges": {"part_id": "beam", "edges": [[1, 5]]}}`
 - as a field of `study`: `"gravity": [0.0, 0.0, -9810.0]`
 
 A load without a `kind` is read as a force load.
@@ -555,6 +620,11 @@ Any field name that Tessera does not know causes an error. This catches typing m
 | `part 'beam' is still used by root, tip-push; remove those first` | Remove the listed items first |
 | `--dofs takes the directions to hold, e.g. xyz or z; got 'zz'` | Use each letter x, y or z once |
 | `a face is listed twice: [2, 2]` | List each face once |
+| `faces 1 and 2 of part 'beam' do not meet at an edge (list the edges with `tessera edges`)` | Use a pair from `tessera edges` |
+| `give face numbers or --edge, not both` | A support holds faces or edges; add two supports for both |
+| `--edge takes two face numbers like 3-5; got '1x5'` | Write the edge as two face numbers joined by `-` |
+| `an edge is named by two different faces, e.g. 3-5; got 5-5` | Use two different faces |
+| `edge 1-5 is listed twice` | List each edge once (`1-5` and `5-1` are the same edge) |
 | `use either --gravity or --no-gravity` | Give one of the two |
 | `nothing to change: give --gravity, --no-gravity, --mesh-size or --auto-mesh` | Give a setting to change |
 | `the mesh size must be positive, got 0 mm` | Use a number greater than 0 |

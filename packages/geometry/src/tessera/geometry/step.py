@@ -1,5 +1,6 @@
-"""STEP import and face queries (via gmsh's OpenCASCADE kernel)."""
+"""STEP import and face and edge queries (via gmsh's OpenCASCADE kernel)."""
 
+from collections import defaultdict
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -7,7 +8,11 @@ import gmsh
 import numpy as np
 
 from tessera.geometry._gmsh import gmsh_model
-from tessera.model import FaceInfo, InputError
+from tessera.geometry.edges import chains, ordered_ends, vec3
+from tessera.model import EdgeInfo, FaceInfo, InputError
+
+_ZERO_LENGTH = 1e-9
+"""Curves shorter than this fraction of the part's size are degenerate and not listed."""
 
 
 def _import_single_solid(path: Path) -> int:
@@ -53,8 +58,8 @@ def _outward_normal(face: int, volume: int, centroid: np.ndarray, size: float) -
     return normal
 
 
-def describe_step_faces(path: Path) -> list[FaceInfo]:
-    """List the faces of a single-solid STEP file, ordered by face index."""
+def describe_step(path: Path) -> tuple[list[FaceInfo], list[EdgeInfo]]:
+    """Faces (by face index) and edges (by face pair) of a single-solid STEP file, read once."""
     with gmsh_model():
         volume = _import_single_solid(path)
         xmin, ymin, zmin, xmax, ymax, zmax = gmsh.model.getBoundingBox(3, volume)
@@ -76,4 +81,51 @@ def describe_step_faces(path: Path) -> list[FaceInfo]:
                     normal=normal,
                 )
             )
-        return faces
+        return faces, _step_edges(size)
+
+
+def _step_edges(size: float) -> list[EdgeInfo]:
+    """Curves between two different faces, grouped by face pair (ADR-006).
+
+    Seams (the same face on both sides) and zero-length curves are left out.
+    """
+    by_pair: dict[tuple[int, int], list[tuple[int, float]]] = defaultdict(list)
+    for _, curve in sorted(gmsh.model.getEntities(1)):
+        up, _ = gmsh.model.getAdjacencies(1, curve)
+        sides = sorted({int(f) for f in up})
+        if len(sides) != 2:
+            continue
+        length = float(gmsh.model.occ.getMass(1, curve))
+        if length > _ZERO_LENGTH * size:
+            by_pair[(sides[0], sides[1])].append((curve, length))
+    return [_step_edge(pair, curves, size) for pair, curves in sorted(by_pair.items())]
+
+
+def _point(tag: int) -> tuple[float, float, float]:
+    return vec3(np.asarray(gmsh.model.getValue(0, tag, []), dtype=float))
+
+
+def _step_edge(pair: tuple[int, int], curves: list[tuple[int, float]], size: float) -> EdgeInfo:
+    segments = []
+    for curve, _ in curves:
+        _, points = gmsh.model.getAdjacencies(1, curve)
+        ends = [int(p) for p in points] or [-curve]  # a closed curve may have no vertex
+        segments.append((ends[0], ends[-1]))
+    connected = chains(segments)
+    start = end = None
+    if len(connected) == 1 and connected[0].ends is not None:
+        p, q = connected[0].ends
+        start, end = ordered_ends(_point(p), _point(q), size)
+    kinds = {gmsh.model.getType(1, curve) for curve, _ in curves}
+    longest = max(curves, key=lambda c: c[1])[0]
+    lo, hi = gmsh.model.getParametrizationBounds(1, longest)
+    middle = np.asarray(gmsh.model.getValue(1, longest, [0.5 * (lo[0] + hi[0])]), dtype=float)
+    return EdgeInfo(
+        faces=pair,
+        kind=kinds.pop() if len(kinds) == 1 else "Mixed",
+        length=sum(length for _, length in curves),
+        start=start,
+        end=end,
+        point=vec3(middle),
+        curves=len(connected),
+    )

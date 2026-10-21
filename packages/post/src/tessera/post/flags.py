@@ -1,9 +1,9 @@
 """Flag nodes whose stress keeps changing as the mesh is refined (ADR-007).
 
-In linear elasticity the stress has no finite value at the edges of a support that holds two or
-three directions and at sharp inside (re-entrant) edges. Nodes within d = 2 h of those places
-are flagged, h being the median corner-to-corner element edge length. Line supports (ADR-006)
-are singular too and will be flagged once they exist.
+In linear elasticity the stress has no finite value at the edges of a face support that holds
+two or three directions, along a line support (ADR-006) and at sharp inside (re-entrant) edges.
+Nodes within d = 2 h of those places are flagged, h being the median corner-to-corner element
+edge length.
 The flags depend only on the mesh and the supports, so every stress result can use them.
 """
 
@@ -52,12 +52,12 @@ _DXI, _DETA = _tri6_derivatives()
 def support_is_singular(support: FixedSupport) -> bool:
     """Whether the stress near this support is flagged: the one place that decides it.
 
-    Today: a support holding two or three directions clamps its face, and the stress at the
-    face's edge is singular, so it is flagged. A support holding one direction is an exact
-    symmetry plane or roller, so it is not. Line supports (ADR-006) will be flagged regardless
-    of direction once the solve job marks them; that check belongs here.
+    A line support (ADR-006) is flagged whatever directions it holds: a force per length on a
+    line is singular. A face support holding two or three directions clamps its face, and the
+    stress at the face's edge is singular, so it is flagged. A face support holding one direction
+    is an exact symmetry plane or roller, so it is not.
     """
-    return len(set(support.dofs)) >= 2
+    return support.line or len(set(support.dofs)) >= 2
 
 
 def _pair_keys(a: NDArray[np.int64], b: NDArray[np.int64], n_nodes: int) -> NDArray[np.int64]:

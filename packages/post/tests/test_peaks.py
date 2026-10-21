@@ -164,6 +164,14 @@ def test_support_holding_one_direction_is_never_flagged(bar: Mesh, dofs: tuple[i
     assert flags.masks == {}
 
 
+@pytest.mark.parametrize("dofs", [(1,), (3,), (1, 2, 3)])
+def test_line_support_is_flagged_whatever_it_holds(bar: Mesh, dofs: tuple[int, ...]) -> None:
+    flags = flag_nodes(job(bar, FixedSupport(node_set="support:root", dofs=dofs, line=True)))
+    x = bar.nodes[:, 0]
+    assert flags.at(int(np.flatnonzero(np.isclose(x, 1.0))[0])) == (ROOT,)
+    assert flags.at(int(np.flatnonzero(np.isclose(x, 5.0))[0])) == ()
+
+
 def test_support_without_the_support_prefix_keeps_its_node_set_name(bar: Mesh) -> None:
     mesh = with_sets(bar, clamp=np.isclose(bar.nodes[:, 0], 0.0))
     flags = flag_nodes(job(mesh, FixedSupport(node_set="clamp")))

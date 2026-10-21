@@ -7,7 +7,9 @@ import gmsh
 import pytest
 
 import tessera.geometry as geometry
-from tessera.model import FaceInfo, InputError, TriangleSurface
+from tessera.model import EdgeInfo, FaceInfo, InputError, TriangleSurface
+
+_Parsed = tuple[list[FaceInfo], list[EdgeInfo]]
 
 
 def _write_box_step(path: Path, length: float) -> Path:
@@ -26,13 +28,13 @@ def _write_box_step(path: Path, length: float) -> Path:
 def step_reads(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
     """Records every STEP file geometry actually parses."""
     reads: list[Path] = []
-    parse: Callable[[Path], list[FaceInfo]] = geometry.describe_step_faces
+    parse: Callable[[Path], _Parsed] = geometry.describe_step
 
-    def counting(path: Path) -> list[FaceInfo]:
+    def counting(path: Path) -> _Parsed:
         reads.append(path)
         return parse(path)
 
-    monkeypatch.setattr(geometry, "describe_step_faces", counting)
+    monkeypatch.setattr(geometry, "describe_step", counting)
     return reads
 
 
@@ -72,15 +74,15 @@ def test_errors_are_not_cached(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, step_reads: list[Path]
 ) -> None:
     path = _write_box_step(tmp_path / "box.step", 40)
-    parse = geometry.describe_step_faces
+    parse = geometry.describe_step
     failures = [InputError("cannot read it this time")]
 
-    def flaky(p: Path) -> list[FaceInfo]:
+    def flaky(p: Path) -> _Parsed:
         if failures:
             raise failures.pop()
         return parse(p)
 
-    monkeypatch.setattr(geometry, "describe_step_faces", flaky)
+    monkeypatch.setattr(geometry, "describe_step", flaky)
     with pytest.raises(InputError, match="this time"):
         geometry.describe_faces(path)
     assert len(geometry.describe_faces(path)) == 6, "the same bytes are read again"
@@ -92,16 +94,16 @@ def test_faces_of_a_file_changed_during_the_read_are_not_kept(
 ) -> None:
     path = _write_box_step(tmp_path / "box.step", 40)
     original = path.read_bytes()
-    parse = geometry.describe_step_faces
+    parse = geometry.describe_step
 
-    def edited_meanwhile(p: Path) -> list[FaceInfo]:
-        faces = parse(p)
+    def edited_meanwhile(p: Path) -> _Parsed:
+        found = parse(p)
         _write_box_step(p, 80)
-        return faces
+        return found
 
-    monkeypatch.setattr(geometry, "describe_step_faces", edited_meanwhile)
+    monkeypatch.setattr(geometry, "describe_step", edited_meanwhile)
     geometry.describe_faces(path)
-    monkeypatch.setattr(geometry, "describe_step_faces", parse)
+    monkeypatch.setattr(geometry, "describe_step", parse)
     path.write_bytes(original)
     geometry.describe_faces(path)
     assert len(step_reads) == 2, "the first result was not remembered for the old content"
