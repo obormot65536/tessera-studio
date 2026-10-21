@@ -108,8 +108,10 @@ def _face_of_patch(patch: int, surface: TriangleSurface) -> int:
         )
     faces = np.unique(surface.face_ids[tags - 1])
     if faces.size != 1:
+        # Unreachable by construction: the split angle above is below every face boundary's.
         raise RuntimeError(
-            f"gmsh patch {patch} spans Tessera faces {faces.tolist()}; try a larger feature angle"
+            f"gmsh patch {patch} spans Tessera faces {faces.tolist()}, although the split angle "
+            "is below every face boundary; this is a Tessera bug, please report it with the file"
         )
     return int(faces[0])
 

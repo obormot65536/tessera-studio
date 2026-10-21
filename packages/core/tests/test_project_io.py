@@ -54,3 +54,13 @@ def test_saving_an_older_project_writes_the_current_schema(tmp_path: Path) -> No
     new = tmp_path / "new.tessera.json"
     save_project(load_project(old), new)
     assert f'"schema_version": {SCHEMA_VERSION}' in new.read_text(encoding="utf-8")
+
+
+def test_saving_an_invalid_project_is_an_input_error(tmp_path: Path) -> None:
+    from tessera.model import FaceSet, InputError, Support
+
+    project = new_project("broken")
+    project.study.supports.append(Support(id="s", faces=FaceSet(part_id="ghost", faces=(1,))))
+    with pytest.raises(InputError, match="unknown part 'ghost'"):
+        save_project(project, tmp_path / "broken.tessera.json")
+    assert not (tmp_path / "broken.tessera.json").exists()
