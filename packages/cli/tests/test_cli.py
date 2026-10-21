@@ -184,6 +184,8 @@ def test_editing_errors_are_one_line_and_leave_the_file_alone(
         ["support", "add", str(path), "bracket", "1", "--dofs", "w"],
         ["part", "material", str(path), "bracket", "unobtainium"],
         ["load", "force", str(path), "ghost", "1", "--force", "1", "0", "0"],
+        ["load", "force", str(path), "bracket", "1", "--force", "0", "0", "0"],
+        ["load", "pressure", str(path), "bracket", "1", "--pressure", "0"],
         ["remove", str(path), "nothing"],
     ):
         result = runner.invoke(app, args)

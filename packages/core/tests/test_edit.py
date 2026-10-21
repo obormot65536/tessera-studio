@@ -188,6 +188,16 @@ def test_a_part_is_read_once_however_many_supports_and_loads_it_gets(
     assert reads == [box_step]
 
 
+def test_a_load_of_zero_is_refused(project: Project) -> None:
+    with pytest.raises(InputError, match="force of zero"):
+        edit.add_force_load(project, "box", [2], (0.0, 0.0, 0.0))
+    with pytest.raises(InputError, match="pressure of zero"):
+        edit.add_pressure_load(project, "box", [3], 0.0)
+    with pytest.raises(InputError, match="moment of zero"):
+        edit.add_moment_load(project, "box", [2], (0.0, -0.0, 0.0))
+    assert project.study.loads == []
+
+
 @pytest.fixture
 def no_density(monkeypatch: pytest.MonkeyPatch) -> str:
     """A library material without a density, as printed materials may arrive."""

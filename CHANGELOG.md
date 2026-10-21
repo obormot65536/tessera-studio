@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- A force, pressure or moment of zero is refused when it is added, since it does nothing and is
+  almost always a typo. Project files that already contain one still open.
 - Gravity and materials without a density are refused when you set them up (turning gravity
   on, or choosing such a material while gravity is on), not only when you solve.
 - Faster study setup: a part's geometry is read once, not again for every support and load
