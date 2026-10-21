@@ -108,10 +108,10 @@ def _face_of_patch(patch: int, surface: TriangleSurface) -> int:
         )
     faces = np.unique(surface.face_ids[tags - 1])
     if faces.size != 1:
-        # The file's geometry, not a Tessera bug: e.g. two faces meeting at a very shallow crease.
-        raise InputError(
-            f"faces {faces.tolist()} of the STL could not be meshed separately; re-export the "
-            "part with a finer or cleaner triangulation, or as STEP"
+        # Unreachable by construction: the split angle above is below every face boundary's.
+        raise RuntimeError(
+            f"gmsh patch {patch} spans Tessera faces {faces.tolist()}, although the split angle "
+            "is below every face boundary; this is a Tessera bug, please report it with the file"
         )
     return int(faces[0])
 

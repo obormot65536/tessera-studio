@@ -125,7 +125,7 @@ Raises:
   - the file cannot be read, or a STEP file does not contain exactly one solid;
   - an STL file is not a single closed solid, or has inconsistent winding or disconnected
     surfaces.
-- `FileNotFoundError`: the part's geometry file does not exist.
+- `FileNotFoundError`: the part's geometry file does not exist. The message names the part.
 
 ### `solve`
 
@@ -159,7 +159,7 @@ Raises:
   - gravity is set but the material has no density;
   - the geometry is unsupported, or cannot be meshed;
   - the solver adapter cannot run the analysis.
-- `FileNotFoundError`: the part's geometry file does not exist.
+- `FileNotFoundError`: the part's geometry file does not exist. The message names the part.
 - `SolverError` (from `tessera.model`): the CalculiX executable cannot be found or started, the
   run timed out, CalculiX reported an error, or it produced no usable results. `SolverError.log`
   holds the solver output.

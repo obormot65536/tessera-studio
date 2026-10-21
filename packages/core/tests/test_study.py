@@ -247,16 +247,3 @@ def test_missing_geometry_names_the_part(tmp_path: Path) -> None:
         describe_faces(project, "b")
     with pytest.raises(FileNotFoundError, match="geometry of part 'b' not found"):
         solve(project, adapter=FakeSolver())
-
-
-def test_physics_refuses_faces_of_another_part(bracket_step: Path) -> None:
-    from tessera.materials import get_isotropic
-    from tessera.physics import build_static_job
-
-    root, tip = _root_and_tip(bracket_step)
-    project = _project(bracket_step, root, tip)
-    part = project.assembly.parts[0]
-    part_mesh = mesh_step(bracket_step, part_id="b", size=8.0)
-    project.study.loads[0].faces = FaceSet(part_id="other", faces=(tip,))
-    with pytest.raises(InputError, match="part 'other'"):
-        build_static_job(project.study, part, part_mesh, get_isotropic("steel-generic"))

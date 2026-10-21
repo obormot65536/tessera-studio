@@ -31,12 +31,16 @@ def _validated(project: Project) -> Project:
         raise InputError(f"project {project.name!r} is not valid:\n{exc}") from None
 
 
+def _check_geometry(part: PartInstance) -> PartInstance:
+    if not part.geometry.is_file():
+        raise FileNotFoundError(f"geometry of part {part.id!r} not found: {part.geometry}")
+    return part
+
+
 def _part(project: Project, part_id: str) -> PartInstance:
     for part in project.assembly.parts:
         if part.id == part_id:
-            if not part.geometry.is_file():
-                raise FileNotFoundError(f"geometry of part {part.id!r} not found: {part.geometry}")
-            return part
+            return _check_geometry(part)
     raise InputError(f"no part {part_id!r} in project {project.name!r}")
 
 
@@ -70,7 +74,7 @@ def solve(
     parts = project.assembly.parts
     if len(parts) != 1 or project.assembly.connections:
         raise NotImplementedError("v0.1 solves a single part; assemblies arrive in v0.5")
-    part = _part(project, parts[0].id)
+    part = _check_geometry(parts[0])
     if part.transform != Transform():
         raise NotImplementedError("v0.1 does not apply part placements yet")
     if part.material_id is None:
