@@ -2,7 +2,7 @@
 
 Tessera is checked against simple problems whose answers are known from textbooks. If Tessera
 gets those right, its mesher, supports, loads and solver are working together. This page
-summarises the seven checks that pass today. The full plan, with 30 more checks still to do, is in
+summarises the eight checks that pass today. The full plan, with 29 more checks still to do, is in
 [`benchmarks/CATALOG.md`](../../benchmarks/CATALOG.md).
 
 ## What the checks do not show
@@ -12,7 +12,7 @@ summarises the seven checks that pass today. The full plan, with 30 more checks 
 - Passing means the answer is within a stated tolerance at one mesh size. Your own study still
   needs the two-mesh check described in [study-setup.md](study-setup.md), Step 7.
 
-## The seven passing checks
+## The eight passing checks
 
 Each row is one check. "Gate" is the largest error allowed. "Error at gate" is the error Tessera
 gave at the mesh size the test uses. Numbers come from one run of the suite on 21 October 2026
@@ -22,6 +22,7 @@ with CalculiX 2.21.
 |---|---|---|---|---|---|
 | **TS-01** Cantilever | Tip deflection of a steel bar, 200 × 10 × 10 mm, clamped at one end, 100 N pulling its free end down | Beam theory (Timoshenko): 1.5267 mm | 2 % | 2.5 mm | 0.39 % |
 | **TS-02** Plate with a hole | Stress at the edge of a 10 mm hole in a 50 mm wide steel strip under tension | Howland's strip solution: stress concentration 2.512 | 2 % | 1.0 mm | 0.32 % |
+| **TS-03** Patch test | Every node of a 10 mm steel cube under 10 MPa tension, on an irregular mesh: stress and displacement | The exact uniform field: stress 10 MPa, end stretch 4.762 × 10⁻⁴ mm | 2 × 10⁻⁵ (stress), 10⁻⁵ (displacement) | 3.0 mm | 1.0 × 10⁻⁵ (stress), 1.1 × 10⁻⁶ (displacement) |
 | **TS-04** Bar under its own weight | Stretch of a 200 mm steel bar hanging under gravity, and stress halfway down | ρgL²/(2E) = 7.334 × 10⁻⁶ mm; stress ρgL/2 = 7.70 × 10⁻³ MPa | 2 % | 5.0 mm | 0.004 % (stretch), 0.001 % (stress) |
 | **TS-06** Thick-walled cylinder | Hoop stress and radial growth of a steel tube (inner radius 10 mm, outer 20 mm) at 10 MPa inside | Lamé's solution: hoop stress 16.67 MPa, radial growth 9.365 × 10⁻⁴ mm | 2 % stress, 1 % growth | 1.25 mm | 0.08 % (stress), 0.003 % (growth) |
 | **TS-07** Thick-walled sphere | Hoop stress and radial growth of a hollow steel ball (inner radius 10 mm, outer 20 mm) at 10 MPa inside | Lamé's solution: hoop stress 7.143 MPa, radial growth 3.810 × 10⁻⁴ mm | 2 % stress, 1 % growth | 1.25 mm | 0.48 % (stress), 0.009 % (growth) |
@@ -33,6 +34,9 @@ Notes on the rows:
 - **TS-02** uses a value from Timoshenko and Goodier's *Theory of Elasticity* that the
   maintainer has approved but not yet re-checked against the book. The reference is marked
   provisional in the repository. Treat the 2 % gate as provisional too.
+- **TS-03** checks every node, not one point. Its gate is near the precision CalculiX writes its
+  results with (six significant digits), so it shows the mesh, loads and supports add no error of
+  their own.
 - **TS-04** holds the top face so it can slide sideways but not move in z. A full clamp would add
   a small sideways effect that has nothing to do with gravity.
 - **TS-06** uses symmetry faces, so one quarter of the tube is modelled.

@@ -64,7 +64,7 @@ primary source.
 |---|---|---|---|
 | TS-01 | v0.1 | End-loaded cantilever, tip deflection | passing |
 | TS-02 | v0.1 | Strip with central hole in tension, Kt (Howland) | passing |
-| TS-03 | v0.1 | Uniform tension patch test (isotropic) | planned |
+| TS-03 | v0.1 | Uniform tension patch test (isotropic) | passing |
 | TS-04 | v0.1 | Bar hanging under its own weight | passing |
 | TS-05 | v0.1 | Simply supported beam, uniform load | planned |
 | TS-06 | v0.1 | Thick-walled cylinder, internal pressure (Lamé) | passing |
@@ -100,7 +100,7 @@ primary source.
 | TT-04 | v3 | Steady radial conduction and thermal stress in a thick cylinder | planned |
 | TF-01 | v4 | Laminar pipe flow (Hagen-Poiseuille) | planned |
 
-Count: v0.1 12 (7 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
+Count: v0.1 12 (8 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
 
 ---
 
@@ -132,19 +132,39 @@ Count: v0.1 12 (7 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
 - **Features:** directional (roller) supports (`Support.dofs`, exists).
 - **Tolerance:** 2 % (approved, `plate_hole_kt.toml`).
 
-### TS-03 Uniform tension patch test
+### TS-03 Uniform tension patch test (passing)
 
-- **Problem:** box 10 x 10 x 10 mm with rollers on three orthogonal faces and uniform traction
-  sigma on the opposite face. Run with a distorted, unstructured mesh.
-- **Quantity:** every node and integration point gives sigma_xx = sigma, other stresses 0,
-  eps_xx = sigma/E, eps_yy = eps_zz = -nu sigma/E.
+- **Problem:** steel cube 10 x 10 x 10 mm, rollers u_x = 0 on x = 0, u_y = 0 on y = 0,
+  u_z = 0 on z = 0, uniform traction sigma = 10 MPa in +x on x = 10 (`ForceLoad` of 1000 N,
+  spread uniformly per area). Unstructured gmsh mesh with sizes that do not divide 10 (the
+  public API offers only `mesh_size`); the case asserts the mesh is irregular (about 1 % of edges
+  axis-aligned, dihedral angles about 13 to 169 degrees). Case:
+  `benchmarks/cases/test_patch_test.py`.
+- **Quantity:** at every node, sigma_xx = sigma, the five other stresses 0, and
+  u = (sigma x, -nu sigma y, -nu sigma z) / E (u_x(10) = 4.761905e-4 mm, lateral -1.428571e-4 mm,
+  `computed`). The public API gives nodal stresses only, not integration-point values.
 - **Reference:** exact (linear field). Patch-test idea: MacNeal & Harder, "A proposed standard
   set of problems to test finite element accuracy", Finite Elements in Analysis and Design 1
   (1985) 3-20 (`unverified`: not looked up).
 - **Licence:** no reuse issue.
 - **Equivalents:** none recorded.
 - **Features:** directional supports, face force (exist).
-- **Tolerance:** 1e-6 relative.
+- **Tolerance:** approved `patch_test.toml`: sigma_xx within 2e-5 relative, other stresses within
+  1e-6 MPa (1e-7 sigma), displacements within 1e-5 of sigma L / E, at every node and on every
+  mesh. The 1e-6 relative first proposed here cannot be met: the `.frd` file holds six
+  significant digits (up to 5e-6 rounding), and CalculiX's nodal stress extrapolation gives
+  9.99990 MPa at every node while every integration point gives 10.000000 (a constant -1e-5
+  bias; inferred cause: extrapolation coefficients rounded to five decimals).
+- **Measured** (CalculiX 2.21; all nodes; the gate mesh is 3.0 mm, about 1 s):
+
+  | h [mm] | nodes | max \|sigma_xx/sigma - 1\| | max \|other\|/sigma | max \|u - u_ex\| / (sigma L/E) |
+  |---|---|---|---|---|
+  | 3.0 | 2 053 | 1.0e-5 | 4.3e-13 | 1.06e-6 |
+  | 1.3 | 4 462 | 1.0e-5 | 7.8e-13 | 1.06e-6 |
+  | 0.9 | 12 565 | 1.0e-5 | 1.1e-12 | 1.08e-6 |
+
+  Sizes 4.3 to 2.3 all give the same 2 053-node mesh. The errors sit at the output-precision
+  floor on every mesh, as an exact patch test should.
 
 ### TS-04 Bar hanging under its own weight
 
