@@ -69,7 +69,7 @@ primary source.
 | TS-05 | v0.1 | Simply supported beam, uniform load | planned |
 | TS-06 | v0.1 | Thick-walled cylinder, internal pressure (Lamé) | passing |
 | TS-07 | v0.1 | Thick-walled sphere, internal pressure (Lamé) | passing |
-| TS-08 | v0.1 | Circular plate, uniform pressure, clamped and simply supported | planned |
+| TS-08 | v0.1 | Circular plate, uniform pressure, clamped and simply supported | A: passing; B: planned (needs line supports) |
 | TS-09 | v0.1 | Torsion of circular and square bars (Saint-Venant) | passing |
 | TS-10 | v0.1 | Thin ring under diametral compression (curved beam) | planned |
 | TS-11 | v0.1 | NAFEMS LE1 elliptic membrane | planned |
@@ -100,7 +100,7 @@ primary source.
 | TT-04 | v3 | Steady radial conduction and thermal stress in a thick cylinder | planned |
 | TF-01 | v4 | Laminar pipe flow (Hagen-Poiseuille) | planned |
 
-Count: v0.1 12 (6 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
+Count: v0.1 12 (7 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
 
 ---
 
@@ -228,21 +228,51 @@ Count: v0.1 12 (6 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
 
 ### TS-08 Circular plate under uniform pressure
 
-- **Problem:** disc of radius a, thickness h (a/h = 20), pressure q. Variant A: outer face
-  clamped. Variant B: simply supported, i.e. a ring support (u_z = 0 on the bottom outer edge).
-- **Quantity:** centre deflection. A: w0 = q a^4 / (64 D). B: w0 = (5 + nu)/(1 + nu) q a^4 /
-  (64 D), with D = E h^3 / (12 (1 - nu^2)). Thin-plate formulas `verified` (structville.com
-  derivation, tge.readthedocs.io page excerpts).
+- **Problem:** disc of radius a, thickness h, uniform pressure q on the top face.
+  - Variant A (`passing`): outer cylindrical face fully clamped. Steel disc a = 20,
+    h = 2 mm (a/h = 10), q = 1 MPa; quarter disc with symmetry rollers on the two cut planes.
+    Case: `benchmarks/cases/test_clamped_plate.py`, reference file
+    `clamped_plate.toml` (approved).
+  - Variant B (`planned`, needs line supports): simply supported, i.e. a ring support
+    (u_z = 0 on the bottom outer edge). Tessera has no line/edge supports yet.
+- **Quantity:** centre deflection. A: w0 = q a^4 / (64 D) + q a^2 / (4 kappa G h), i.e. the
+  Kirchhoff value times [1 + 16 / (5 (1 - nu)) (h/a)^2] for kappa = 5/6; w0 = 0.016992857 mm
+  (`computed`; Kirchhoff part 0.01625 mm, shear part +4.57 %). Measured on the mid-surface node
+  at the centre: the top and bottom surfaces sit 0.40 % lower because of the Poisson
+  through-thickness strain of bending. B: w0 = (5 + nu)/(1 + nu) q a^4 / (64 D), with
+  D = E h^3 / (12 (1 - nu^2)) (thin plate).
 - **Reference:** Timoshenko & Woinowsky-Krieger, *Theory of Plates and Shells*, 2nd ed. (1959),
-  chapter 3, symmetrical bending of circular plates (section numbers `unverified`). The same
-  chapter gives a correction for transverse shear in thicker plates. Its formula is `unverified`
-  and must be taken from the book. At a/h = 20 the shear correction is still of the order of
-  1 %, so the case should either use it or use a/h >= 40.
+  chapter 3, symmetrical bending of circular plates (section numbers `unverified`). Thin-plate
+  formulas `verified` (structville.com derivation, tge.readthedocs.io page excerpts). The
+  transverse-shear term of variant A is derived in the case module from Mindlin/Reissner plate
+  theory (Q_r = -q r / 2 from equilibrium, rotation identical to the Kirchhoff slope) and is
+  `unverified` against a book. The book's own shear correction was not consulted.
+- **Why a/h = 10 with a shear correction:** Tessera meshes with one global size, and 3
+  quadratic elements through the thickness need size h/3, so the node count grows as
+  (a/h)^2: about 20 k nodes (~9 s) at a/h = 10, 45 k (~33 s) at 15, 78 k (~77 s) at 20.
+  a/h >= 40 does not fit the CI budget. At a/h = 10 a Kirchhoff-only reference would put the
+  solid at +3.5 %, so the 2 % gate also checks that transverse shear is present. The fully
+  fixed cylindrical face and the neglected sigma_z make the solid converge to about -0.3 % of
+  the Mindlin value (the same O((h/a)^2) offset was seen at a/h = 20).
 - **Licence:** formula only.
 - **Equivalents:** none recorded.
-- **Features:** pressure, edge/ring support (variant B), thin-body meshing (at least 3
-  quadratic elements through the thickness).
-- **Tolerance:** 2 % (A), 3 % (B, the ring-support idealisation is ambiguous in 3D).
+- **Features:** pressure, clamped curved face, rollers on cut planes, thin-body meshing (at
+  least 3 quadratic elements through the thickness); edge/ring support (variant B, missing).
+- **Tolerance:** 2 % (A, approved); 3 % (B, the ring-support idealisation is ambiguous in 3D).
+- **Measured, variant A** (CalculiX 2.21; the gate mesh is h/3 = 0.667 mm, 3 elements through
+  the thickness; the case runs the sweep 2 / 1 / 0.667 mm, about 12 s in total):
+
+  | size [mm] | nodes | w0 (mid-surface) | runtime |
+  |---|---|---|---|
+  | 2.0 | 1 597 | -1.89 % | ~0.3 s |
+  | 1.0 | 6 771 | -0.93 % | ~2 s |
+  | 0.667 | 20 193 | -0.65 % | ~9 s |
+  | 0.5 | ~40 k | -0.57 % | ~31 s |
+  | 0.4 | ~75 k | -0.52 % | ~98 s |
+
+  The last two rows are from the same problem scaled to a = 10, h = 1. Convergence is from
+  below and roughly first order in the element size (stress singularities at the corners of
+  the clamped face).
 
 ### TS-09 Torsion of a circular and a square bar
 
