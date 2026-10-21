@@ -1,0 +1,5 @@
+# Approved by the maintainer for TS-05 (simply supported beam, line supports per ADR-006).
+description = "Half of a simply supported steel beam L = 200, b = 10, h = 10 mm (L/h = 20), steel-generic, uniform pressure 0.5 MPa on the top face (q = 5 N/mm), pinned line support (xyz) on the bottom edge of the end x = 0, roller line support (z) on the bottom edge of the end x = L, symmetry roller on the cut plane y = 0, C3D10 with 4 elements through the depth; midspan deflection of the centroid node x = L/2, y = 0, z = h/2"
+source = "Timoshenko beam with Cowper's kappa = 10(1+nu)/(12+11nu): w = 5 q L^4/(384 E I) + q L^2/(8 kappa G A). Bending part: Timoshenko & Gere, Mechanics of Materials, beam deflection table (location unverified); shear part derived in the case module from V = q (L/2 - x) (unverified against a book); kappa: Cowper, J. Appl. Mech. 33 (1966) 335-340"
+reference_midspan_deflection_mm = 0.5988809523809524
+rel_tolerance = 0.02
