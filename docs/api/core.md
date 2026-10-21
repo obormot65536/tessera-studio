@@ -8,6 +8,7 @@ from pathlib import Path
 
 from tessera.core import (
     describe_faces,
+    edit,
     is_container_name,
     load_project,
     new_project,
@@ -16,8 +17,9 @@ from tessera.core import (
 )
 ```
 
-Those six names are the whole public surface (`tessera.core.__all__`). Everything else in the
-package is internal.
+Those seven names are the whole public surface (`tessera.core.__all__`). `edit` is a module
+with the functions that change a project (see below). Everything else in the package is
+internal.
 
 Units are mm, N, MPa, t and s throughout (ADR-002). Lengths are mm, forces N, pressures and
 stresses MPa, moments N·mm, accelerations mm/s², and density t/mm³.
@@ -165,6 +167,198 @@ Raises:
   holds the solver output.
 
 Returns a `StudyResult`.
+
+### `tessera.core.edit`
+
+```python
+from tessera.core import edit
+```
+
+Functions that change a project in memory: parts, materials, supports, loads and study
+settings. They do not read or write files, except that `add_part` reads the geometry file.
+Call `save_project` afterwards to keep the change. The command line `tessera part`, `support`,
+`load`, `study` and `remove` commands are thin wrappers over these functions.
+
+`Vec3` in the signatures below means `tuple[float, float, float]`.
+
+Common rules:
+
+- **Ids.** Parts, connections, supports and loads share one set of ids, so an id is used once in
+  the whole project. An empty id, or an id already in use, is refused. If an id argument is
+  `None`, a new one is made: `support-1`, `support-2`, and so on for supports, `load-1` and so
+  on for loads.
+- **Faces.** Face numbers are checked against the part's real geometry (see `describe_faces`).
+  A face number the part does not have is refused, and so is an empty list or a face listed
+  twice.
+- **Numbers.** Forces, pressures, moments and gravity must be finite (no `nan` or infinity).
+  A zero force is accepted.
+- **Refused changes.** A refused change leaves the project unchanged. The functions that build
+  a new item or change a setting apply the change to a copy first, check the whole project,
+  and only then change `project`. The other functions run all their checks before they touch
+  `project`.
+- **Geometry.** The functions that look at a part's faces read its geometry file. If the file
+  is missing, `FileNotFoundError` is raised, and the message names the part.
+
+#### `material_ids`
+
+```python
+def material_ids() -> list[str]
+```
+
+The ids of the built-in materials, sorted, for `material_id`. Currently `aluminium-6061-t6` and
+`steel-generic`. It raises nothing.
+
+#### `add_part`
+
+```python
+def add_part(
+    project: Project,
+    geometry_path: Path,
+    *,
+    part_id: str | None = None,
+    name: str | None = None,
+    material_id: str | None = None,
+) -> PartInstance
+```
+
+Adds a STEP or STL file as a new part and returns it.
+
+- `part_id` defaults to the file name, with characters other than letters, digits, `_` and `-`
+  replaced by `-`. If that id is taken, `-2`, `-3`, ... is added until it is free.
+- `name` defaults to the id. `material_id` is optional; if given it must be a built-in id.
+- The file is read once, so a file Tessera cannot use is refused at once.
+- The geometry path is stored as an absolute path in the project. `save_project` writes it
+  relative to the JSON file.
+
+Raises:
+
+- `FileNotFoundError`: the geometry file does not exist.
+- `InputError`: the file is not a STEP or STL file (by extension); the material is unknown; the
+  id is empty or already used; the geometry cannot be read (for example, it is not a single
+  closed STL solid); or the project is invalid after the change.
+
+#### `set_material`
+
+```python
+def set_material(project: Project, part_id: str, material_id: str) -> None
+```
+
+Sets the material of a part.
+
+Raises:
+
+- `InputError`: no part has `part_id`; the material is unknown.
+- `FileNotFoundError`: the part's geometry file does not exist.
+
+#### `add_support`
+
+```python
+def add_support(
+    project: Project,
+    part_id: str,
+    faces: Iterable[int],
+    *,
+    dofs: tuple[int, ...] = (1, 2, 3),
+    support_id: str | None = None,
+) -> Support
+```
+
+Holds the listed faces. `dofs` lists the held directions: 1 = x, 2 = y, 3 = z. The default holds
+all three (a fixed support). The directions are stored in the order given; the command line
+sorts them.
+
+Raises `InputError` when:
+
+- the id is empty or used, or `faces` is empty, has a face the part does not have, or lists a
+  face twice;
+- `dofs` is empty, has a value other than 1, 2 or 3, or lists a direction twice.
+
+#### `add_force_load`
+
+```python
+def add_force_load(
+    project: Project,
+    part_id: str,
+    faces: Iterable[int],
+    force: Vec3,
+    *,
+    load_id: str | None = None,
+) -> ForceLoad
+```
+
+A total force in N (`FX, FY, FZ`), spread evenly over the faces' area.
+
+Raises `InputError` for an empty or used id, a bad face list (see the common rules) or a
+non-finite component.
+
+#### `add_pressure_load`
+
+```python
+def add_pressure_load(
+    project: Project,
+    part_id: str,
+    faces: Iterable[int],
+    pressure: float,
+    *,
+    load_id: str | None = None,
+) -> PressureLoad
+```
+
+A pressure in MPa, normal to the faces. Positive pushes into the part.
+
+Raises `InputError` for an empty or used id, a bad face list, or a non-finite pressure.
+
+#### `add_moment_load`
+
+```python
+def add_moment_load(
+    project: Project,
+    part_id: str,
+    faces: Iterable[int],
+    moment: Vec3,
+    *,
+    load_id: str | None = None,
+) -> MomentLoad
+```
+
+A moment in N·mm (`MX, MY, MZ`) about the faces' area centroid.
+
+Raises `InputError` for an empty or used id, a bad face list, or a non-finite component.
+
+#### `set_gravity`
+
+```python
+def set_gravity(project: Project, acceleration: Vec3 | None) -> None
+```
+
+Gravity in mm/s² for every part, for example `(0, 0, -9810)`. `None` turns gravity off.
+It does not check the material's density; `solve` does that.
+
+Raises `InputError` for a non-finite component or an invalid project.
+
+#### `set_mesh_size`
+
+```python
+def set_mesh_size(project: Project, size: float | None) -> None
+```
+
+Target element size in mm. `None` lets the mesher choose.
+
+Raises `InputError` when `size` is not greater than 0. This includes `nan`.
+
+#### `remove`
+
+```python
+def remove(project: Project, item_id: str) -> str
+```
+
+Removes the support, load or part with this id, and returns which kind it was: `"support"`,
+`"load"` or `"part"`. Supports and loads are looked at first.
+
+A part can be removed only if no support, load or connection uses it. Otherwise the
+`InputError` lists the items that still use it, and nothing is removed.
+
+Raises `InputError` when nothing has this id, or when the part is still used.
 
 ## Model types
 
