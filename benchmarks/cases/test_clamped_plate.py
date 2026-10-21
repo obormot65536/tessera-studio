@@ -12,8 +12,8 @@ Modelled as a quarter disc (x, y >= 0) with symmetry rollers u_x = 0 on the x = 
 u_y = 0 on y = 0. The problem is axisymmetric, so both rollers are exact; the clamped edge
 removes all rigid-body motion.
 
-Variant B (simply supported, a ring support u_z = 0 on the bottom outer edge) needs line/edge
-supports, which Tessera does not have yet; it is not part of this case.
+Variant B (simply supported: a ring line support u_z = 0 on the bottom outer edge, ADR-006) is
+``test_simply_supported_plate.py``; it is not part of this case.
 
 Measured quantity
 -----------------
