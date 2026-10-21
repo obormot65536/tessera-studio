@@ -72,7 +72,7 @@ primary source.
 | TS-08 | v0.1 | Circular plate, uniform pressure, clamped and simply supported | passing (A and B) |
 | TS-09 | v0.1 | Torsion of circular and square bars (Saint-Venant) | passing |
 | TS-10 | v0.1 | Thin ring under diametral compression (curved beam) | planned |
-| TS-11 | v0.1 | NAFEMS LE1 elliptic membrane | planned |
+| TS-11 | v0.1 | NAFEMS LE1 elliptic membrane | awaiting reference |
 | TS-12 | v0.1 | NAFEMS LE10 thick plate under pressure (3D) | planned |
 | TO-01 | v0.5 | Orthotropic patch tests: 3 axial + 3 shear | planned |
 | TO-02 | v0.5 | Off-axis (rotated orientation) tension | planned |
@@ -100,7 +100,7 @@ primary source.
 | TT-04 | v3 | Steady radial conduction and thermal stress in a thick cylinder | planned |
 | TF-01 | v4 | Laminar pipe flow (Hagen-Poiseuille) | planned |
 
-Count: v0.1 12 (9 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
+Count: v0.1 12 (9 passing, 1 awaiting reference), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
 
 ---
 
@@ -373,11 +373,14 @@ Count: v0.1 12 (9 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
 - **Features:** rollers, point/small-face force, curved-beam bending.
 - **Tolerance:** 3 % (curvature and shear corrections at R/h = 10 are about 1 %).
 
-### TS-11 NAFEMS LE1, elliptic membrane
+### TS-11 NAFEMS LE1, elliptic membrane (awaiting reference)
 
 - **Problem:** quarter plate between an inner ellipse (semi-axes 2 x 1 m) and an outer ellipse
   (3.25 x 2.75 m), thickness 0.1 m. Outward pressure 10 MPa on the outer edge; E = 210 GPa,
   nu = 0.3. Symmetry on both axes. In Tessera units: mm, with the sizes scaled.
+  Case: `benchmarks/cases/test_nafems_le1.py` (lengths x 1000, E = 210 000 MPa, 10 MPa
+  unchanged; half the thickness with a mid-plane roller u_z = 0, so D at mid-thickness is a
+  geometry vertex), reference file `nafems_le1.toml` (proposed, not yet approved).
 - **Quantity:** sigma_yy at D = (2, 0), the inner-ellipse end on the x axis. Target
   **92.7 MPa** (`verified`: COMSOL, Cast3M and Abaqus benchmark pages, which say the value is
   analytical). The outer-ellipse semi-axes are `unverified`: they match the wall widths 1.25 /
@@ -390,6 +393,15 @@ Count: v0.1 12 (9 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
 - **Features:** pressure on a curved edge face, rollers, plane-stress-like thin solid (mesh at
   least 2 elements through the thickness), local refinement at D.
 - **Tolerance:** 2 % (published fine-mesh quadratic results: Abaqus CPS8 92.81 MPa, +0.12 %).
+- **Measured** (CalculiX 2.21, global mesh size; Tessera has no local refinement yet): the
+  mid-thickness value converges from below to about 92.8 MPa (+0.1 %). Gate mesh 50 mm.
+
+  | size [mm] | nodes | sigma_yy(D) vs 92.7 | runtime |
+  |---|---|---|---|
+  | 100 | 9 231 | -0.76 % | ~2.4 s |
+  | 70.71 | 17 247 | -0.24 % | ~5 s |
+  | 50 | 33 931 | -0.06 % | ~11 s |
+  | 25 | 174 389 | +0.09 % | ~139 s (not in the sweep) |
 
 ### TS-12 NAFEMS LE10, thick plate under pressure (true 3D)
 
