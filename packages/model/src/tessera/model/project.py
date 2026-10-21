@@ -12,9 +12,9 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag, model_validator
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 """2: Support.dofs (directional supports). 3: PressureLoad, Study.gravity, load ``kind``.
-Older files load unchanged."""
+4: MomentLoad. Older files load unchanged."""
 
 Vec3 = tuple[float, float, float]
 
@@ -125,6 +125,20 @@ class PressureLoad(_Model):
     pressure: float
 
 
+class MomentLoad(_Model):
+    """Moment in N mm about the area centroid of the faces, e.g. a torque on a shaft end.
+
+    It is spread like a distributing coupling: nodal forces proportional to each node's area
+    share times its distance from the centroid, statically equivalent to the moment, with zero
+    net force and no added stiffness.
+    """
+
+    kind: Literal["moment"] = "moment"
+    id: str
+    faces: FaceSet
+    moment: Vec3
+
+
 def _load_kind(value: object) -> str:
     # Schema-2 files have force loads without a ``kind``.
     if isinstance(value, dict):
@@ -133,7 +147,9 @@ def _load_kind(value: object) -> str:
 
 
 Load = Annotated[
-    Annotated[ForceLoad, Tag("force")] | Annotated[PressureLoad, Tag("pressure")],
+    Annotated[ForceLoad, Tag("force")]
+    | Annotated[PressureLoad, Tag("pressure")]
+    | Annotated[MomentLoad, Tag("moment")],
     Discriminator(_load_kind),
 ]
 

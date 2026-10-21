@@ -201,3 +201,19 @@ def test_gravity_needs_a_material_density(
     project.study.gravity = (0.0, 0.0, -9810.0)
     with pytest.raises(InputError, match="no density"):
         solve(project, adapter=FakeSolver())
+
+
+def test_moment_load_twists_the_tip_face_without_a_net_force(bracket_step: Path) -> None:
+    from tessera.model import MomentLoad
+
+    root, tip = _root_and_tip(bracket_step)
+    project = _project(bracket_step, root, tip)
+    project.study.loads = [
+        MomentLoad(id="twist", faces=FaceSet(part_id="b", faces=(tip,)), moment=(2e4, 0.0, 0.0))
+    ]
+    job = _job(project)
+    (twist,) = job.loads
+    np.testing.assert_allclose(twist.forces.sum(axis=0), 0.0, atol=1e-8)
+    # Tip face x = 60, 0 <= y <= 20, 0 <= z <= 5: centroid (60, 10, 2.5).
+    lever = job.mesh.nodes[twist.nodes] - [60.0, 10.0, 2.5]
+    np.testing.assert_allclose(np.cross(lever, twist.forces).sum(axis=0), [2e4, 0, 0], atol=1e-6)

@@ -53,6 +53,8 @@ def save_project(project: Project, path: Path) -> None:
         if not part.geometry.is_file():
             raise FileNotFoundError(f"geometry of part {part.id!r} not found: {part.geometry}")
     data = project.model_dump(mode="json")
+    # The file is written in this version's schema, whatever version it was read from.
+    data["schema_version"] = SCHEMA_VERSION
     stored_parts = data["assembly"]["parts"]
     if is_container_name(path):
         _replace(path, lambda tmp: _write_container(project, data, tmp))

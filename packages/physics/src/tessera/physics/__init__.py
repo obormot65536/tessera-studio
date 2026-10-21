@@ -2,6 +2,7 @@
 
 from tessera.physics.loads import (
     body_force_load,
+    moment_face_load,
     orient_outward,
     pressure_face_load,
     tet10_volume_weights,
@@ -14,6 +15,7 @@ from tessera.physics.static import build_static_job
 __all__ = [
     "body_force_load",
     "build_static_job",
+    "moment_face_load",
     "orient_outward",
     "pressure_face_load",
     "tet10_volume_weights",

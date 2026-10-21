@@ -46,3 +46,11 @@ def test_newer_schema_with_unknown_fields_reports_the_schema(tmp_path: Path) -> 
     path.write_text('{"schema_version": 999, "name": "x", "hologram": true}', encoding="utf-8")
     with pytest.raises(ValueError, match="schema 999"):
         load_project(path)
+
+
+def test_saving_an_older_project_writes_the_current_schema(tmp_path: Path) -> None:
+    old = tmp_path / "old.tessera.json"
+    old.write_text('{"schema_version": 2, "name": "old"}', encoding="utf-8")
+    new = tmp_path / "new.tessera.json"
+    save_project(load_project(old), new)
+    assert f'"schema_version": {SCHEMA_VERSION}' in new.read_text(encoding="utf-8")
