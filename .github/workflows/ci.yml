@@ -26,13 +26,13 @@ jobs:
       - run: uv run lint-imports
       - run: uv run pytest -m "not solver"
 
-  # macOS runners are often unavailable, so the macOS job neither gates the solver tier nor,
-  # by default, fails the run. Label a PR "macos" when it touches macOS-specific behaviour:
-  # then a failed or missing macOS run fails the workflow.
+  # macOS runners are scarce and slow to start, so the macOS job runs only on PRs labelled
+  # "macos" (changes to macOS-specific behaviour: paths, packaging, native libraries). There it
+  # must pass. It never gates the solver tier.
   fast-macos:
     name: Fast tier (macos-latest)
+    if: contains(github.event.pull_request.labels.*.name, 'macos')
     runs-on: macos-latest
-    continue-on-error: ${{ !contains(github.event.pull_request.labels.*.name, 'macos') }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
