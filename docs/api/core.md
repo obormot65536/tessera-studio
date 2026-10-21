@@ -225,6 +225,7 @@ exception is a bug.
 ```python
 class SolverAdapter(Protocol):
     name: str
+
     def capabilities(self) -> frozenset[AnalysisKind]: ...
     def run(self, job: SolveJob, workdir: Path) -> SolveResult: ...
 ```
