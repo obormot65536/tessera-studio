@@ -1,5 +1,6 @@
 """``tessera`` command-line entry point. Thin layer over ``tessera.core``."""
 
+import re
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from importlib.metadata import version
@@ -85,7 +86,8 @@ def info(path: Path) -> None:
         if s.edges is not None:
             where = f"edges {_edges(s.edges.edges)}"
         else:
-            where = f"faces {_faces(s.faces.faces)}" if s.faces else ""
+            assert s.faces is not None  # a support holds faces or edges
+            where = f"faces {_faces(s.faces.faces)}"
         typer.echo(f"  support {s.id}: {s.part_id} {where}, {held}")
     for load in study.loads:
         where = f"{load.faces.part_id} faces {_faces(load.faces.faces)}"
@@ -172,11 +174,14 @@ support_app = typer.Typer(help="Hold faces or edges in place.", no_args_is_help=
 app.add_typer(support_app, name="support")
 
 
+_EDGE = re.compile(r"\s*([0-9]+)\s*-\s*([0-9]+)\s*")
+
+
 def _edge(text: str) -> tuple[int, int]:
-    a, sep, b = text.partition("-")
-    if not (sep and a.strip().isdigit() and b.strip().isdigit()):
+    match = _EDGE.fullmatch(text)
+    if match is None:
         raise InputError(f"--edge takes two face numbers like 3-5; got {text!r}")
-    return int(a), int(b)
+    return int(match[1]), int(match[2])
 
 
 _SUPPORT_FACES = typer.Argument(None, help="Face numbers, see `tessera faces`; or use --edge.")
@@ -328,6 +333,9 @@ def edges(
             if face not in known:
                 raise InputError(f"part {part!r} has faces {min(known)} to {max(known)}")
             found = [e for e in found if face in e.faces]
+    if not found:
+        where = f"face {face} of part {part!r}" if face is not None else f"part {part!r}"
+        typer.echo(f"{where} has no edges")
     for e in found:
         pair = f"{e.faces[0]}-{e.faces[1]}"
         point = "({:.2f}, {:.2f}, {:.2f})".format(*e.point)

@@ -1,5 +1,6 @@
 """describe_edges: where two faces meet, for STEP and STL alike (ADR-006)."""
 
+import math
 from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
@@ -9,7 +10,7 @@ import pytest
 
 import tessera.geometry as geometry
 from tessera.geometry import describe_edges, describe_faces
-from tessera.geometry.edges import chains
+from tessera.geometry.edges import Chain, chains, ordered_ends
 from tessera.model import EdgeInfo, FaceInfo
 
 
@@ -31,8 +32,30 @@ def _box() -> object:
     return gmsh.model.occ.addBox(0, 0, 0, 100, 10, 20)
 
 
-def _by_centroid(faces: list[FaceInfo]) -> dict[tuple[float, float, float], int]:
-    return {tuple(round(c, 6) for c in f.centroid): f.index for f in faces}  # type: ignore[misc]
+def _slotted_rod() -> object:
+    """A rod with a slot cut across it: the wall meets each slot side along two lines, and
+    the slot floor and roof along two arcs."""
+    gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", 24)
+    rod = gmsh.model.occ.addCylinder(0, 0, 0, 0, 0, 30, 5)
+    slot = gmsh.model.occ.addBox(-10, -1, 10, 20, 2, 10)
+    return gmsh.model.occ.cut([(3, rod)], [(3, slot)])
+
+
+def _stl_to_step_faces(stl: Path, step: Path) -> dict[int, int]:
+    """Face numbers differ between the formats; match each STL face to the STEP face with
+    the nearest centroid (faceting moves curved faces' centroids a little)."""
+    step_faces = describe_faces(step)
+    mapping = {}
+    for f in describe_faces(stl):
+        nearest = min(step_faces, key=lambda g: math.dist(g.centroid, f.centroid))
+        mapping[f.index] = nearest.index
+    assert sorted(mapping.values()) == [f.index for f in step_faces], "one-to-one"
+    return mapping
+
+
+def _in_step_numbers(e: EdgeInfo, faces: dict[int, int]) -> tuple[int, int]:
+    a, b = sorted(faces[f] for f in e.faces)
+    return a, b
 
 
 def test_a_step_box_has_twelve_straight_edges(tmp_path: Path) -> None:
@@ -76,20 +99,15 @@ def test_a_step_cylinder_has_two_closed_circles_and_no_seam(tmp_path: Path) -> N
 def test_an_stl_box_has_the_edges_of_the_step_box(tmp_path: Path) -> None:
     step = _write(tmp_path / "box.step", _box)
     stl = _write(tmp_path / "box.stl", _box, stl=True)
-    # Face numbers differ between the formats; match faces by centroid.
-    step_face = _by_centroid(describe_faces(step))
-    stl_to_step = {i: step_face[c] for c, i in _by_centroid(describe_faces(stl)).items()}
-
-    def key(e: EdgeInfo, faces: dict[int, int]) -> tuple[object, ...]:
-        pair = tuple(sorted(faces.get(f, f) for f in e.faces))
-        return pair, e.kind, e.curves, round(e.length, 6), e.start, e.end
-
-    from_stl = sorted(key(e, stl_to_step) for e in describe_edges(stl))
-    from_step = sorted(key(e, {}) for e in describe_edges(step))
-    assert len(from_stl) == 12
-    assert [k[:4] for k in from_stl] == [k[:4] for k in from_step]
-    for a, b in zip(from_stl, from_step, strict=True):
-        assert a[4] == pytest.approx(b[4]) and a[5] == pytest.approx(b[5])
+    stl_to_step = _stl_to_step_faces(stl, step)
+    from_stl = {_in_step_numbers(e, stl_to_step): e for e in describe_edges(stl)}
+    from_step = {e.faces: e for e in describe_edges(step)}
+    assert len(from_stl) == 12 and from_stl.keys() == from_step.keys()
+    for pair, a in from_stl.items():
+        b = from_step[pair]
+        assert (a.kind, a.curves) == (b.kind, b.curves) == ("Line", 1)
+        assert a.length == pytest.approx(b.length)
+        assert a.start == pytest.approx(b.start) and a.end == pytest.approx(b.end)
 
 
 def test_an_stl_cylinder_rim_is_a_closed_curved_edge(tmp_path: Path) -> None:
@@ -122,8 +140,37 @@ def test_faces_and_edges_are_read_together_once(
     assert reads == [path]
 
 
+def test_faces_meeting_along_two_curves_are_one_edge(tmp_path: Path) -> None:
+    step = _write(tmp_path / "slot.step", _slotted_rod)
+    stl = _write(tmp_path / "slot.stl", _slotted_rod, stl=True)
+    stl_to_step = _stl_to_step_faces(stl, step)
+    from_step = {e.faces: e for e in describe_edges(step)}
+    from_stl = {_in_step_numbers(e, stl_to_step): e for e in describe_edges(stl)}
+    assert from_stl.keys() == from_step.keys() and len(from_step) == 10
+    for pair, b in from_step.items():
+        a = from_stl[pair]
+        assert a.curves == b.curves
+        assert a.length == pytest.approx(b.length, rel=0.01)
+        if b.kind == "Line":
+            assert a.kind == "Line", pair
+    # The wall meets each slot side along two straight 10 mm lines, both held by one pair.
+    sides = [e for e in from_step.values() if e.curves == 2 and e.kind == "Line"]
+    assert len(sides) == 2
+    for e in sides:
+        assert e.length == pytest.approx(20.0) and (e.start, e.end) == (None, None)
+    # The floor and roof meet the wall along two short arcs each.
+    arcs = [e for e in from_step.values() if e.curves == 2 and e.kind == "Circle"]
+    assert len(arcs) == 2
+
+
+def test_end_order_ignores_rounding_noise() -> None:
+    a, b = (0.0, 0.0, 5.0), (1e-13, 10.0, 0.0)
+    assert ordered_ends(b, a, 10.0) == ordered_ends(a, b, 10.0) == (a, b)
+    assert ordered_ends((2.0, 0, 0), (1.0, 0, 0), 10.0) == ((1.0, 0, 0), (2.0, 0, 0))
+
+
 def test_chains_tell_open_closed_and_separate_curves() -> None:
-    assert chains([(1, 2), (2, 3)]) == [(1, 3)]
-    assert chains([(1, 2), (2, 3), (3, 1)]) == [None]
-    assert chains([(7, 7)]) == [None]
-    assert chains([(1, 2), (5, 6)]) == [(1, 2), (5, 6)]
+    assert [c.ends for c in chains([(1, 2), (2, 3)])] == [(1, 3)]
+    assert chains([(1, 2), (2, 3), (3, 1)]) == [Chain(None, [1, 2, 3])]
+    assert [c.ends for c in chains([(7, 7)])] == [None]
+    assert chains([(1, 2), (5, 6)]) == [Chain((1, 2), [1, 2]), Chain((5, 6), [5, 6])]

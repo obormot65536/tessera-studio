@@ -30,7 +30,7 @@ class EdgeInfo:
     """The two face indices, ascending."""
     kind: str
     """Curve type, e.g. "Line", "Circle" (STEP: from the CAD kernel, "Mixed" when the curves
-    differ; STL: "Line" or "Curved")."""
+    differ; STL: "Line" when every curve is straight, else "Curved")."""
     length: float
     """Total length of everything the two faces share, mm."""
     start: Vec3 | None

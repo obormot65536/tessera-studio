@@ -237,7 +237,7 @@ tessera support add beam.tessera.json beam --edge 2-5 --dofs z --id roller
 Rules:
 
 - Give face numbers or `--edge`, not both. Repeat `--edge` to hold several edges in one
-  support, for example `--edge 3-5 --edge 5-6`.
+  support, for example `--edge 3-5 --edge 4-5` (both long bottom edges of the beam).
 - The two faces must meet. `--edge 1-2` on the beam is refused, because its two end faces do
   not touch: `faces 1 and 2 of part 'beam' do not meet at an edge (list the edges with
   `tessera edges`)`.

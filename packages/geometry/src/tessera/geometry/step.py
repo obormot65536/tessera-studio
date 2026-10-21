@@ -58,11 +58,6 @@ def _outward_normal(face: int, volume: int, centroid: np.ndarray, size: float) -
     return normal
 
 
-def describe_step_faces(path: Path) -> list[FaceInfo]:
-    """List the faces of a single-solid STEP file, ordered by face index."""
-    return describe_step(path)[0]
-
-
 def describe_step(path: Path) -> tuple[list[FaceInfo], list[EdgeInfo]]:
     """Faces (by face index) and edges (by face pair) of a single-solid STEP file, read once."""
     with gmsh_model():
@@ -103,14 +98,14 @@ def _step_edges(size: float) -> list[EdgeInfo]:
         length = float(gmsh.model.occ.getMass(1, curve))
         if length > _ZERO_LENGTH * size:
             by_pair[(sides[0], sides[1])].append((curve, length))
-    return [_step_edge(pair, curves) for pair, curves in sorted(by_pair.items())]
+    return [_step_edge(pair, curves, size) for pair, curves in sorted(by_pair.items())]
 
 
 def _point(tag: int) -> tuple[float, float, float]:
     return vec3(np.asarray(gmsh.model.getValue(0, tag, []), dtype=float))
 
 
-def _step_edge(pair: tuple[int, int], curves: list[tuple[int, float]]) -> EdgeInfo:
+def _step_edge(pair: tuple[int, int], curves: list[tuple[int, float]], size: float) -> EdgeInfo:
     segments = []
     for curve, _ in curves:
         _, points = gmsh.model.getAdjacencies(1, curve)
@@ -118,8 +113,9 @@ def _step_edge(pair: tuple[int, int], curves: list[tuple[int, float]]) -> EdgeIn
         segments.append((ends[0], ends[-1]))
     connected = chains(segments)
     start = end = None
-    if len(connected) == 1 and connected[0] is not None:
-        start, end = ordered_ends(_point(connected[0][0]), _point(connected[0][1]))
+    if len(connected) == 1 and connected[0].ends is not None:
+        p, q = connected[0].ends
+        start, end = ordered_ends(_point(p), _point(q), size)
     kinds = {gmsh.model.getType(1, curve) for curve, _ in curves}
     longest = max(curves, key=lambda c: c[1])[0]
     lo, hi = gmsh.model.getParametrizationBounds(1, longest)

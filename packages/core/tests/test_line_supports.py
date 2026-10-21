@@ -214,3 +214,62 @@ def test_an_stl_part_gets_the_same_line_support(box_step: Path, tmp_path: Path) 
     held = fake.job.mesh.nodes[fake.job.mesh.node_sets["support:pin"]]
     assert np.allclose(held[:, [0, 2]], 0.0)
     assert sorted(held[:, 1])[0] == pytest.approx(0.0) and max(held[:, 1]) == pytest.approx(W)
+
+
+@pytest.fixture(scope="module")
+def slotted_rod(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Path]:
+    """A rod with a slot cut across it, as STEP and STL: the wall meets each slot side along
+    two separate lines."""
+    d = tmp_path_factory.mktemp("slot")
+    step, stl = d / "slot.step", d / "slot.stl"
+    gmsh.initialize(interruptible=False)
+    try:
+        gmsh.option.setNumber("General.Terminal", 0)
+        gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", 24)
+        rod = gmsh.model.occ.addCylinder(0, 0, 0, 0, 0, 30, 5)
+        slot = gmsh.model.occ.addBox(-10, -1, 10, 20, 2, 10)
+        gmsh.model.occ.cut([(3, rod)], [(3, slot)])
+        gmsh.model.occ.synchronize()
+        gmsh.write(str(step))
+        gmsh.model.mesh.generate(2)
+        gmsh.write(str(stl))
+    finally:
+        gmsh.finalize()
+    return step, stl
+
+
+@pytest.mark.parametrize("fmt", ["step", "stl"])
+def test_edge_nodes_cover_every_curve_two_faces_share(
+    slotted_rod: tuple[Path, Path], fmt: str
+) -> None:
+    import tessera.geometry as geometry
+    import tessera.mesh as mesh
+
+    path = slotted_rod[0] if fmt == "step" else slotted_rod[1]
+    if fmt == "step":
+        m = mesh_step(path, part_id="slot", size=2.0)
+    else:
+        m = mesh.mesh_surface(geometry.read_stl(path), part_id="slot", size=2.0)
+    edges = geometry.describe_edges(path)
+    side = next(e for e in edges if e.curves == 2 and e.kind == "Line")
+    x = m.nodes[physics.edge_nodes(m, "slot", *side.faces)]
+    # Two vertical lines at x = -/+ sqrt(24) on one slot side, from z = 10 to 20.
+    assert np.allclose(np.hypot(x[:, 0], x[:, 1]), 5.0)
+    assert np.allclose(np.abs(x[:, 1]), 1.0) and len(set(np.sign(x[:, 1]))) == 1
+    assert sorted(set(np.round(x[:, 0], 6))) == pytest.approx([-(24**0.5), 24**0.5])
+    for line in (x[x[:, 0] < 0], x[x[:, 0] > 0]):
+        assert line[:, 2].min() == pytest.approx(10.0) and line[:, 2].max() == pytest.approx(20.0)
+        assert len(line) % 2 == 1, "corners and midsides of an open line"
+
+
+def test_edge_nodes_on_a_closed_circle(slotted_rod: tuple[Path, Path]) -> None:
+    import tessera.geometry as geometry
+
+    step = slotted_rod[0]
+    m = mesh_step(step, part_id="slot", size=2.0)
+    rim = next(e for e in geometry.describe_edges(step) if e.curves == 1 and e.kind == "Circle")
+    nodes = physics.edge_nodes(m, "slot", *rim.faces)
+    x = m.nodes[nodes]
+    assert np.allclose(np.hypot(x[:, 0], x[:, 1]), 5.0, atol=1e-6)
+    assert np.allclose(x[:, 2], rim.point[2])
+    assert len(nodes) % 2 == 0 and len(nodes) >= 12, "a closed ring: as many midsides as corners"

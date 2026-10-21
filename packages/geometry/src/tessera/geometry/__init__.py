@@ -6,7 +6,7 @@ from collections import OrderedDict
 from pathlib import Path
 
 from tessera.geometry.edges import describe_surface_edges
-from tessera.geometry.step import describe_step, describe_step_faces
+from tessera.geometry.step import describe_step
 from tessera.geometry.stl import describe_surface, read_stl
 from tessera.model import EdgeInfo, FaceInfo, InputError
 
@@ -100,7 +100,6 @@ __all__ = [
     "describe_edges",
     "describe_faces",
     "describe_step",
-    "describe_step_faces",
     "describe_surface",
     "describe_surface_edges",
     "read_stl",

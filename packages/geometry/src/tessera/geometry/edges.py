@@ -2,6 +2,7 @@
 
 from collections import defaultdict
 from collections.abc import Sequence
+from typing import NamedTuple
 
 import numpy as np
 from numpy.typing import NDArray
@@ -11,14 +12,25 @@ from tessera.model import EdgeInfo, TriangleSurface
 Vec3 = tuple[float, float, float]
 _STRAIGHT_TOLERANCE = 1e-6
 """A chain is straight when no vertex is further than this fraction of its length off the line."""
+_END_ORDER_TOLERANCE = 1e-9
+"""Coordinates of two ends closer than this fraction of the part size count as equal when
+ordering the ends, so rounding noise cannot swap them between STEP and STL."""
 
 
-def chains(segments: Sequence[tuple[int, int]]) -> list[tuple[int, int] | None]:
+class Chain(NamedTuple):
+    """One connected curve made of segments."""
+
+    ends: tuple[int, int] | None
+    """The two end vertices, or ``None`` for a closed (or branching) curve."""
+    vertices: list[int]
+    """Every vertex on the curve, ascending."""
+
+
+def chains(segments: Sequence[tuple[int, int]]) -> list[Chain]:
     """Group segments (pairs of vertex ids) into connected curves.
 
-    Returns one entry per curve: its two end vertices, or ``None`` when the curve is closed
-    (or branches, which a valid solid's face boundary does not). A segment from a vertex to
-    itself is a closed curve on its own, e.g. a full circle with one vertex.
+    A valid solid's face boundary does not branch. A segment from a vertex to itself is a
+    closed curve on its own, e.g. a full circle with one vertex.
     """
     parent: dict[int, int] = {}
 
@@ -34,17 +46,27 @@ def chains(segments: Sequence[tuple[int, int]]) -> list[tuple[int, int] | None]:
         parent[root(a)] = root(b)
         degree[a] += 1
         degree[b] += 1
-    ends: dict[int, list[int]] = {}
+    members: dict[int, list[int]] = {}
     for v in sorted(parent):
-        odd = ends.setdefault(root(v), [])  # every curve gets an entry, closed ones too
-        if degree[v] % 2:
-            odd.append(v)
-    return [(e[0], e[1]) if len(e) == 2 else None for e in ends.values()]
+        members.setdefault(root(v), []).append(v)
+    found = []
+    for vertices in members.values():
+        odd = [v for v in vertices if degree[v] % 2]
+        found.append(Chain((odd[0], odd[1]) if len(odd) == 2 else None, vertices))
+    return found
 
 
-def ordered_ends(a: Vec3, b: Vec3) -> tuple[Vec3, Vec3]:
-    """The two ends in a fixed order (lexicographic), so STEP and STL list them alike."""
-    return (a, b) if a <= b else (b, a)
+def ordered_ends(a: Vec3, b: Vec3, size: float) -> tuple[Vec3, Vec3]:
+    """The two ends in a fixed order, so STEP and STL list them alike.
+
+    Ordered by x, then y, then z; coordinates within a tiny fraction of the part ``size`` of
+    each other count as equal.
+    """
+    tolerance = _END_ORDER_TOLERANCE * size
+    for p, q in zip(a, b, strict=True):
+        if abs(p - q) > tolerance:
+            return (a, b) if p < q else (b, a)
+    return a, b
 
 
 def vec3(x: NDArray[np.float64]) -> Vec3:
@@ -70,32 +92,45 @@ def describe_surface_edges(surface: TriangleSurface) -> list[EdgeInfo]:
     boundary = fa != fb
     lo, hi = np.minimum(fa, fb)[boundary], np.maximum(fa, fb)[boundary]
     segments = edges[shared[boundary]]
+    span = surface.vertices.max(axis=0) - surface.vertices.min(axis=0) if m else np.zeros(3)
+    size = float(np.linalg.norm(span))
 
     by_pair: dict[tuple[int, int], list[int]] = defaultdict(list)
     for k, (a, b) in enumerate(zip(lo.tolist(), hi.tolist(), strict=True)):
         by_pair[(a, b)].append(k)
     return [
-        _surface_edge(surface.vertices, pair, segments[ks]) for pair, ks in sorted(by_pair.items())
+        _surface_edge(surface.vertices, pair, segments[ks], size)
+        for pair, ks in sorted(by_pair.items())
     ]
 
 
+def _straight(vertices: NDArray[np.float64], chain: Chain) -> bool:
+    """Whether an open chain lies on the line between its ends."""
+    if chain.ends is None:
+        return False
+    p, q = vertices[chain.ends[0]], vertices[chain.ends[1]]
+    chord = float(np.linalg.norm(q - p))
+    off = np.linalg.norm(
+        np.cross(vertices[chain.vertices] - p, (q - p) / max(chord, 1e-300)), axis=1
+    )
+    return bool(off.max() <= _STRAIGHT_TOLERANCE * chord)
+
+
 def _surface_edge(
-    vertices: NDArray[np.float64], pair: tuple[int, int], segments: NDArray[np.int64]
+    vertices: NDArray[np.float64],
+    pair: tuple[int, int],
+    segments: NDArray[np.int64],
+    size: float,
 ) -> EdgeInfo:
     a, b = vertices[segments[:, 0]], vertices[segments[:, 1]]
     lengths = np.linalg.norm(b - a, axis=1)
     length = float(lengths.sum())
     curves = chains([(int(s), int(t)) for s, t in segments])
     start = end = None
-    kind = "Curved"
-    if len(curves) == 1 and curves[0] is not None:
-        p, q = vertices[curves[0][0]], vertices[curves[0][1]]
-        start, end = ordered_ends(vec3(p), vec3(q))
-        used = vertices[np.unique(segments)]
-        axis = (q - p) / max(float(np.linalg.norm(q - p)), 1e-300)
-        off = np.linalg.norm(np.cross(used - p, axis), axis=1)
-        if off.max() <= _STRAIGHT_TOLERANCE * length:
-            kind = "Line"
+    if len(curves) == 1 and curves[0].ends is not None:
+        p, q = curves[0].ends
+        start, end = ordered_ends(vec3(vertices[p]), vec3(vertices[q]), size)
+    kind = "Line" if all(_straight(vertices, c) for c in curves) else "Curved"
     # A point on the edge: the length-weighted centroid moved onto the nearest segment, which
     # is the middle of a straight edge.
     centroid = (lengths[:, None] * 0.5 * (a + b)).sum(axis=0) / max(length, 1e-300)

@@ -4,7 +4,7 @@
 
 - Line supports (ADR-006): hold a part along an edge, named by the two faces that meet there,
   so it can still turn about the line (a pinned or roller line, e.g. a simply supported beam).
-  CLI: `tessera support add PATH PART --edge 3-5 [--edge 5-6] --dofs z`, and `tessera edges
+  CLI: `tessera support add PATH PART --edge 3-5 [--edge 4-5] --dofs z`, and `tessera edges
   PATH PART [--face N]` lists a part's edges; `tessera info` shows them. API:
   `edit.add_edge_support`, `describe_edges`, `EdgeSet`, `EdgeInfo`, `Support.edges` and
   `Support.part_id`. Peak stress right at a line support depends on the mesh.

@@ -114,11 +114,11 @@ support when reporting peak stress.
 
 ## Action items
 
-1. [ ] `model`: `EdgeSet`, `EdgeInfo`, `Support.faces | edges` (exactly one), `Support.part_id`,
+1. [x] `model`: `EdgeSet`, `EdgeInfo`, `Support.faces | edges` (exactly one), `Support.part_id`,
        `SCHEMA_VERSION = 5`; schema-4 load test.
-2. [ ] `geometry`: `describe_edges` for STEP and STL, cached with faces.
-3. [ ] `physics`: edge node sets from shared tri6 element edges.
-4. [ ] `core`: `edit.add_edge_support`, `describe_edges`.
-5. [ ] `cli`: `tessera edges`, `support add --edge A-B`, `info` output.
+2. [x] `geometry`: `describe_edges` for STEP and STL, cached with faces.
+3. [x] `physics`: edge node sets from shared tri6 element edges.
+4. [x] `core`: `edit.add_edge_support`, `describe_edges`.
+5. [x] `cli`: `tessera edges`, `support add --edge A-B`, `info` output.
 6. [ ] Benchmarks: TS-05 (supports on the bottom edges of the end faces) and TS-08B.
-7. [ ] Docs: API reference, user guide, catalog "Features" lines.
+7. [x] Docs: API reference, user guide, catalog "Features" lines.
