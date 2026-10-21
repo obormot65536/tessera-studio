@@ -86,9 +86,8 @@ therefore lands in v0.1, without the mesh/results caches:
   JSON file's folder. An unzipped `.tessera` is therefore a valid editable project
   (`project.json` + `geometry/`).
 - Loading reads the file by content (a zip is a container, anything else is JSON), copies the
-  geometry into a private temporary folder that lives until the process exits, each file under
-  an index-prefixed name (`0-<entry>`) so entries cannot collide on case-insensitive file
-  systems or name Windows devices.
+  geometry into a private temporary folder that lives until the process exits, under file names
+  Tessera makes up (so entries cannot collide on case-insensitive file systems or name devices).
   Only `geometry/<name>` entries with a plain name are read, each size-capped before
   decompression.
 - Only STEP and STL files are copied into a container, so a crafted JSON project cannot get a

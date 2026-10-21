@@ -130,3 +130,18 @@ def test_moment_load_round_trips() -> None:
     load = MomentLoad(id="t", faces=FaceSet(part_id="p1", faces=(2,)), moment=(0, 0, 5e4))
     again = Study.model_validate_json(Study(loads=[load]).model_dump_json())
     assert again.loads == [load]
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), -float("inf")])
+def test_numbers_must_be_finite(bad: float) -> None:
+    from tessera.model import ForceLoad, PressureLoad, Study
+
+    faces = FaceSet(part_id="p1", faces=(1,))
+    with pytest.raises(ValidationError):
+        ForceLoad(id="f", faces=faces, force=(0.0, bad, 0.0))
+    with pytest.raises(ValidationError):
+        PressureLoad(id="p", faces=faces, pressure=bad)
+    with pytest.raises(ValidationError):
+        Study(gravity=(0.0, 0.0, bad))
+    with pytest.raises(ValidationError):
+        Study(mesh_size=bad)

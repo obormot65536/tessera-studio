@@ -78,7 +78,7 @@ def info(path: Path) -> None:
     typer.echo(f"{project.name}: {len(asm.parts)} parts, {len(asm.connections)} connections")
     for part in asm.parts:
         material = part.material_id or "no material"
-        typer.echo(f"  part {part.id}: {part.geometry.name}, {material}")
+        typer.echo(f"  part {part.id}: {material}")
     for s in study.supports:
         held = "fixed" if s.dofs == (1, 2, 3) else "holds " + "".join(_AXES[d - 1] for d in s.dofs)
         typer.echo(f"  support {s.id}: {s.faces.part_id} faces {_faces(s.faces.faces)}, {held}")
@@ -252,6 +252,10 @@ def study(
             raise InputError("use either --gravity or --no-gravity")
         if mesh_size is not None and auto_mesh:
             raise InputError("use either --mesh-size or --auto-mesh")
+        if gravity is None and not no_gravity and mesh_size is None and not auto_mesh:
+            raise InputError(
+                "nothing to change: give --gravity, --no-gravity, --mesh-size or --auto-mesh"
+            )
         if gravity is not None or no_gravity:
             edit.set_gravity(p, None if no_gravity else gravity)
         if mesh_size is not None or auto_mesh:

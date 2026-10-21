@@ -216,12 +216,11 @@ def _read_container(path: Path) -> Project:
         if sum(info.file_size for info in infos.values()) > MAX_TOTAL_BYTES:
             raise InputError(f"{path}: the geometry is too large in total")
 
-        # The index prefix keeps names unique on case-insensitive file systems and keeps them
-        # off Windows device names ("con.step"); the rest keeps them readable in messages.
+        # Files get names Tessera makes up, so entry names cannot collide or address devices.
         folder = _extraction_folder()
         extracted: dict[str, Path] = {}
         for i, (name, info) in enumerate(infos.items()):
-            target = folder / f"{i}-{PurePosixPath(name).name}"
+            target = folder / f"{i}{PurePosixPath(name).suffix.lower()}"
             with zf.open(info) as src, target.open("wb") as dst:
                 shutil.copyfileobj(src, dst)
             extracted[name] = target

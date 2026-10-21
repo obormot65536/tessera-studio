@@ -1,26 +1,30 @@
 """Change a project: parts, materials, supports, loads and study settings.
 
 Every function checks its input against the project (part ids, face numbers of the actual
-geometry, material ids, unique ids) and raises ``InputError`` before changing anything, so a
-refused change leaves the project as it was. Clients build their editing commands on these.
+geometry, material ids, ids unique across the project, finite numbers) and raises
+``InputError`` before changing anything, so a refused change leaves the project as it was.
+Clients build their editing commands on these.
 """
 
 import re
 from collections.abc import Callable, Iterable
 from pathlib import Path
+from typing import Any
+
+from pydantic import BaseModel, ValidationError
 
 import tessera.geometry as geometry
 import tessera.materials as materials
-from tessera.core.study import _part, _validated
+from tessera.core._checks import part_named, validated
 from tessera.model import (
     FaceSet,
     ForceLoad,
     InputError,
-    Load,
     MomentLoad,
     PartInstance,
     PressureLoad,
     Project,
+    Study,
     Support,
 )
 
@@ -38,8 +42,10 @@ def _check_material(material_id: str) -> None:
         raise InputError(f"unknown material {material_id!r}; known: {known}")
 
 
-def _study_ids(project: Project) -> set[str]:
-    return {item.id for item in [*project.study.supports, *project.study.loads]}
+def _all_ids(project: Project) -> set[str]:
+    """Ids of parts, connections, supports and loads: one namespace, so ``remove`` is clear."""
+    asm, study = project.assembly, project.study
+    return {item.id for item in [*asm.parts, *asm.connections, *study.supports, *study.loads]}
 
 
 def _new_id(prefix: str, taken: set[str], start: int = 1) -> str:
@@ -59,16 +65,23 @@ def _checked_id(item_id: str | None, prefix: str, taken: set[str]) -> str:
     return item_id
 
 
+def _build[M: BaseModel](model: type[M], **fields: Any) -> M:
+    try:
+        return model(**fields)
+    except ValidationError as exc:
+        raise InputError(f"invalid {model.__name__}:\n{exc}") from None
+
+
 def _face_set(project: Project, part_id: str, faces: Iterable[int]) -> FaceSet:
     chosen = tuple(faces)
     if not chosen:
         raise InputError("choose at least one face")
-    count = len(geometry.describe_faces(_part(project, part_id).geometry))
-    bad = [f for f in chosen if not 1 <= f <= count]
+    known = [f.index for f in geometry.describe_faces(part_named(project, part_id).geometry)]
+    bad = [f for f in chosen if f not in known]
     if bad:
         raise InputError(
-            f"part {part_id!r} has faces 1 to {count}; there is no face {bad[0]} "
-            "(list them with `tessera faces`)"
+            f"part {part_id!r} has faces {min(known)} to {max(known)}; there is no face "
+            f"{bad[0]} (list them with `tessera faces`)"
         )
     if len(set(chosen)) != len(chosen):
         raise InputError(f"a face is listed twice: {list(chosen)}")
@@ -79,7 +92,7 @@ def _commit(project: Project, change: Callable[[Project], None]) -> None:
     """Apply ``change`` to a copy, validate it, then apply it to ``project``."""
     trial = project.model_copy(deep=True)
     change(trial)
-    _validated(trial)
+    validated(trial)
     change(project)
 
 
@@ -91,7 +104,10 @@ def add_part(
     name: str | None = None,
     material_id: str | None = None,
 ) -> PartInstance:
-    """Add a STEP or STL part. Its id defaults to the file name, made unique."""
+    """Add a STEP or STL part. Its id defaults to the file name, made unique.
+
+    The file is read once here, so a file Tessera cannot use is refused straight away.
+    """
     if not geometry_path.is_file():
         raise FileNotFoundError(f"geometry file not found: {geometry_path}")
     suffix = geometry_path.suffix.lower()
@@ -99,14 +115,19 @@ def add_part(
         raise InputError(f"{geometry_path.name!r} is not a STEP or STL file")
     if material_id is not None:
         _check_material(material_id)
-    taken = {p.id for p in project.assembly.parts}
+    taken = _all_ids(project)
     if part_id is None:
         stem = re.sub(r"[^A-Za-z0-9_-]+", "-", geometry_path.stem).strip("-") or "part"
         part_id = stem if stem not in taken else _new_id(stem, taken, start=2)
     else:
         part_id = _checked_id(part_id, "part", taken)
-    part = PartInstance(
-        id=part_id, name=name or part_id, geometry=geometry_path, material_id=material_id
+    geometry.describe_faces(geometry_path)  # raises InputError for an unusable file
+    part = _build(
+        PartInstance,
+        id=part_id,
+        name=name or part_id,
+        geometry=geometry_path.absolute(),
+        material_id=material_id,
     )
     _commit(project, lambda p: p.assembly.parts.append(part.model_copy()))
     return project.assembly.parts[-1]
@@ -114,7 +135,7 @@ def add_part(
 
 def set_material(project: Project, part_id: str, material_id: str) -> None:
     _check_material(material_id)
-    part = _part(project, part_id)
+    part = part_named(project, part_id)
     part.material_id = material_id
 
 
@@ -127,17 +148,17 @@ def add_support(
     support_id: str | None = None,
 ) -> Support:
     """Hold the faces: all directions by default, or only ``dofs`` (1 = x, 2 = y, 3 = z)."""
-    item_id = _checked_id(support_id, "support", _study_ids(project))
-    support = Support.model_validate(
-        {"id": item_id, "faces": _face_set(project, part_id, faces), "dofs": dofs}
+    item_id = _checked_id(support_id, "support", _all_ids(project))
+    support = _build(
+        Support, id=item_id, faces=_face_set(project, part_id, faces), dofs=tuple(dofs)
     )
     _commit(project, lambda p: p.study.supports.append(support.model_copy()))
     return project.study.supports[-1]
 
 
-def _add_load(project: Project, load: Load) -> Load:
+def _add_load[L: ForceLoad | PressureLoad | MomentLoad](project: Project, load: L) -> L:
     _commit(project, lambda p: p.study.loads.append(load.model_copy()))
-    return project.study.loads[-1]
+    return load
 
 
 def add_force_load(
@@ -149,9 +170,9 @@ def add_force_load(
     load_id: str | None = None,
 ) -> ForceLoad:
     """Total force in N, spread uniformly over the faces."""
-    item_id = _checked_id(load_id, "load", _study_ids(project))
-    load = ForceLoad(id=item_id, faces=_face_set(project, part_id, faces), force=force)
-    return _add_load(project, load)  # type: ignore[return-value]
+    item_id = _checked_id(load_id, "load", _all_ids(project))
+    face_set = _face_set(project, part_id, faces)
+    return _add_load(project, _build(ForceLoad, id=item_id, faces=face_set, force=force))
 
 
 def add_pressure_load(
@@ -163,9 +184,9 @@ def add_pressure_load(
     load_id: str | None = None,
 ) -> PressureLoad:
     """Pressure in MPa normal to the faces; positive pushes into the part."""
-    item_id = _checked_id(load_id, "load", _study_ids(project))
-    load = PressureLoad(id=item_id, faces=_face_set(project, part_id, faces), pressure=pressure)
-    return _add_load(project, load)  # type: ignore[return-value]
+    item_id = _checked_id(load_id, "load", _all_ids(project))
+    face_set = _face_set(project, part_id, faces)
+    return _add_load(project, _build(PressureLoad, id=item_id, faces=face_set, pressure=pressure))
 
 
 def add_moment_load(
@@ -177,21 +198,30 @@ def add_moment_load(
     load_id: str | None = None,
 ) -> MomentLoad:
     """Moment in N mm about the faces' area centroid."""
-    item_id = _checked_id(load_id, "load", _study_ids(project))
-    load = MomentLoad(id=item_id, faces=_face_set(project, part_id, faces), moment=moment)
-    return _add_load(project, load)  # type: ignore[return-value]
+    item_id = _checked_id(load_id, "load", _all_ids(project))
+    face_set = _face_set(project, part_id, faces)
+    return _add_load(project, _build(MomentLoad, id=item_id, faces=face_set, moment=moment))
 
 
 def set_gravity(project: Project, acceleration: Vec3 | None) -> None:
     """Gravity in mm/s^2 for every part, e.g. (0, 0, -9810); ``None`` turns it off."""
-    project.study.gravity = acceleration
+    gravity = _build(Study, gravity=acceleration).gravity  # checked before it touches anything
+
+    def change(p: Project) -> None:
+        p.study.gravity = gravity
+
+    _commit(project, change)
 
 
 def set_mesh_size(project: Project, size: float | None) -> None:
     """Target element size in mm; ``None`` lets the mesher choose."""
     if size is not None and not size > 0:
         raise InputError(f"the mesh size must be positive, got {size:g} mm")
-    project.study.mesh_size = size
+
+    def change(p: Project) -> None:
+        p.study.mesh_size = size
+
+    _commit(project, change)
 
 
 def remove(project: Project, item_id: str) -> str:

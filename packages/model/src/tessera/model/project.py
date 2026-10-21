@@ -20,7 +20,7 @@ Vec3 = tuple[float, float, float]
 
 
 class _Model(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=False)
+    model_config = ConfigDict(extra="forbid", frozen=False, allow_inf_nan=False)
 
 
 class Transform(_Model):

@@ -113,3 +113,47 @@ def test_removing_a_part_that_is_still_used_is_refused(project: Project) -> None
     edit.remove(project, "support-1")
     assert edit.remove(project, "box") == "part"
     assert project.assembly.parts == []
+
+
+def test_non_finite_numbers_are_refused_and_change_nothing(project: Project) -> None:
+    with pytest.raises(InputError):
+        edit.set_gravity(project, (0.0, float("nan"), 0.0))
+    with pytest.raises(InputError):
+        edit.set_mesh_size(project, float("inf"))
+    with pytest.raises(InputError):
+        edit.add_pressure_load(project, "box", [3], float("inf"))
+    with pytest.raises(InputError):
+        edit.add_force_load(project, "box", [2], (0.0, 0.0, float("-inf")))
+    assert project.study.gravity is None and project.study.mesh_size is None
+    assert project.study.loads == []
+
+
+def test_malformed_gravity_is_refused_without_changing_the_project(project: Project) -> None:
+    with pytest.raises(InputError):
+        edit.set_gravity(project, (0.0, -9810.0))  # type: ignore[arg-type]
+    assert project.study.gravity is None
+
+
+def test_ids_are_unique_across_parts_supports_and_loads(box_step: Path) -> None:
+    p = new_project("p")
+    edit.add_part(p, box_step, part_id="support-1")
+    support = edit.add_support(p, "support-1", [1])
+    assert support.id != "support-1", "generated ids skip names parts already use"
+    with pytest.raises(InputError, match="already used"):
+        edit.add_force_load(p, "support-1", [2], (1.0, 0, 0), load_id="support-1")
+    with pytest.raises(InputError, match="already used"):
+        edit.add_part(p, box_step, part_id=support.id)
+
+
+def test_parts_are_checked_and_stored_with_an_absolute_path(
+    box_step: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(box_step.parent)
+    p = new_project("p")
+    part = edit.add_part(p, Path(box_step.name))
+    assert part.geometry.is_absolute()
+    broken = tmp_path / "broken.stl"
+    broken.write_text("solid x\nendsolid x\n", encoding="utf-8")
+    with pytest.raises(InputError):
+        edit.add_part(p, broken)
+    assert len(p.assembly.parts) == 1

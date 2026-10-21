@@ -344,11 +344,3 @@ def test_total_geometry_size_is_capped(monkeypatch: pytest.MonkeyPatch, tmp_path
     monkeypatch.setattr(project_io, "MAX_TOTAL_BYTES", 1000)
     with pytest.raises(InputError, match="in total"):
         load_project(path)
-
-
-def test_opened_geometry_keeps_a_readable_name(tmp_path: Path) -> None:
-    source = tmp_path / "bracket.step"
-    source.write_bytes(b"step")
-    path = tmp_path / "a.tessera"
-    save_project(_project_with(source), path)
-    assert load_project(path).assembly.parts[0].geometry.name == "0-p1.step"

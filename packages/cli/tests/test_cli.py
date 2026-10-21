@@ -196,3 +196,21 @@ def test_editing_errors_are_one_line_and_leave_the_file_alone(
 def test_materials_lists_the_library() -> None:
     shown = _ok("materials")
     assert "steel-generic" in shown and "aluminium-6061-t6" in shown
+
+
+def test_study_without_options_is_refused(tmp_path: Path) -> None:
+    path = tmp_path / "p.tessera.json"
+    _ok("new", str(path))
+    result = runner.invoke(app, ["study", str(path)])
+    assert result.exit_code == 1
+    assert "--mesh-size" in result.output
+
+
+def test_container_refusals_leave_the_file_alone(box_step: Path, tmp_path: Path) -> None:
+    path = tmp_path / "p.tessera"
+    _ok("new", str(path))
+    _ok("part", "add", str(path), str(box_step))
+    before = path.read_bytes()
+    result = runner.invoke(app, ["support", "add", str(path), "bracket", "9"])
+    assert result.exit_code == 1
+    assert path.read_bytes() == before
