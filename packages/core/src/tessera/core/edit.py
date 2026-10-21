@@ -17,6 +17,7 @@ import tessera.geometry as geometry
 import tessera.materials as materials
 from tessera.core._checks import part_named, validated
 from tessera.model import (
+    EdgeSet,
     FaceSet,
     ForceLoad,
     InputError,
@@ -72,20 +73,49 @@ def _build[M: BaseModel](model: type[M], **fields: Any) -> M:
         raise InputError(f"invalid {model.__name__}:\n{exc}") from None
 
 
-def _face_set(project: Project, part_id: str, faces: Iterable[int]) -> FaceSet:
-    chosen = tuple(faces)
-    if not chosen:
-        raise InputError("choose at least one face")
+def _check_faces_exist(project: Project, part_id: str, faces: Iterable[int]) -> None:
     known = [f.index for f in geometry.describe_faces(part_named(project, part_id).geometry)]
-    bad = [f for f in chosen if f not in known]
+    bad = [f for f in faces if f not in known]
     if bad:
         raise InputError(
             f"part {part_id!r} has faces {min(known)} to {max(known)}; there is no face "
             f"{bad[0]} (list them with `tessera faces`)"
         )
+
+
+def _face_set(project: Project, part_id: str, faces: Iterable[int]) -> FaceSet:
+    chosen = tuple(faces)
+    if not chosen:
+        raise InputError("choose at least one face")
+    _check_faces_exist(project, part_id, chosen)
     if len(set(chosen)) != len(chosen):
         raise InputError(f"a face is listed twice: {list(chosen)}")
     return FaceSet(part_id=part_id, faces=chosen)
+
+
+def _edge_set(project: Project, part_id: str, edges: Iterable[tuple[int, int]]) -> EdgeSet:
+    chosen = [tuple(edge) for edge in edges]
+    if not chosen:
+        raise InputError("choose at least one edge")
+    pairs: list[tuple[int, int]] = []
+    for edge in chosen:
+        if len(edge) != 2 or edge[0] == edge[1]:
+            raise InputError(
+                f"an edge is named by two different faces, e.g. 3-5; got {'-'.join(map(str, edge))}"
+            )
+        pair = (min(edge), max(edge))
+        if pair in pairs:
+            raise InputError(f"edge {pair[0]}-{pair[1]} is listed twice")
+        pairs.append(pair)
+    _check_faces_exist(project, part_id, [f for pair in pairs for f in pair])
+    known = {e.faces for e in geometry.describe_edges(part_named(project, part_id).geometry)}
+    for a, b in pairs:
+        if (a, b) not in known:
+            raise InputError(
+                f"faces {a} and {b} of part {part_id!r} do not meet at an edge "
+                "(list the edges with `tessera edges`)"
+            )
+    return EdgeSet(part_id=part_id, edges=tuple(pairs))
 
 
 def _check_gravity_densities(project: Project) -> None:
@@ -170,6 +200,28 @@ def add_support(
     item_id = _checked_id(support_id, "support", _all_ids(project))
     support = _build(
         Support, id=item_id, faces=_face_set(project, part_id, faces), dofs=tuple(dofs)
+    )
+    _commit(project, lambda p: p.study.supports.append(support.model_copy()))
+    return project.study.supports[-1]
+
+
+def add_edge_support(
+    project: Project,
+    part_id: str,
+    edges: Iterable[tuple[int, int]],
+    *,
+    dofs: tuple[int, ...] = (1, 2, 3),
+    support_id: str | None = None,
+) -> Support:
+    """Hold the edges where pairs of faces meet (a line support, ADR-006).
+
+    Each edge is named by its two faces, e.g. ``(3, 5)``. All directions held makes a pinned
+    line; one direction, e.g. ``dofs=(3,)``, a roller line. The part can still rotate about
+    the line.
+    """
+    item_id = _checked_id(support_id, "support", _all_ids(project))
+    support = _build(
+        Support, id=item_id, edges=_edge_set(project, part_id, edges), dofs=tuple(dofs)
     )
     _commit(project, lambda p: p.study.supports.append(support.model_copy()))
     return project.study.supports[-1]
@@ -265,7 +317,8 @@ def remove(project: Project, item_id: str) -> str:
                 return kind
     for i, part in enumerate(project.assembly.parts):
         if part.id == item_id:
-            users = [s.id for s in [*study.supports, *study.loads] if s.faces.part_id == item_id]
+            users = [s.id for s in study.supports if s.part_id == item_id]
+            users += [load.id for load in study.loads if load.faces.part_id == item_id]
             users += [
                 c.id for c in project.assembly.connections if item_id in (c.a.part_id, c.b.part_id)
             ]
