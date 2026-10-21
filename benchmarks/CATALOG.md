@@ -69,7 +69,7 @@ primary source.
 | TS-05 | v0.1 | Simply supported beam, uniform load | planned |
 | TS-06 | v0.1 | Thick-walled cylinder, internal pressure (Lamé) | passing |
 | TS-07 | v0.1 | Thick-walled sphere, internal pressure (Lamé) | passing |
-| TS-08 | v0.1 | Circular plate, uniform pressure, clamped and simply supported | A: passing; B: planned (needs line supports) |
+| TS-08 | v0.1 | Circular plate, uniform pressure, clamped and simply supported | A: passing; B: planned |
 | TS-09 | v0.1 | Torsion of circular and square bars (Saint-Venant) | passing |
 | TS-10 | v0.1 | Thin ring under diametral compression (curved beam) | planned |
 | TS-11 | v0.1 | NAFEMS LE1 elliptic membrane | planned |
@@ -189,7 +189,8 @@ Count: v0.1 12 (8 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
   `unverified`); Roark's *Formulas for Stress and Strain*, beam table (`unverified`).
 - **Licence:** formula only.
 - **Equivalents:** none recorded.
-- **Features:** pressure load, supports on edges/lines (or narrow faces), roller dofs.
+- **Features:** pressure load, line supports on the bottom edges of the end faces (exist since
+  ADR-006: `Support.edges`, a pinned line and a roller line with `dofs`), roller dofs.
 - **Tolerance:** 2 %. Choose L/h >= 20 so that support indentation stays negligible.
 
 ### TS-06 Thick-walled cylinder under internal pressure (Lamé)
@@ -253,8 +254,8 @@ Count: v0.1 12 (8 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
     h = 2 mm (a/h = 10), q = 1 MPa; quarter disc with symmetry rollers on the two cut planes.
     Case: `benchmarks/cases/test_clamped_plate.py`, reference file
     `clamped_plate.toml` (approved).
-  - Variant B (`planned`, needs line supports): simply supported, i.e. a ring support
-    (u_z = 0 on the bottom outer edge). Tessera has no line/edge supports yet.
+  - Variant B (`planned`): simply supported, i.e. a ring support (u_z = 0 on the bottom outer
+    edge), as a line support (ADR-006).
 - **Quantity:** centre deflection. A: w0 = q a^4 / (64 D) + q a^2 / (4 kappa G h), i.e. the
   Kirchhoff value times [1 + 16 / (5 (1 - nu)) (h/a)^2] for kappa = 5/6; w0 = 0.016992857 mm
   (`computed`; Kirchhoff part 0.01625 mm, shear part +4.57 %). Measured on the mid-surface node
@@ -277,7 +278,8 @@ Count: v0.1 12 (8 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
 - **Licence:** formula only.
 - **Equivalents:** none recorded.
 - **Features:** pressure, clamped curved face, rollers on cut planes, thin-body meshing (at
-  least 3 quadratic elements through the thickness); edge/ring support (variant B, missing).
+  least 3 quadratic elements through the thickness); edge/ring support (variant B: a line support
+  on the edge between the bottom face and the rim, exists since ADR-006).
 - **Tolerance:** 2 % (A, approved); 3 % (B, the ring-support idealisation is ambiguous in 3D).
 - **Measured, variant A** (CalculiX 2.21; the gate mesh is h/3 = 0.667 mm, 3 elements through
   the thickness; the case runs the sweep 2 / 1 / 0.667 mm, about 12 s in total):

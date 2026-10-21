@@ -1,5 +1,6 @@
 """``tessera`` command-line entry point. Thin layer over ``tessera.core``."""
 
+import re
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from importlib.metadata import version
@@ -8,6 +9,7 @@ from pathlib import Path
 import typer
 
 from tessera.core import (
+    describe_edges,
     describe_faces,
     edit,
     is_container_name,
@@ -81,7 +83,12 @@ def info(path: Path) -> None:
         typer.echo(f"  part {part.id}: {material}")
     for s in study.supports:
         held = "fixed" if s.dofs == (1, 2, 3) else "holds " + "".join(_AXES[d - 1] for d in s.dofs)
-        typer.echo(f"  support {s.id}: {s.faces.part_id} faces {_faces(s.faces.faces)}, {held}")
+        if s.edges is not None:
+            where = f"edges {_edges(s.edges.edges)}"
+        else:
+            assert s.faces is not None  # a support holds faces or edges
+            where = f"faces {_faces(s.faces.faces)}"
+        typer.echo(f"  support {s.id}: {s.part_id} {where}, {held}")
     for load in study.loads:
         where = f"{load.faces.part_id} faces {_faces(load.faces.faces)}"
         if isinstance(load, ForceLoad):
@@ -99,6 +106,10 @@ def info(path: Path) -> None:
 
 def _faces(faces: tuple[int, ...]) -> str:
     return ", ".join(str(f) for f in faces)
+
+
+def _edges(edges: tuple[tuple[int, int], ...]) -> str:
+    return ", ".join(f"{a}-{b}" for a, b in edges)
 
 
 def _edit(path: Path, change: Callable[[Project], str]) -> None:
@@ -159,22 +170,47 @@ def part_material(path: Path, part: str, material: str) -> None:
 
 _FACES = typer.Argument(..., help="Face numbers, see `tessera faces`.")
 
-support_app = typer.Typer(help="Hold faces in place.", no_args_is_help=True)
+support_app = typer.Typer(help="Hold faces or edges in place.", no_args_is_help=True)
 app.add_typer(support_app, name="support")
+
+
+_EDGE = re.compile(r"\s*([0-9]+)\s*-\s*([0-9]+)\s*")
+
+
+def _edge(text: str) -> tuple[int, int]:
+    match = _EDGE.fullmatch(text)
+    if match is None:
+        raise InputError(f"--edge takes two face numbers like 3-5; got {text!r}")
+    return int(match[1]), int(match[2])
+
+
+_SUPPORT_FACES = typer.Argument(None, help="Face numbers, see `tessera faces`; or use --edge.")
+_SUPPORT_EDGES = typer.Option(
+    None, "--edge", help="Edge between two faces, e.g. 3-5 (see `tessera edges`); repeatable."
+)
 
 
 @support_app.command("add")
 def support_add(
     path: Path,
     part: str,
-    faces: list[int] = _FACES,
+    faces: list[int] | None = _SUPPORT_FACES,
+    edges: list[str] | None = _SUPPORT_EDGES,
     dofs: str = typer.Option("xyz", help="Directions held: xyz is fixed, z alone a roller."),
     support_id: str | None = typer.Option(None, "--id", help="Support id."),
 ) -> None:
-    """Add a support on faces of a part."""
+    """Add a support on faces of a part, or a line support on edges (--edge)."""
 
     def change(p: Project) -> str:
-        support = edit.add_support(p, part, faces, dofs=_dofs(dofs), support_id=support_id)
+        if faces and edges:
+            raise InputError("give face numbers or --edge, not both")
+        if edges:
+            pairs = [_edge(e) for e in edges]
+            support = edit.add_edge_support(p, part, pairs, dofs=_dofs(dofs), support_id=support_id)
+        elif faces:
+            support = edit.add_support(p, part, faces, dofs=_dofs(dofs), support_id=support_id)
+        else:
+            raise InputError("give face numbers or --edge A-B")
         return f"added support {support.id!r}"
 
     _edit(path, change)
@@ -280,6 +316,37 @@ def faces(path: Path, part: str) -> None:
         normal = "curved" if f.normal is None else "({:+.2f}, {:+.2f}, {:+.2f})".format(*f.normal)
         centroid = "({:.2f}, {:.2f}, {:.2f})".format(*f.centroid)
         typer.echo(f"{f.index:4d}  {f.kind:<10} {f.area:12.3f} mm2  {centroid}  {normal}")
+
+
+@app.command()
+def edges(
+    path: Path,
+    part: str,
+    face: int | None = typer.Option(None, help="Only the edges of this face."),
+) -> None:
+    """List a part's edges by face pair (faces, type, length, a point, ends)."""
+    with _user_errors():
+        project = load_project(path)
+        found = describe_edges(project, part)
+        if face is not None:
+            known = [f.index for f in describe_faces(project, part)]
+            if face not in known:
+                raise InputError(f"part {part!r} has faces {min(known)} to {max(known)}")
+            found = [e for e in found if face in e.faces]
+    if not found:
+        where = f"face {face} of part {part!r}" if face is not None else f"part {part!r}"
+        typer.echo(f"{where} has no edges")
+    for e in found:
+        pair = f"{e.faces[0]}-{e.faces[1]}"
+        point = "({:.2f}, {:.2f}, {:.2f})".format(*e.point)
+        if e.curves > 1:
+            ends = f"{e.curves} curves"
+        elif e.start is None or e.end is None:
+            ends = "closed"
+        else:
+            ends = "from ({:.2f}, {:.2f}, {:.2f})".format(*e.start)
+            ends += " to ({:.2f}, {:.2f}, {:.2f})".format(*e.end)
+        typer.echo(f"{pair:>9}  {e.kind:<10} {e.length:12.3f} mm  at {point}  {ends}")
 
 
 @app.command("solve")

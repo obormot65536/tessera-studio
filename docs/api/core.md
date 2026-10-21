@@ -7,6 +7,7 @@ it, and so can your own scripts. Import it like this:
 from pathlib import Path
 
 from tessera.core import (
+    describe_edges,
     describe_faces,
     edit,
     is_container_name,
@@ -17,7 +18,7 @@ from tessera.core import (
 )
 ```
 
-Those seven names are the whole public surface (`tessera.core.__all__`). `edit` is a module
+Those eight names are the whole public surface (`tessera.core.__all__`). `edit` is a module
 with the functions that change a project (see below). Everything else in the package is
 internal.
 
@@ -59,7 +60,7 @@ Writes the project to `path`.
 
 The file is written to a temporary file in the same folder and then renamed over the target. A
 failed save leaves the previous file in place. The saved file always carries the current
-`schema_version` (4).
+`schema_version` (5).
 
 Raises:
 
@@ -87,8 +88,9 @@ not its name: a zip file is read as a container, anything else as JSON.
 - Container: the geometry is copied to a private temporary folder, which Tessera removes when
   the process exits. The part geometry paths point there.
 
-Files with a `schema_version` newer than `SCHEMA_VERSION` (4) are refused. Files without a
-version, or with an older one, load.
+Files with a `schema_version` newer than `SCHEMA_VERSION` (5) are refused. Files without a
+version, or with an older one, load. Files up to schema 4 hold only face supports and load
+unchanged.
 
 Raises:
 
@@ -133,6 +135,28 @@ Raises:
     surfaces.
 - `FileNotFoundError`: the part's geometry file does not exist. The message names the part.
 
+### `describe_edges`
+
+```python
+def describe_edges(project: Project, part_id: str) -> list[EdgeInfo]
+```
+
+Returns the edges of one part, for line supports (ADR-006). An edge is named by the two faces
+it separates, as in `EdgeSet.edges`; the list is ordered by that face pair. Each `EdgeInfo`
+gives the curve type, the total length, a point on the edge, its two ends (or `None` for a
+closed edge such as a circle) and how many separate curves the two faces share.
+
+- STEP: the CAD kernel's curves between two different faces. Seams (a curve with the same face
+  on both sides, such as the joint line of a cylinder wall) and zero-length curves are left
+  out.
+- STL: the triangle edges between two Tessera faces, so the same feature angle as the faces.
+
+A line inside a face is not an edge. Add a split line in your CAD program so that the line
+becomes the edge between two faces.
+
+Edges are remembered together with the faces, by file content. Raises the same errors as
+`describe_faces`.
+
 ### `solve`
 
 ```python
@@ -160,6 +184,7 @@ Raises:
 - `InputError`:
   - the project is invalid, for example a support or load names a part that does not exist;
   - a face number in a support or load that the part does not have;
+  - an edge support on two faces that do not share an edge in the mesh;
   - the part has no material, or the material id is unknown;
   - the study has no supports;
   - gravity is set but the material has no density;
@@ -194,6 +219,9 @@ Common rules:
 - **Faces.** Face numbers are checked against the part's real geometry (see `describe_faces`).
   A face number the part does not have is refused, and so is an empty list or a face listed
   twice.
+- **Edges.** Each edge is a pair of face numbers. Both faces must exist, be different and meet
+  at an edge of the part (see `describe_edges`). An empty list, or an edge listed twice (in
+  either order), is refused.
 - **Numbers.** Forces, pressures, moments and gravity must be finite (no `nan` or infinity).
   A zero force is accepted.
 - **Refused changes.** A refused change leaves the project unchanged. The functions that build
@@ -278,6 +306,33 @@ Raises `InputError` when:
 - the id is empty or used, or `faces` is empty, has a face the part does not have, or lists a
   face twice;
 - `dofs` is empty, has a value other than 1, 2 or 3, or lists a direction twice.
+
+#### `add_edge_support`
+
+```python
+def add_edge_support(
+    project: Project,
+    part_id: str,
+    edges: Iterable[tuple[int, int]],
+    *,
+    dofs: tuple[int, ...] = (1, 2, 3),
+    support_id: str | None = None,
+) -> Support
+```
+
+A line support (ADR-006): holds the edges where the listed pairs of faces meet, for example
+`[(3, 5)]`. `dofs` works as in `add_support`. Holding all three directions makes a pinned line,
+holding one (for example `(3,)`) a roller line. Unlike a face support, the part can still
+rotate about the line. Pairs are stored ascending: `(5, 3)` is stored as `(3, 5)`. A pair
+stands for everything the two faces share; if they meet along several separate curves, all of
+them are held.
+
+Raises `InputError` when:
+
+- the id is empty or used, `edges` is empty, a pair names the same face twice, a face the part
+  does not have, or an edge listed twice;
+- two faces do not meet at an edge (the message points to `tessera edges`);
+- `dofs` is invalid, as for `add_support`.
 
 #### `add_force_load`
 
@@ -377,7 +432,7 @@ them from `tessera.model` for the full set.
 
 | Type | Fields (type, default) | Notes |
 |---|---|---|
-| `Project` | `name: str`, `schema_version: int = 4`, `assembly: Assembly`, `study: Study` | Root object. Extra fields are errors. |
+| `Project` | `name: str`, `schema_version: int = 5`, `assembly: Assembly`, `study: Study` | Root object. Extra fields are errors. |
 | `Assembly` | `parts: list[PartInstance]`, `connections: list[Connection]` | Part ids must be unique. |
 | `PartInstance` | `id: str`, `name: str`, `geometry: Path`, `transform: Transform`, `material_id: str \| None`, `print_setup: PrintSetup \| None` | `geometry` is a STEP or STL path. |
 | `Transform` | `rotation`, `translation` | Rotation is a row-major 3 × 3 matrix; translation in mm. Only the identity is solved in v0.1. |
@@ -385,8 +440,9 @@ them from `tessera.model` for the full set.
 | `Connection` | `id`, `kind: ConnectionKind`, `a: FaceSet`, `b: FaceSet`, `friction`, `preload_n` | Stored only. Connections are not solved in v0.1. |
 | `ConnectionKind` | `"bonded"`, `"contact"`, `"bolt"`, `"pin"` | |
 | `FaceSet` | `part_id: str`, `faces: tuple[int, ...]` | At least one face. Face numbers come from `describe_faces`. |
+| `EdgeSet` | `part_id: str`, `edges: tuple[tuple[int, int], ...]` | At least one edge, each named by two different faces. Pairs are stored ascending and must be unique. JSON: `"edges": [[3, 5], [5, 6]]`. Pairs come from `describe_edges`. |
 | `Study` | `analysis: "static"`, `supports: list[Support]`, `loads: list[Load]`, `gravity: (float, float, float) \| None`, `mesh_size: float \| None` | `gravity` in mm/s². `mesh_size` in mm, greater than 0; `None` lets the mesher choose. |
-| `Support` | `id: str`, `faces: FaceSet`, `dofs: tuple[1 \| 2 \| 3, ...] = (1, 2, 3)` | Holds the listed displacement components at zero: 1 = x, 2 = y, 3 = z. No repeats. |
+| `Support` | `id: str`, `faces: FaceSet \| None`, `edges: EdgeSet \| None`, `dofs: tuple[1 \| 2 \| 3, ...] = (1, 2, 3)` | Exactly one of `faces` and `edges` is set. Holds the listed displacement components at zero: 1 = x, 2 = y, 3 = z. No repeats. The `part_id` property gives the part either way. Unused `faces`/`edges` is left out of the JSON. |
 | `ForceLoad` | `kind: "force"`, `id: str`, `faces: FaceSet`, `force: (float, float, float)` | Total force in N, spread evenly over the faces' area. |
 | `PressureLoad` | `kind: "pressure"`, `id: str`, `faces: FaceSet`, `pressure: float` | MPa, normal to the faces. Positive pushes into the part. |
 | `MomentLoad` | `kind: "moment"`, `id: str`, `faces: FaceSet`, `moment: (float, float, float)` | N·mm about the faces' area centroid. No net force. |
@@ -406,10 +462,15 @@ so `solve`, `describe_faces` and `save_project` check the whole project again an
 | `StudyResult` | `mesh: Mesh`, `solution: SolveResult`, `max_displacement: float` (mm), `max_von_mises: float` (MPa), `workdir: Path \| None` | Returned by `solve`. `displacement_magnitude` gives the per-node displacement length. |
 | `SolveResult` | `displacements: (N, 3)` mm, `stresses: (N, 6)` MPa in the order xx, yy, zz, xy, yz, zx, `solver: str`, `log: str`, `metadata: dict[str, str]` | Per node, 0-based. Nodes that no element uses are NaN. |
 | `Mesh` | `nodes: (N, 3)` mm, `elements: (M, 10)` quadratic tetrahedra (C3D10 order), `element_sets`, `node_sets`, `surfaces` | `n_nodes` and `n_elements` properties. |
+| `EdgeInfo` | `faces: (int, int)`, `kind: str`, `length: float` (mm), `start: (x, y, z) \| None`, `end: (x, y, z) \| None`, `point: (x, y, z)`, `curves: int` | `kind` is the CAD curve type (`"Line"`, `"Circle"`, ..., `"Mixed"` when the curves differ) for STEP, and for STL `"Line"` when every curve is straight, otherwise `"Curved"`. `start` and `end` are `None` for a closed edge or several separate curves. `point` lies on the edge (the middle of a single straight edge). |
 | `FaceInfo` | `index: int`, `kind: str`, `area: float` (mm²), `centroid: (x, y, z)` (mm), `normal: (x, y, z) \| None` | `kind` is the CAD surface type (`"Plane"`, `"Cylinder"`, ...) for STEP, and `"Plane"` or `"Curved"` for STL. `normal` is `None` for curved faces. |
 
-`max_von_mises` is the largest nodal von Mises stress. Peak values at corners and load points
-depend on the mesh size; see `docs/user/study-setup.md`.
+`max_von_mises` is the largest nodal von Mises stress. Peak values at corners, load points and
+line supports depend on the mesh size; see `docs/user/study-setup.md`.
+
+In the `SolveJob` that physics builds, each support is a `FixedSupport` whose node set is named
+`support:<id>`. A line support has `FixedSupport.line = True`, so results code can find the
+supports whose peak stress is mesh-dependent.
 
 ### Errors
 

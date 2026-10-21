@@ -42,6 +42,9 @@ class FixedSupport:
 
     node_set: str
     dofs: tuple[int, ...] = (1, 2, 3)
+    line: bool = False
+    """``True`` when the node set lies on geometry edges (a line support, ADR-006): the stress
+    next to it is singular, so its peak value depends on the mesh."""
 
 
 @dataclass(frozen=True)

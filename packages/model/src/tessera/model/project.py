@@ -8,13 +8,23 @@ from __future__ import annotations
 
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Discriminator,
+    Field,
+    SerializerFunctionWrapHandler,
+    Tag,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 """2: Support.dofs (directional supports). 3: PressureLoad, Study.gravity, load ``kind``.
-4: MomentLoad. Older files load unchanged."""
+4: MomentLoad. 5: Support.edges (line supports, ADR-006). Older files load unchanged."""
 
 Vec3 = tuple[float, float, float]
 
@@ -62,6 +72,32 @@ class FaceSet(_Model):
     faces: Annotated[tuple[int, ...], Field(min_length=1)]
 
 
+class EdgeSet(_Model):
+    """Edges of one part instance, each named by the two faces it separates (ADR-006).
+
+    A pair stands for everything the two faces share; if they meet along several separate
+    curves, all of them are meant. Each pair is stored ascending, e.g. ``(3, 5)``.
+    """
+
+    part_id: str
+    edges: Annotated[tuple[tuple[int, int], ...], Field(min_length=1)]
+
+    @field_validator("edges")
+    @classmethod
+    def _ascending_unique_pairs(
+        cls, edges: tuple[tuple[int, int], ...]
+    ) -> tuple[tuple[int, int], ...]:
+        pairs: list[tuple[int, int]] = []
+        for a, b in edges:
+            if a == b:
+                raise ValueError(f"an edge lies between two different faces, got {a}-{b}")
+            pair = (min(a, b), max(a, b))
+            if pair in pairs:
+                raise ValueError(f"edge {pair[0]}-{pair[1]} is listed twice")
+            pairs.append(pair)
+        return tuple(pairs)
+
+
 class Connection(_Model):
     id: str
     kind: ConnectionKind
@@ -89,22 +125,42 @@ class Assembly(_Model):
 
 
 class Support(_Model):
-    """Support: the listed global displacement components of the faces are held at zero.
+    """Support: the listed global displacement components of the faces or edges are held at zero.
 
-    The default fixes all three (a fixed support); a single component normal to a plane face
-    makes a symmetry or roller support.
+    Exactly one of ``faces`` and ``edges`` is set. The default fixes all three components (a
+    fixed support, or a pinned line on edges); a single component normal to a plane face makes
+    a symmetry or roller support, and on edges a roller line (ADR-006).
     """
 
     id: str
-    faces: FaceSet
+    faces: FaceSet | None = None
+    edges: EdgeSet | None = None
     dofs: Annotated[tuple[Literal[1, 2, 3], ...], Field(min_length=1)] = (1, 2, 3)
     """Global components held at zero: 1 = x, 2 = y, 3 = z."""
 
+    @property
+    def part_id(self) -> str:
+        """The part whose faces or edges are held."""
+        held = self.faces or self.edges
+        assert held is not None  # the validator guarantees one of them
+        return held.part_id
+
     @model_validator(mode="after")
-    def _check_unique_dofs(self) -> Support:
+    def _check_support(self) -> Support:
+        if (self.faces is None) == (self.edges is None):
+            raise ValueError(f"support {self.id!r} holds faces or edges: give exactly one")
         if len(set(self.dofs)) != len(self.dofs):
             raise ValueError(f"support {self.id!r} lists a component twice: {self.dofs}")
         return self
+
+    @model_serializer(mode="wrap")
+    def _omit_unused_set(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        # A face support is written exactly as in schema 4, with no "edges": null.
+        data: dict[str, Any] = handler(self)
+        for key in ("faces", "edges"):
+            if data.get(key) is None:
+                data.pop(key, None)
+        return data
 
 
 class ForceLoad(_Model):
@@ -173,7 +229,9 @@ class Project(_Model):
     @model_validator(mode="after")
     def _check_study_references(self) -> Project:
         known = {p.id for p in self.assembly.parts}
-        for item in [*self.study.supports, *self.study.loads]:
-            if item.faces.part_id not in known:
-                raise ValueError(f"{item.id!r} refers to unknown part {item.faces.part_id!r}")
+        used = [(s.id, s.part_id) for s in self.study.supports]
+        used += [(load.id, load.faces.part_id) for load in self.study.loads]
+        for item_id, part_id in used:
+            if part_id not in known:
+                raise ValueError(f"{item_id!r} refers to unknown part {part_id!r}")
         return self

@@ -145,3 +145,73 @@ def test_numbers_must_be_finite(bad: float) -> None:
         Study(gravity=(0.0, 0.0, bad))
     with pytest.raises(ValidationError):
         Study(mesh_size=bad)
+
+
+def test_edge_set_stores_pairs_ascending() -> None:
+    from tessera.model import EdgeSet
+
+    edges = EdgeSet(part_id="p1", edges=((5, 3), (5, 6)))
+    assert edges.edges == ((3, 5), (5, 6))
+    assert EdgeSet.model_validate_json(edges.model_dump_json()) == edges
+    assert edges.model_dump(mode="json") == {"part_id": "p1", "edges": [[3, 5], [5, 6]]}
+
+
+@pytest.mark.parametrize(
+    ("edges", "message"),
+    [
+        ((), "at least 1"),
+        (((3, 3),), "two different faces"),
+        (((3, 5), (5, 3)), "listed twice"),
+        (((3, 5, 6),), "at most 2"),
+    ],
+)
+def test_edge_set_rejects_bad_pairs(edges: object, message: str) -> None:
+    from tessera.model import EdgeSet
+
+    with pytest.raises(ValidationError, match=message):
+        EdgeSet.model_validate({"part_id": "p1", "edges": edges})
+
+
+def test_support_holds_faces_or_edges() -> None:
+    from tessera.model import EdgeSet, Support
+
+    line = Support(id="s", edges=EdgeSet(part_id="p2", edges=((1, 2),)), dofs=(3,))
+    assert line.part_id == "p2" and line.faces is None
+    assert Support.model_validate_json(line.model_dump_json()) == line
+    assert "faces" not in line.model_dump()
+    face = Support(id="f", faces=FaceSet(part_id="p1", faces=(1,)))
+    assert face.part_id == "p1"
+    assert "edges" not in face.model_dump(mode="json"), "face supports are written as before"
+    with pytest.raises(ValidationError, match="exactly one"):
+        Support(id="s")
+    with pytest.raises(ValidationError, match="exactly one"):
+        Support(
+            id="s",
+            faces=FaceSet(part_id="p1", faces=(1,)),
+            edges=EdgeSet(part_id="p1", edges=((1, 2),)),
+        )
+
+
+def test_line_support_on_an_unknown_part_is_rejected() -> None:
+    from tessera.model import EdgeSet, Study, Support
+
+    study = Study(supports=[Support(id="s", edges=EdgeSet(part_id="ghost", edges=((1, 2),)))])
+    with pytest.raises(ValidationError, match="unknown part 'ghost'"):
+        Project(name="p", assembly=Assembly(parts=[_part("p1")]), study=study)
+
+
+def test_schema_4_project_loads_unchanged() -> None:
+    from tessera.model import SCHEMA_VERSION
+
+    supports = [{"id": "s", "faces": {"part_id": "p1", "faces": [1]}, "dofs": [3]}]
+    data = {
+        "schema_version": 4,
+        "name": "bracket",
+        "assembly": {"parts": [{"id": "p1", "name": "p1", "geometry": "p1.step"}]},
+        "study": {"supports": supports},
+    }
+    project = Project.model_validate(data)
+    support = project.study.supports[0]
+    assert (support.part_id, support.edges, support.dofs) == ("p1", None, (3,))
+    assert SCHEMA_VERSION == 5
+    assert project.model_dump(mode="json")["study"]["supports"] == supports

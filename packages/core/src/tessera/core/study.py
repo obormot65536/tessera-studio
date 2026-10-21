@@ -11,6 +11,7 @@ import tessera.post as post
 from tessera.core._checks import check_geometry, part_named, validated
 from tessera.model import (
     AnalysisKind,
+    EdgeInfo,
     FaceInfo,
     InputError,
     Mesh,
@@ -25,6 +26,11 @@ from tessera.model import (
 def describe_faces(project: Project, part_id: str) -> list[FaceInfo]:
     """Faces of a part, for choosing where supports and loads go."""
     return geometry.describe_faces(part_named(validated(project), part_id).geometry)
+
+
+def describe_edges(project: Project, part_id: str) -> list[EdgeInfo]:
+    """Edges of a part, each named by its two faces, for choosing line supports (ADR-006)."""
+    return geometry.describe_edges(part_named(validated(project), part_id).geometry)
 
 
 def _mesh_part(part: PartInstance, size: float | None) -> Mesh:

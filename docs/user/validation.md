@@ -43,8 +43,8 @@ Notes on the rows:
 - **TS-07** uses three symmetry faces, so one eighth of the sphere is modelled. The pressure acts
   on a surface curved in both directions.
 - **TS-08** models a quarter of the disc. The disc is thick enough that the reference includes a
-  shear term (+4.6 %); without it the error would read 3.5 %. The simply supported version waits
-  for line supports.
+  shear term (+4.6 %); without it the error would read 3.5 %. The simply supported version, on a
+  line support, is still to come.
 - **TS-09** applies the torque with Tessera's moment load, the same load you can use in a study.
 
 ## Convergence
