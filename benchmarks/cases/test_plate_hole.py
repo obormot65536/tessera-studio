@@ -355,7 +355,12 @@ def test_plate_hole_peak_stress_is_clear_at_the_hole_edge(
 def test_plate_hole_check_mesh_settles_the_hole_peak(plate_step: Path, tmp_path: Path) -> None:
     """ADR-007 two-mesh check: the hole edge is a real, finite stress raiser, so its peak
     settles (measured -1.3 % from 2 mm to 2/sqrt(2) mm, +0.22 % from 1 mm), unlike a singular
-    peak. Run at the coarsest sweep mesh to keep it cheap."""
+    peak. Run at the coarsest sweep mesh to keep it cheap.
+
+    The hole edge has under one element across the plate's thickness there, far below the
+    thin-wall minimum of 5, but the peak is not flagged, and only flagged spots are guarded
+    (ADR-007 Amendment 2): a smooth stress raiser is resolved by quadratic elements even then.
+    """
     from tessera.model import Verdict
 
     _require_roller_support()
@@ -364,6 +369,10 @@ def test_plate_hole_check_mesh_settles_the_hole_peak(plate_step: Path, tmp_path:
     assert check is not None
     assert not result.peak_von_mises.flagged
     assert check.peak_von_mises.verdict is Verdict.SETTLED
+    wall = result.peak_von_mises.wall
+    assert wall is not None and wall.thickness <= THICKNESS * (1 + 1e-6)
+    across = check.peak_von_mises.elements_across
+    assert across is not None and across < check.wall_elements_min
     assert check.clear_peak_von_mises is not None
     assert check.clear_peak_von_mises.verdict is Verdict.SETTLED
     assert check.max_displacement.verdict is Verdict.SETTLED

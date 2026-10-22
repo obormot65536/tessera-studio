@@ -291,9 +291,9 @@ def test_cantilever_check_mesh_finds_the_root_peak_mesh_dependent(
     (measured +7.8 %, 2.5 mm -> 2.5/sqrt(2) mm), while the tip deflection (0.03 %) and the clear
     peak away from the root (0.02 %) settle.
 
-    On a much coarser mesh (5 mm, two elements through the depth) the root peak still reads
-    settled (+1.1 %): the singularity only shows once the mesh resolves the root. The check
-    measures convergence; it cannot see a singularity the coarse mesh does not resolve.
+    The root peak has about 3.9 coarse elements across the 10 mm depth, fewer than the thin-wall
+    minimum of 5, but a measured mesh-dependent reading needs no thin-wall guard (ADR-007
+    Amendment 2), so it stays mesh-dependent.
     """
     from tessera.model import Verdict
 
@@ -304,6 +304,35 @@ def test_cantilever_check_mesh_finds_the_root_peak_mesh_dependent(
     assert check.peak_von_mises.fine == result.max_von_mises
     assert check.peak_von_mises.verdict is Verdict.MESH_DEPENDENT
     assert check.peak_von_mises.fine > check.peak_von_mises.coarse, "the root peak rises"
+    wall = result.peak_von_mises.wall
+    assert wall is not None and wall.thickness == pytest.approx(HEIGHT, rel=0.01)
+    assert check.peak_von_mises.elements_across is not None
+    assert 3.0 < check.peak_von_mises.elements_across < check.wall_elements_min
     assert check.max_displacement.verdict is Verdict.SETTLED
+    assert check.clear_peak_von_mises is not None
+    assert check.clear_peak_von_mises.verdict is Verdict.SETTLED
+
+
+def test_cantilever_check_mesh_on_a_thin_wall_does_not_settle_the_root_peak(
+    beam_step: Path, tmp_path: Path
+) -> None:
+    """ADR-007 Amendment 2: at 5 mm the coarse mesh has two elements through the 10 mm depth,
+    too few to show the stress rise at the clamp, so the root peak barely moves (measured
+    +1.4 %) yet is singular (mesh-dependent from 2.5 mm). The thin-wall guard reports it as
+    not judged (thin-wall) instead of settled. The clear peak is unflagged, so it is never
+    guarded and still settles (+2.1 %)."""
+    from tessera.model import Verdict
+
+    result = _solve_beam(beam_step, 5.0, tmp_path, check_mesh=True)
+    check = result.mesh_check
+    assert check is not None
+    peak = result.peak_von_mises
+    assert peak.flagged
+    assert peak.wall is not None
+    assert peak.wall.thickness == pytest.approx(HEIGHT, rel=0.01)
+    spot = check.peak_von_mises
+    assert spot.change <= check.threshold, "the root peak barely moves on this mesh"
+    assert spot.elements_across is not None and spot.elements_across < check.wall_elements_min
+    assert spot.verdict is Verdict.THIN_WALL
     assert check.clear_peak_von_mises is not None
     assert check.clear_peak_von_mises.verdict is Verdict.SETTLED
