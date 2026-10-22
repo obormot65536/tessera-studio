@@ -1,6 +1,6 @@
 # ADR-008: Stresses at integration points
 
-**Status:** Proposed
+**Status:** Accepted (maintainer, 2026-10-22)
 **Deciders:** Maintainer
 
 ## Context
