@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Thin-wall guard for the two-mesh check (ADR-007 Amendment 2): a marked peak that changed by
+  5 % or less is no longer called `settled` when the first mesh had fewer than 5 elements across
+  the wall there, too few to show the stress rise; it reads `not judged` with the elements
+  across and a mesh size that gives 5. Without `--check-mesh`, a marked peak on such a wall gets
+  a `thin wall` line with the same advice, and marked face peaks say `thin wall`. Unmarked
+  numbers are judged as before. API: `StressSpot.wall` (`WallSpan`), `Verdict.THIN_WALL`,
+  `SpotCheck.elements_across`, `MeshCheck.wall_elements_min`; `WALL_ELEMENTS_MIN`,
+  `outer_surface` and `wall_span` in `tessera.post`, `WALL_ELEMENTS_MIN` in `tessera.core`.
 - Two-mesh check (ADR-007): `tessera solve --check-mesh` solves the study again with every
   element about 1/√2 as long and marks each printed number `settled` (changed by 5 % or less),
   `mesh-dependent`, or `not judged` where the second mesh did not get finer (its elements there

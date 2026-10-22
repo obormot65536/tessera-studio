@@ -8,6 +8,7 @@ from pathlib import Path
 
 from tessera.core import (
     MESH_CHECK_REFINEMENT,
+    WALL_ELEMENTS_MIN,
     describe_edges,
     describe_faces,
     edit,
@@ -19,7 +20,7 @@ from tessera.core import (
 )
 ```
 
-Those nine names are the whole public surface (`tessera.core.__all__`). `edit` is a module
+Those ten names are the whole public surface (`tessera.core.__all__`). `edit` is a module
 with the functions that change a project (see below). Everything else in the package is
 internal.
 
@@ -469,7 +470,8 @@ so `solve`, `describe_faces` and `save_project` check the whole project again an
 | Type | Fields | Notes |
 |---|---|---|
 | `StudyResult` | `mesh: Mesh`, `solution: SolveResult`, `max_displacement: float` (mm), `max_von_mises: float` (MPa), `workdir: Path \| None`, `peak_von_mises: StressSpot`, `clear_peak_von_mises: StressSpot \| None`, `face_peaks: tuple[StressSpot, ...]`, `node_flags: NodeFlags`, `mesh_check: MeshCheck \| None` | Returned by `solve`. `displacement_magnitude` gives the per-node displacement length. See "Peak stress" below. |
-| `StressSpot` | `value: float` (MPa), `node: int`, `location: (x, y, z)` (mm), `face: int \| None`, `flags: tuple[StressFlag, ...]` | A stress at one node. `face` is the face the node lies on (the lowest number on an edge between faces), `None` inside the part. `flagged` is `True` when `flags` is not empty. |
+| `StressSpot` | `value: float` (MPa), `node: int`, `location: (x, y, z)` (mm), `face: int \| None`, `flags: tuple[StressFlag, ...]`, `wall: WallSpan \| None` | A stress at one node. `face` is the face the node lies on (the lowest number on an edge between faces), `None` inside the part. `flagged` is `True` when `flags` is not empty. `wall` is the wall at the node (see "Thin walls" below), `None` inside the part. |
+| `WallSpan` | `thickness: float` (mm), `elements: float`, `direction: (x, y, z)`, `mirrored: bool` | How thick the part is at a surface node. `elements` = `thickness` / the local median corner edge length of the mesh it was measured on. `direction` is the unit direction into the part along which the thickness was measured. `mirrored` when the wall ends on a symmetry plane and was doubled. |
 | `StressFlag` | `kind: FlagKind`, `support: str \| None` | Why a node is flagged. `support` is the support's id for `FlagKind.SUPPORT`. `str()` gives `near support 'root'` or `near a sharp inside edge`. |
 | `FlagKind` | `"support"`, `"sharp-inside-edge"` | |
 | `NodeFlags` | `masks: dict[StressFlag, (N,) bool]`, `n_nodes: int`, `distance: float` (mm), `edge_length: float` (mm) | One mask per reason that flags at least one node. `flagged` is the (N,) union; `at(node)` lists the reasons for one node. `edge_length` is h, `distance` is d = 2 h. |
@@ -521,14 +523,15 @@ mesh, and `mesh_check` compares them with the coarse solve (ADR-007):
 
 | Type | Fields | Notes |
 |---|---|---|
-| `MeshCheck` | `coarse_edge_length`, `fine_edge_length` (mm), `coarse_nodes: int`, `threshold: float`, `refinement_limit: float`, `max_displacement: SpotCheck`, `peak_von_mises: SpotCheck`, `clear_peak_von_mises: SpotCheck \| None`, `face_peaks: dict[int, SpotCheck]` | Edge lengths are each mesh's median corner edge length. `clear_peak_von_mises` is `None` unless both meshes have a clear peak; `face_peaks` has the faces with a peak on both meshes. |
-| `SpotCheck` | `coarse: float`, `fine: float`, `change: float`, `refinement: float`, `verdict: Verdict` | `change` = \|fine − coarse\| / \|fine\|; `inf` if only the fine value is zero. `refinement` is the local element edge length, fine / coarse, where the fine value was taken (for the displacement, the ratio of the median edge lengths). |
-| `Verdict` | `SETTLED = "settled"`, `MESH_DEPENDENT = "mesh-dependent"`, `NOT_REFINED = "not-refined"` | `NOT_REFINED` if `refinement > refinement_limit` (or it could not be measured); otherwise settled if `change <= threshold`. |
+| `MeshCheck` | `coarse_edge_length`, `fine_edge_length` (mm), `coarse_nodes: int`, `threshold: float`, `refinement_limit: float`, `max_displacement: SpotCheck`, `peak_von_mises: SpotCheck`, `clear_peak_von_mises: SpotCheck \| None`, `face_peaks: dict[int, SpotCheck]`, `wall_elements_min: float` | Edge lengths are each mesh's median corner edge length. `clear_peak_von_mises` is `None` unless both meshes have a clear peak; `face_peaks` has the faces with a peak on both meshes. `wall_elements_min` is the thin-wall minimum used (5). |
+| `SpotCheck` | `coarse: float`, `fine: float`, `change: float`, `refinement: float`, `verdict: Verdict`, `elements_across: float \| None` | `change` = \|fine − coarse\| / \|fine\|; `inf` if only the fine value is zero. `refinement` is the local element edge length, fine / coarse, where the fine value was taken (for the displacement, the ratio of the median edge lengths). `elements_across` is the fine spot's wall thickness over the coarse local edge length; `None` for the displacement or where no wall was measured. |
+| `Verdict` | `SETTLED = "settled"`, `MESH_DEPENDENT = "mesh-dependent"`, `NOT_REFINED = "not-refined"`, `THIN_WALL = "thin-wall"` | `NOT_REFINED` if `refinement > refinement_limit` (or it could not be measured); otherwise, if `change <= threshold`, `THIN_WALL` for a flagged spot with `elements_across < wall_elements_min` and settled for any other; otherwise mesh-dependent. `NOT_REFINED` and `THIN_WALL` are no verdict: the spot's flags still apply. |
 
 `threshold` is `tessera.post.MESH_CHECK_THRESHOLD` (5 %) and `refinement_limit` is
 `tessera.post.MESH_CHECK_REFINEMENT_LIMIT` (0.85). A number the fine mesh did not refine around
 is not judged: an unchanged value there says nothing, and its flags still apply.
-`tessera.post.compare_meshes(coarse, fine, threshold, refinement_limit)`, `spot_check` and
+`tessera.post.compare_meshes(coarse, fine, threshold, refinement_limit, wall_elements_min)`,
+`spot_check` and
 `local_edge_length(mesh, point)` (the median corner edge length of the elements at the node
 nearest the point) do the comparison for results you solved yourself.
 
@@ -539,9 +542,33 @@ taken outside a flag band of 2 h, which narrows on the fine mesh, so part of its
 from the band rather than from convergence.
 
 A verdict is measured, so it replaces the flags: report a flagged spot that settled, not an
-unflagged one that is mesh-dependent. On a mesh too coarse to resolve a clamp (two elements
-through a beam's depth in TS-01) the singular peak there can still read settled; the check
-needs a mesh that already shows the rise.
+unflagged one that is mesh-dependent.
+
+#### Thin walls
+
+On a mesh too coarse to resolve a clamp (two elements through a beam's depth in TS-01) the
+singular peak there barely moves between the meshes and would read settled. So `solve` measures
+the wall at every reported surface spot (`StressSpot.wall`), and the check judges a flagged spot
+only where the coarse mesh had at least `WALL_ELEMENTS_MIN` (5, approved by the maintainer)
+elements across it; a flagged spot that changed within the threshold on a thinner wall is
+`THIN_WALL` (ADR-007 Amendment 2). Unflagged spots are never guarded: a smooth stress is
+represented well with one or two quadratic elements across. A `mesh-dependent` reading stays
+mesh-dependent whatever the wall.
+
+The wall is measured by casting a ray from the node into the part along the inward normal of
+each distinct face meeting there (normals within 30° are one face), against the mesh's outer
+surface with each TRI6 face split into four flat triangles, and taking the shortest distance to
+where a ray leaves the part. Where a ray leaves through a face of a support holding only the
+direction normal to it (a symmetry plane), the distance is doubled and `mirrored` is set. A ray
+from a node in the middle of a face measures straight through to the opposite side, so at a
+node on a long bar's end face the wall is the bar's length. `WallSpan.elements` uses the mesh
+the spot comes from (the fine one after a check); `SpotCheck.elements_across` uses the coarse
+mesh, which decides the guard.
+
+`tessera.core.WALL_ELEMENTS_MIN` is the same value as `tessera.post.WALL_ELEMENTS_MIN`, for
+clients that import only `tessera.core`. `tessera.post.outer_surface(job)` builds the surface
+once, and `tessera.post.wall_span(surface, node)` measures one node (`None` inside the part, or
+if no ray leaves the part).
 
 In the `SolveJob` that physics builds, each support is a `FixedSupport` whose node set is named
 `support:<id>`. A line support has `FixedSupport.line = True`, so results code can find the
