@@ -1,6 +1,7 @@
 # ADR-008: Stresses at integration points
 
-**Status:** Accepted (maintainer, 2026-10-22)
+**Status:** Accepted (maintainer, 2026-10-22). Amended the same day: integration-point output is
+opt-in per solve job (decision 2).
 **Deciders:** Maintainer
 
 ## Context
@@ -145,15 +146,20 @@ new, optional, solver-neutral result. Peaks, flags and the two-mesh check stay n
    additive last field. Metadata gets `point_rule` (e.g. `tet4`). `None` means "not available".
    Code that needs point stresses (failure criteria) must refuse rather than fall back to nodal
    values.
-2. **Solvers (`tessera.solvers`, the only place that knows `.dat`).**
+2. **Solvers (`tessera.solvers`, the only place that knows `.dat`).** The output is **opt-in**:
+   `SolveJob.point_stresses: bool = False`. Only a job that asks for it gets `*EL PRINT` and has
+   its `.dat` read; every other solve is unchanged and cannot fail on `.dat`. (Maintainer
+   decision after review: reading it on every solve cost about 1.7 s and 300 MB at 100k elements,
+   about 18 s and 3 GB at 1e6, for a result nothing used yet. Failure criteria will ask for it.)
    - Deck: `*ELEMENT, TYPE=C3D10, ELSET=EALL`, then `*EL PRINT, ELSET=EALL` with `S` and a
      second `*EL PRINT, ELSET=EALL` with `COORD` (finding 9 allows either form).
    - `parse_dat(text) -> DatResults` reads the `stresses` and `global coordinates` blocks,
      keeps the last block per name (finding 5) and parses with vectorized code. It reorders
      stresses with `[0, 1, 2, 3, 5, 4]` (finding 2). It requires exactly Q rows per element,
      numbered 1..Q, with no duplicates (finding 8). Missing entries become NaN.
-   - `run()` reads `job.dat`. A missing, empty or incomplete file is a `SolverError` (finding
-     7), and `check_results_complete` is extended to point results.
+   - When the job asks for point stresses, `run()` reads `job.dat`. A missing, empty or
+     incomplete file is then a `SolverError` (finding 7), and `check_results_complete` is
+     extended to point results.
 3. **Post (`tessera.post`, points only, no ccx knowledge).** New `post/points.py`:
    - `element_nodal_stresses(mesh, ps) -> (M, 10, 6)`: the affine field through each element's Q
      points, in physical coordinates, evaluated at its 10 nodes. It is not averaged and is exact
