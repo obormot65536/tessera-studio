@@ -5,6 +5,11 @@
 - API: `SolveResult.point_stresses` (`PointStresses` in `tessera.model`) carries each
   element's stresses at its integration points, unaveraged (ADR-008). It is `None` until a
   solver fills it. No reported number changes: peaks, flags and the mesh check stay nodal.
+- API (`tessera.post`, ADR-008): `element_nodal_stresses` gives each element's stresses at its
+  ten nodes from its own integration points, unaveraged; `point_von_mises` the von Mises stress
+  at every point; `flag_points` the ADR-007 flags at any points (`flag_nodes` is unchanged).
+  `von_mises` now keeps the leading axes of its input: (M, Q, 6) gives (M, Q), no longer a
+  transposed (Q, M).
 - Two-mesh check (ADR-007): `tessera solve --check-mesh` solves the study again with every
   element about 1/√2 as long and marks each printed number `settled` (changed by 5 % or less),
   `mesh-dependent`, or `not judged` where the second mesh did not get finer (its elements there

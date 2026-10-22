@@ -512,6 +512,24 @@ The fields:
 Nodes that no element uses have no result (NaN) and are skipped. Peaks under point-like loads
 and at the edges of loaded faces are not flagged yet.
 
+#### Integration-point stresses
+
+`SolveResult.point_stresses` (ADR-008) holds each element's own stresses at its integration
+points. `tessera.post` works with them without knowing the solver:
+
+- `element_nodal_stresses(mesh, point_stresses)`: (M, 10, 6) stresses at each element's ten
+  nodes, from the affine field through that element's points in physical coordinates. Not
+  averaged: a node shared by two elements has a value in each. Exact for a linear stress field.
+  Raises `ValueError` if the points do not match the mesh, there are fewer than four per
+  element, or an element's points lie in one plane. An element with a NaN entry gets NaN.
+- `point_von_mises(point_stresses)`: (M, Q) von Mises stress at every point. `von_mises` itself
+  takes any (..., 6) array and returns (...).
+- `flag_points(job, points)`: the flags of ADR-007 at any (P, 3) points, e.g.
+  `point_stresses.points.reshape(-1, 3)`; `flag_nodes(job)` is `flag_points` at the mesh nodes.
+
+None of the reported numbers use them: peaks, flags and the mesh check stay nodal. Integration
+points lie inside the elements, so a maximum over them reads low at a surface.
+
 #### Mesh check
 
 `solve(project, check_mesh=True)` solves the study at the project's `mesh_size` (or gmsh's own
