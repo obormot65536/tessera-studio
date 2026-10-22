@@ -398,3 +398,33 @@ def test_a_roller_is_not_a_mirror_for_the_wall() -> None:
     peak = summarize(solve_job, uniaxial(values)).peak_von_mises
     assert peak.flagged and peak.wall is not None
     assert peak.wall.thickness == pytest.approx(2.0, rel=1e-6)
+
+
+def test_summarize_leaves_out_the_faces_of_the_support_that_flags_a_spot() -> None:
+    # 40 x 10 x 10 mm bar clamped on x = 0: the flagged peak 2 mm from the clamp reads the 10 mm
+    # depth, because the part continues into the fixture. An unflagged spot 2 mm from the free
+    # end still reads 4 mm (the ball touches the end face).
+    bar = tet10_grid((20, 5, 5), mapping=lambda p: p * 2.0)
+    mesh = with_sets(bar, support_root=np.isclose(bar.nodes[:, 0], 0.0), **box_faces(bar))
+    values = np.ones(mesh.n_nodes)
+    values[node_at(mesh, (2.0, 5.0, 10.0))] = 100.0
+    values[node_at(mesh, (38.0, 5.0, 10.0))] = 50.0
+    result = summarize(job(mesh, FixedSupport(node_set="support:root")), uniaxial(values))
+    peak, clear = result.peak_von_mises, result.clear_peak_von_mises
+    assert peak.flags == (ROOT,) and peak.wall is not None
+    assert peak.wall.thickness == pytest.approx(10.0, rel=1e-6)
+    assert clear is not None and not clear.flagged and clear.wall is not None
+    assert clear.wall.thickness == pytest.approx(4.0, rel=1e-6)
+
+
+def test_a_line_support_has_no_faces_to_leave_out() -> None:
+    bar = tet10_grid((20, 5, 5), mapping=lambda p: p * 2.0)
+    x = bar.nodes
+    edge = np.isclose(x[:, 0], 0.0) & np.isclose(x[:, 2], 10.0)
+    mesh = with_sets(bar, support_root=edge, **box_faces(bar))
+    values = np.ones(mesh.n_nodes)
+    values[node_at(mesh, (2.0, 5.0, 10.0))] = 100.0
+    line = FixedSupport(node_set="support:root", line=True)
+    peak = summarize(job(mesh, line), uniaxial(values)).peak_von_mises
+    assert peak.flags == (ROOT,) and peak.wall is not None
+    assert peak.wall.thickness == pytest.approx(4.0, rel=1e-6)

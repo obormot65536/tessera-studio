@@ -5,9 +5,18 @@ from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 
-from tessera.model import Mesh, SolveJob, SolveResult, StressSpot, StudyResult, WallSpan
-from tessera.post.flags import flag_nodes
-from tessera.post.wall import OuterSurface, outer_surface, wall_span
+from tessera.model import (
+    FlagKind,
+    Mesh,
+    SolveJob,
+    SolveResult,
+    StressFlag,
+    StressSpot,
+    StudyResult,
+    WallSpan,
+)
+from tessera.post.flags import SUPPORT_PREFIX, flag_nodes
+from tessera.post.wall import OuterSurface, outer_surface, samples_on, wall_span
 
 _FACE_PREFIX = "face:"
 
@@ -51,12 +60,26 @@ def summarize(job: SolveJob, solution: SolveResult, workdir: Path | None = None)
     surface: OuterSurface | None = None
     walls: dict[int, WallSpan | None] = {}
 
+    def held_faces(node_flags: tuple[StressFlag, ...]) -> NDArray[np.int64]:
+        """Nodes of the face supports that flag a node: the part continues into the fixture
+        there, so the wall is measured as if they were not surface (line supports hold no
+        face)."""
+        ids = {f.support for f in node_flags if f.kind is FlagKind.SUPPORT}
+        sets = [
+            mesh.node_sets[s.node_set]
+            for s in job.supports
+            if not s.line and s.node_set.removeprefix(SUPPORT_PREFIX) in ids
+        ]
+        return np.concatenate(sets) if sets else np.zeros(0, dtype=np.int64)
+
     def wall(node: int) -> WallSpan | None:
         """The wall at a node, measured once (ADR-007 Amendment 2)."""
         nonlocal surface
         if node not in walls:
             surface = surface or outer_surface(mesh)
-            walls[node] = wall_span(surface, node)
+            held = held_faces(flags.at(node))
+            ignore = samples_on(surface, held) if held.size else None
+            walls[node] = wall_span(surface, node, ignore)
         return walls[node]
 
     def spot(node: int, face: int | None, measure: bool = False) -> StressSpot:

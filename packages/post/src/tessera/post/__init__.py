@@ -18,7 +18,13 @@ from tessera.post.mesh_check import (
     spot_check,
 )
 from tessera.post.summary import summarize, von_mises
-from tessera.post.wall import FACE_CLUSTER_ANGLE, OuterSurface, outer_surface, wall_span
+from tessera.post.wall import (
+    FACE_CLUSTER_ANGLE,
+    OuterSurface,
+    outer_surface,
+    samples_on,
+    wall_span,
+)
 
 __all__ = [
     "FACE_CLUSTER_ANGLE",
@@ -34,6 +40,7 @@ __all__ = [
     "median_edge_length",
     "node_edge_length",
     "outer_surface",
+    "samples_on",
     "sharp_inside_edge_nodes",
     "spot_check",
     "summarize",

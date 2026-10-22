@@ -20,7 +20,8 @@ FLAG_DISTANCE_FACTOR = 2.0
 INSIDE_EDGE_ANGLE = 30.0
 """Degrees the outer surface must turn inward at an edge for the edge to be flagged."""
 
-_SUPPORT_PREFIX = "support:"
+SUPPORT_PREFIX = "support:"
+"""Node sets of supports are named ``support:<id>``; flags name the id."""
 
 # Faces of a C3D10 element as TRI6 (corners, then midside nodes of edges ab, bc, ca), and the
 # corner opposite each face.
@@ -179,7 +180,7 @@ def flag_nodes(job: SolveJob) -> NodeFlags:
     for support in job.supports:
         if not support_is_singular(support):
             continue
-        flag = StressFlag(FlagKind.SUPPORT, support=support.node_set.removeprefix(_SUPPORT_PREFIX))
+        flag = StressFlag(FlagKind.SUPPORT, support=support.node_set.removeprefix(SUPPORT_PREFIX))
         mask = _within(mesh.nodes, mesh.nodes[mesh.node_sets[support.node_set]], d)
         if flag in masks:
             mask |= masks[flag]

@@ -11,7 +11,13 @@ import pytest
 from numpy.typing import NDArray
 
 from tessera.model import TET10_EDGES, Mesh, WallSpan
-from tessera.post import WALL_ELEMENTS_MIN, local_edge_length, outer_surface, wall_span
+from tessera.post import (
+    WALL_ELEMENTS_MIN,
+    local_edge_length,
+    outer_surface,
+    samples_on,
+    wall_span,
+)
 from tessera.post.flags import _outer_triangles  # pyright: ignore[reportPrivateUsage]
 from tessera.post.wall import _surface  # pyright: ignore[reportPrivateUsage]
 
@@ -205,3 +211,37 @@ def test_no_wall_where_the_surface_is_open() -> None:
     top = np.isclose(plate.nodes[tri6[:, :3], 2], 2.0).all(axis=1)
     surface = _surface(plate, tri6[top])
     assert wall_span(surface, node_at(plate, (3.0, 3.0, 2.0))) is None
+
+
+# --- Ignoring the faces of the support that flags a spot ---------------------------------
+
+
+def test_a_clamped_face_is_left_out_so_the_wall_is_the_depth() -> None:
+    # 40 x 10 x 10 mm bar clamped on x = 0. At (2, 5, 10), 2 mm from the clamp on the top face,
+    # the ball touches the clamped face and reads 4 mm; the part continues into the fixture there,
+    # so with the clamp's samples left out the wall is the 10 mm depth.
+    bar = tet10_grid((20, 5, 5), mapping=scaled(2.0))
+    surface = outer_surface(bar)
+    node = node_at(bar, (2.0, 5.0, 10.0))
+    near = wall_span(surface, node)
+    assert near is not None and near.thickness == pytest.approx(4.0, rel=1e-6)
+    clamp = samples_on(surface, np.flatnonzero(np.isclose(bar.nodes[:, 0], 0.0)))
+    assert clamp.sum() == 4 * 2 * 5 * 5  # 4 flat triangles per TRI6, 2 per 2 mm square
+    span = wall_span(surface, node, ignore=clamp)
+    assert span is not None
+    assert span.thickness == pytest.approx(10.0, rel=1e-6)
+    assert span.direction == pytest.approx((0.0, 0.0, -1.0))
+
+
+def test_a_clamped_patch_leaves_the_sides_in() -> None:
+    # The 20 x 20 x 60 mm post clamped on an 8 x 8 mm patch in the middle of its end face: only
+    # the patch is left out, so the ball at the patch corner still touches the sides 6 mm away.
+    post = tet10_grid((10, 10, 30), mapping=scaled(2.0))
+    x = post.nodes
+    on_patch = np.isclose(x[:, 2], 0.0) & (np.abs(x[:, 0] - 10) <= 4) & (np.abs(x[:, 1] - 10) <= 4)
+    surface = outer_surface(post)
+    patch = samples_on(surface, np.flatnonzero(on_patch))
+    assert patch.sum() == 4 * 2 * 4 * 4
+    span = wall_span(surface, node_at(post, (14.0, 14.0, 0.0)), ignore=patch)
+    assert span is not None
+    assert span.thickness == pytest.approx(12.0, rel=1e-6)

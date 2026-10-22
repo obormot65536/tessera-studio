@@ -101,6 +101,14 @@ def _surface(mesh: Mesh, tri6: NDArray[np.int64]) -> OuterSurface:
     )
 
 
+def samples_on(surface: OuterSurface, nodes: NDArray[np.int64]) -> NDArray[np.bool_]:
+    """(T,) True for the surface samples whose triangle lies on ``nodes`` (e.g. a support's node
+    set): all three of its nodes are in it."""
+    on = np.zeros(surface.mesh.n_nodes, dtype=bool)
+    on[nodes] = True
+    return on[surface.triangles].all(axis=1)
+
+
 def _face_directions(normals: NDArray[np.float64]) -> list[NDArray[np.float64]]:
     """Mean unit normal of each group of ``normals`` within ``FACE_CLUSTER_ANGLE`` of the group."""
     limit = np.cos(np.radians(FACE_CLUSTER_ANGLE))
@@ -123,6 +131,7 @@ def _nearest_stop(
     centre: NDArray[np.float64],
     radius: float,
     edge: float,
+    ignore: NDArray[np.bool_] | None,
 ) -> NDArray[np.float64] | None:
     """The surface point nearest ``centre`` that stops the ball, if one is inside it.
 
@@ -142,6 +151,8 @@ def _nearest_stop(
             n @ d > _FACING
         )
         stop = ahead & leaving
+        if ignore is not None:
+            stop &= ~ignore[index]
         if len(others):
             near_other = (n @ others.T).max(axis=1) > np.cos(np.radians(FACE_CLUSTER_ANGLE))
             on_other = np.abs(np.einsum("ij,ij->i", q - p, n)) <= _COPLANAR * edge
@@ -166,12 +177,13 @@ def _ball_radius(
     d: NDArray[np.float64],
     others: NDArray[np.float64],
     edge: float,
+    ignore: NDArray[np.bool_] | None,
 ) -> float | None:
     """Radius of the largest ball touching the surface at ``p`` with its centre along ``d``;
     ``None`` if nothing stops it (an open surface)."""
     radius, stopped = surface.extent, False
     for _ in range(_MAX_STEPS):
-        q = _nearest_stop(surface, p, d, others, p + radius * d, radius, edge)
+        q = _nearest_stop(surface, p, d, others, p + radius * d, radius, edge, ignore)
         if q is None:
             break
         stopped = True
@@ -182,7 +194,9 @@ def _ball_radius(
     return radius if stopped else None
 
 
-def wall_span(surface: OuterSurface, node: int) -> WallSpan | None:
+def wall_span(
+    surface: OuterSurface, node: int, ignore: NDArray[np.bool_] | None = None
+) -> WallSpan | None:
     """The wall at ``node``: the diameter of the largest ball inside the part touching the
     surface there, in mm and in elements.
 
@@ -191,6 +205,9 @@ def wall_span(surface: OuterSurface, node: int) -> WallSpan | None:
     measured at the nearest surface node. ``elements`` divides by the local median corner edge
     length at the node measured (``node_edge_length``). ``None`` if no ball is stopped by the
     surface (an open surface), or the mesh has no surface.
+
+    ``ignore`` (from ``samples_on``) leaves samples out: for a spot flagged by a support, the
+    faces it holds, where the part continues into the fixture.
     """
     mesh = surface.mesh
     if surface.incident_start[node] == surface.incident_start[node + 1]:
@@ -208,7 +225,7 @@ def wall_span(surface: OuterSurface, node: int) -> WallSpan | None:
     best: tuple[float, NDArray[np.float64]] | None = None
     for k, normal in enumerate(faces):
         others = np.array([f for j, f in enumerate(faces) if j != k]).reshape(-1, 3)
-        radius = _ball_radius(surface, p, -normal, others, edge)
+        radius = _ball_radius(surface, p, -normal, others, edge, ignore)
         if radius is not None and (best is None or radius < best[0]):
             best = (radius, -normal)
     if best is None:
