@@ -37,9 +37,10 @@ The public API offers only ``Study.mesh_size``, so the distortion comes from the
 gmsh tetrahedral mesher itself, with sizes that do not divide L (3.0, 1.3, 0.9). There is no
 grid: about 1 % of the element edges are parallel to an axis, edge-length ratios within one
 element reach 2.5, and dihedral angles run from about 13 to 169 degrees. The case asserts that
-the mesh stays unstructured (``_assert_unstructured``), so a future structured mesher cannot
-turn it into a trivial test. Faces are flat, so the midside nodes sit on straight edges; curved
-element edges cannot be produced through the public API on a box.
+the mesh stays unstructured (the ``assert_unstructured`` fixture in ``benchmarks/conftest.py``),
+so a future structured mesher cannot turn it into a trivial test. Faces are flat, so the midside
+nodes sit on straight edges; curved element edges cannot be produced through the public API on a
+box.
 
 Measured quantities
 -------------------
@@ -81,7 +82,6 @@ sweep starts at 3.0. The errors stay at the output-precision floor on every mesh
 
 from __future__ import annotations
 
-import itertools
 import math
 import shutil
 from collections.abc import Callable
@@ -107,13 +107,6 @@ POISSON_RATIO = 0.30
 
 GATE_MESH_SIZE = 3.0  # mm: coarsest distinct mesh (does not divide L)
 CONVERGENCE_MESH_SIZES = (3.0, 1.3, 0.9)  # mm, coarse to fine, none divides L
-
-# Mesh-irregularity guards (the mesh must not be a structured grid).
-MAX_AXIS_ALIGNED_EDGE_FRACTION = 0.1
-MAX_SMALLEST_DIHEDRAL_DEG = 30.0
-
-_TET4_EDGES = ((0, 1), (1, 2), (2, 0), (0, 3), (1, 3), (2, 3))
-_TET4_FACES = ((0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3))
 
 
 def exact_displacement(
@@ -152,33 +145,11 @@ def _face_with_normal(faces: list[Any], normal: tuple[float, float, float]) -> i
     return matches[0]
 
 
-def _assert_unstructured(nodes: np.ndarray, elements: np.ndarray) -> None:
-    """The mesh must be irregular: few axis-aligned edges and some strongly skewed elements."""
-    corners = nodes[elements[:, :4]]  # (M, 4, 3)
-    edges = np.concatenate([corners[:, j] - corners[:, i] for i, j in _TET4_EDGES])
-    edges /= np.linalg.norm(edges, axis=1)[:, None]
-    aligned = float((np.abs(edges).max(axis=1) > 1.0 - 1e-9).mean())
-    assert aligned < MAX_AXIS_ALIGNED_EDGE_FRACTION, (
-        f"{aligned:.1%} of the element edges are axis-aligned: the mesh looks structured"
-    )
-
-    normals = []
-    for a, b, c in _TET4_FACES:
-        n = np.cross(corners[:, b] - corners[:, a], corners[:, c] - corners[:, a])
-        normals.append(n / np.linalg.norm(n, axis=1)[:, None])
-    cosines = [
-        np.einsum("ij,ij->i", normals[i], normals[j])
-        for i, j in itertools.combinations(range(4), 2)
-    ]
-    # Dihedral angle between two faces = 180 deg - angle between their (consistent) normals.
-    smallest = float(180.0 - np.degrees(np.arccos(np.clip(np.min(cosines), -1.0, 1.0))))
-    assert smallest < MAX_SMALLEST_DIHEDRAL_DEG, (
-        f"smallest dihedral angle {smallest:.1f} deg: the mesh is not distorted"
-    )
-
-
 def _solve_patch(
-    step_path: Path, mesh_size: float, workdir: Path
+    step_path: Path,
+    mesh_size: float,
+    workdir: Path,
+    assert_unstructured: Callable[[np.ndarray, np.ndarray], None],
 ) -> tuple[float, float, float, int]:
     """Run the cube through the public API.
 
@@ -221,7 +192,7 @@ def _solve_patch(
     result = solve(p, workdir=workdir)
 
     nodes = result.mesh.nodes
-    _assert_unstructured(nodes, result.mesh.elements)
+    assert_unstructured(nodes, result.mesh.elements)
     u = result.solution.displacements
     s = result.solution.stresses  # sxx, syy, szz, sxy, syz, szx
     tol = 1e-6 * SIDE
@@ -245,7 +216,9 @@ def cube_step(box_step: Callable[..., Path]) -> Path:
 
 @pytest.fixture(scope="module")
 def patch(
-    cube_step: Path, tmp_path_factory: pytest.TempPathFactory
+    cube_step: Path,
+    tmp_path_factory: pytest.TempPathFactory,
+    assert_unstructured: Callable[[np.ndarray, np.ndarray], None],
 ) -> Callable[[float], tuple[float, float, float, int]]:
     """Cached ``mesh_size -> (sxx error, other-stress error, u error, n_nodes)``."""
     cache: dict[float, tuple[float, float, float, int]] = {}
@@ -253,7 +226,7 @@ def patch(
     def run(mesh_size: float) -> tuple[float, float, float, int]:
         if mesh_size not in cache:
             workdir = tmp_path_factory.mktemp(f"patch-test-h{mesh_size:g}")
-            cache[mesh_size] = _solve_patch(cube_step, mesh_size, workdir)
+            cache[mesh_size] = _solve_patch(cube_step, mesh_size, workdir, assert_unstructured)
         return cache[mesh_size]
 
     return run

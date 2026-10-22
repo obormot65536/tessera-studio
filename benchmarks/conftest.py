@@ -6,14 +6,48 @@ the STEP file, exactly like a user import.
 
 from __future__ import annotations
 
+import itertools
 import tomllib
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 
 REFERENCES_DIR = Path(__file__).parent / "references"
+
+# Mesh-irregularity guards for the patch tests (the mesh must not be a structured grid).
+MAX_AXIS_ALIGNED_EDGE_FRACTION = 0.1
+MAX_SMALLEST_DIHEDRAL_DEG = 30.0
+
+_TET4_EDGES = ((0, 1), (1, 2), (2, 0), (0, 3), (1, 3), (2, 3))
+_TET4_FACES = ((0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3))
+
+
+def check_unstructured(nodes: np.ndarray, elements: np.ndarray) -> None:
+    """The mesh must be irregular: few axis-aligned edges and some strongly skewed elements."""
+    corners = nodes[elements[:, :4]]  # (M, 4, 3)
+    edges = np.concatenate([corners[:, j] - corners[:, i] for i, j in _TET4_EDGES])
+    edges /= np.linalg.norm(edges, axis=1)[:, None]
+    aligned = float((np.abs(edges).max(axis=1) > 1.0 - 1e-9).mean())
+    assert aligned < MAX_AXIS_ALIGNED_EDGE_FRACTION, (
+        f"{aligned:.1%} of the element edges are axis-aligned: the mesh looks structured"
+    )
+
+    normals = []
+    for a, b, c in _TET4_FACES:
+        n = np.cross(corners[:, b] - corners[:, a], corners[:, c] - corners[:, a])
+        normals.append(n / np.linalg.norm(n, axis=1)[:, None])
+    cosines = [
+        np.einsum("ij,ij->i", normals[i], normals[j])
+        for i, j in itertools.combinations(range(4), 2)
+    ]
+    # Dihedral angle between two faces = 180 deg - angle between their (consistent) normals.
+    smallest = float(180.0 - np.degrees(np.arccos(np.clip(np.min(cosines), -1.0, 1.0))))
+    assert smallest < MAX_SMALLEST_DIHEDRAL_DEG, (
+        f"smallest dihedral angle {smallest:.1f} deg: the mesh is not distorted"
+    )
 
 
 def write_box_step(
@@ -110,3 +144,13 @@ def load_reference() -> Callable[[str], dict[str, Any]]:
             return tomllib.load(f)
 
     return load
+
+
+@pytest.fixture(scope="session")
+def assert_unstructured() -> Callable[[np.ndarray, np.ndarray], None]:
+    """``assert_unstructured(nodes, elements)``: fail unless the tet mesh is irregular.
+
+    Shared by the patch tests (TS-03, TO-01), so a future structured mesher cannot turn them
+    into trivial tests.
+    """
+    return check_unstructured
