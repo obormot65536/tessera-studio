@@ -17,17 +17,28 @@ Integration points (ADR-008), only when ``SolveJob.point_stresses`` asks for the
 neutral order xx yy zz xy yz zx. The points' coordinates are computed from the mesh with the
 C3D10 rule (``rule_points``), in full double precision: ccx's ``COORD`` output has seven
 significant digits of the absolute position, too few for a small element far from the origin.
+
+Stopping: ccx runs in its own process group (POSIX) or is stopped with ``taskkill /T``
+(Windows), so a timeout or an interrupt also stops the processes it, or a wrapper script set in
+``$TESSERA_CCX``, started. See ``_run_ccx`` for what is and is not covered.
 """
 
+import contextlib
+import ctypes
+import math
 import mmap
 import os
 import re
 import shutil
+import signal
 import subprocess
+import sys
+import threading
 import warnings
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import IO, Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -39,6 +50,7 @@ from tessera.model.solver import (
     SolveJob,
     SolverError,
     SolveResult,
+    SolverTimeoutError,
 )
 
 JOB_NAME = "job"
@@ -580,6 +592,12 @@ class CalculixAdapter:
     name = "calculix"
 
     def __init__(self, timeout: float | None = None) -> None:
+        """``timeout``: seconds each ``run`` may take before ccx is stopped; ``None``: no limit.
+
+        ``tessera.core.solve`` always passes one (``tessera.core.SOLVE_TIMEOUT`` by default).
+        """
+        if timeout is not None and not _positive_seconds(timeout):
+            raise ValueError(f"timeout must be a positive number of seconds or None, got {timeout}")
         self.timeout = timeout
 
     def capabilities(self) -> frozenset[AnalysisKind]:
@@ -594,27 +612,13 @@ class CalculixAdapter:
             (workdir / f"{JOB_NAME}{suffix}").unlink(missing_ok=True)
         (workdir / f"{JOB_NAME}.inp").write_text(deck)
 
-        try:
-            proc = subprocess.run(
-                [ccx, "-i", JOB_NAME],
-                cwd=workdir,
-                capture_output=True,
-                text=True,
-                timeout=self.timeout,
-                check=False,
-            )
-        except subprocess.TimeoutExpired as exc:
-            log = _as_text(exc.stdout) + _as_text(exc.stderr)
-            raise SolverError(f"CalculiX timed out after {self.timeout} s", log) from exc
-        except OSError as exc:
-            raise SolverError(f"Could not start CalculiX ({ccx}): {exc}") from exc
-
-        log = proc.stdout + (f"\n--- stderr ---\n{proc.stderr}" if proc.stderr else "")
+        returncode, stdout, stderr = _run_ccx([ccx, "-i", JOB_NAME], workdir, self.timeout)
+        log = _log(stdout, stderr)
         frd = workdir / f"{JOB_NAME}.frd"
-        if "*ERROR" in proc.stdout or "*ERROR" in proc.stderr:
+        if "*ERROR" in stdout or "*ERROR" in stderr:
             raise SolverError(f"CalculiX reported an error: {_first_error(log)}", log)
-        if proc.returncode != 0:
-            raise SolverError(f"CalculiX exited with code {proc.returncode}", log)
+        if returncode != 0:
+            raise SolverError(f"CalculiX exited with code {returncode}", log)
         if not frd.is_file() or frd.stat().st_size == 0:
             raise SolverError("CalculiX produced no results file (job.frd)", log)
 
@@ -643,10 +647,201 @@ class CalculixAdapter:
         )
 
 
-def _as_text(data: str | bytes | None) -> str:
-    if data is None:
+_DRAIN_SECONDS = 10.0
+"""How long to wait for the output of a stopped ccx before giving up on it."""
+
+_STOP_SIGNALS = ("SIGTERM", "SIGHUP")
+"""Signals that end Tessera by default; while ccx runs they stop ccx first (POSIX, main thread)."""
+
+
+class _Signalled(BaseException):
+    """Raised by the temporary signal handler so the waiting code stops ccx before exiting."""
+
+    def __init__(self, signum: int) -> None:
+        super().__init__(signum)
+        self.signum = signum
+
+
+def _positive_seconds(value: object) -> bool:
+    """A finite number of seconds above zero; ``True`` is not 1 s."""
+    return (
+        isinstance(value, int | float)
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+        and value > 0
+    )
+
+
+def _run_ccx(cmd: list[str], workdir: Path, timeout: float | None) -> tuple[int, str, str]:
+    """Run ccx; return its exit code, stdout and stderr.
+
+    ccx and the processes it starts are killed before this returns or raises when:
+
+    - the run takes longer than ``timeout``: raises ``SolverTimeoutError``;
+    - an exception interrupts the wait (Ctrl+C, a GUI cancel): re-raises it;
+    - on POSIX, in the main thread, Tessera receives SIGTERM or SIGHUP: the signal is then
+      handled as it would have been (by default the process ends);
+    - on Linux, Tessera dies in any way, even SIGKILL: the kernel kills the direct child
+      (``PR_SET_PDEATHSIG``), but not the processes that child started.
+
+    Not covered: SIGTERM or SIGHUP while a non-main thread waits on macOS (Linux still has
+    ``PR_SET_PDEATHSIG``), Tessera killed with SIGKILL on macOS or Windows, and processes
+    that leave ccx's process group themselves (``setsid``).
+    """
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=workdir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            # POSIX: a new session and process group, so the whole tree can be killed at once.
+            start_new_session=sys.platform != "win32",
+            preexec_fn=_die_with_parent() if sys.platform == "linux" else None,
+        )
+    except OSError as exc:
+        raise SolverError(f"Could not start CalculiX ({cmd[0]}): {exc}") from exc
+    try:
+        with _signals_stop_ccx():
+            return _wait(proc, timeout)
+    except _Signalled as sig:
+        if proc.returncode is None:  # the signal cut short the kill after a timeout
+            _kill_tree(proc)
+        # The handlers are restored: deliver the signal again to the previous handler, which
+        # by default ends the process. If that handler returns, report the stop.
+        signal.raise_signal(sig.signum)
+        name = signal.Signals(sig.signum).name
+        raise SolverError(f"CalculiX was stopped because Tessera received {name}") from None
+
+
+def _wait(proc: subprocess.Popen[str], timeout: float | None) -> tuple[int, str, str]:
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        assert timeout is not None  # communicate only times out with a timeout
+        _kill_tree(proc)
+        stdout, stderr = _drain(proc)
+        raise SolverTimeoutError(
+            f"CalculiX did not finish within {timeout:g} s and was stopped",
+            timeout,
+            _log(stdout, stderr),
+        ) from None
+    except BaseException:
+        _kill_tree(proc)
+        _drain(proc)
+        raise
+    return proc.returncode, stdout, stderr
+
+
+@contextlib.contextmanager
+def _signals_stop_ccx() -> Iterator[None]:
+    """While ccx runs, make SIGTERM and SIGHUP raise ``_Signalled`` instead of ending Tessera
+    at once, so ``_wait`` kills ccx first. Only on POSIX and in the main thread (Python runs
+    signal handlers there only); signals set to be ignored (``nohup``) stay ignored."""
+    if sys.platform == "win32" or threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    raised = False
+
+    def handler(signum: int, _frame: object) -> None:
+        nonlocal raised
+        if not raised:  # a second signal must not interrupt the cleanup of the first
+            raised = True
+            raise _Signalled(signum)
+
+    previous: dict[signal.Signals, Any] = {}
+    for name in _STOP_SIGNALS:
+        signum = signal.Signals[name]
+        old = signal.getsignal(signum)
+        if old is signal.SIG_DFL or callable(old):
+            previous[signum] = signal.signal(signum, handler)
+    try:
+        yield
+    finally:
+        for signum, old in previous.items():
+            signal.signal(signum, old)
+
+
+def _die_with_parent() -> Callable[[], None] | None:
+    """A ``preexec_fn`` that makes Linux kill the child with SIGKILL when Tessera dies."""
+    if sys.platform != "linux":
+        return None
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        prctl = libc.prctl
+    except (OSError, AttributeError):
+        return None
+    parent = os.getpid()
+
+    def preexec() -> None:
+        prctl(_PR_SET_PDEATHSIG, int(signal.SIGKILL), 0, 0, 0)
+        # If Tessera died before prctl ran, the child already has a new parent and would never
+        # get the signal (the documented race), so stop now.
+        if os.getppid() != parent:
+            os.kill(os.getpid(), signal.SIGKILL)
+
+    return preexec
+
+
+_PR_SET_PDEATHSIG = 1  # <linux/prctl.h>
+
+
+def _taskkill() -> str:
+    """``taskkill.exe`` by absolute path when it exists, so PATH cannot redirect it."""
+    system = Path(os.environ.get("SYSTEMROOT", r"C:\Windows")) / "System32" / "taskkill.exe"
+    return str(system) if system.is_file() else "taskkill"
+
+
+def _kill_tree(proc: subprocess.Popen[str]) -> None:
+    """Kill ``proc`` and the processes it started (its process group / process tree)."""
+    if sys.platform == "win32":
+        # /T: the whole tree by parent pid; /F: forcefully. Works without a Job Object.
+        with contextlib.suppress(OSError, subprocess.TimeoutExpired):
+            subprocess.run(
+                [_taskkill(), "/F", "/T", "/PID", str(proc.pid)],
+                capture_output=True,
+                check=False,
+                timeout=_DRAIN_SECONDS,
+            )
+    else:
+        with contextlib.suppress(ProcessLookupError):  # the group is already gone
+            os.killpg(proc.pid, signal.SIGKILL)
+    with contextlib.suppress(OSError):  # in case taskkill failed; the process may be gone
+        proc.kill()
+
+
+def _drain(proc: subprocess.Popen[str]) -> tuple[str, str]:
+    """Collect what a killed ccx wrote. If a process that escaped the kill keeps the pipes
+    open, give up after ``_DRAIN_SECONDS`` and return what was read so far."""
+    try:
+        return proc.communicate(timeout=_DRAIN_SECONDS)
+    except subprocess.TimeoutExpired as exc:
+        if sys.platform == "win32":
+            # communicate's reader threads hold the pipes' locks, so closing them would block
+            # until the escaped process exits. Leave the daemon threads; they read nothing
+            # until end of file, so there is no partial output to return.
+            return "", ""
+        stdout, stderr = _decode(proc.stdout, exc.output), _decode(proc.stderr, exc.stderr)
+        for pipe in (proc.stdout, proc.stderr):
+            if pipe is not None:
+                pipe.close()
+        proc.wait()
+        return stdout, stderr
+
+
+def _decode(pipe: IO[str] | None, data: str | bytes | None) -> str:
+    """Partial output from ``TimeoutExpired`` is bytes even in text mode."""
+    if not data:
         return ""
-    return data.decode(errors="replace") if isinstance(data, bytes) else data
+    if isinstance(data, str):
+        return data
+    encoding = getattr(pipe, "encoding", None) or "utf-8"
+    return data.decode(encoding, errors="replace")
+
+
+def _log(stdout: str | None, stderr: str | None) -> str:
+    stdout, stderr = stdout or "", stderr or ""
+    return stdout + (f"\n--- stderr ---\n{stderr}" if stderr else "")
 
 
 def _first_error(log: str) -> str:
