@@ -84,7 +84,7 @@ request.
 | Mesh-check local refinement needed for a verdict R | 0.85 (fine / coarse edge length) |
 | Face peaks shown by the CLI | Top 5 (all in the API) |
 | Mesh check default | Off; opt in with `--check-mesh` |
-| Thin-wall minimum N (Amendment 2) | 5 elements across the wall at a flagged spot, on the coarse mesh (proposed, needs maintainer approval) |
+| Thin-wall minimum N (Amendment 2) | 5 elements across the wall at a flagged spot, on the coarse mesh (approved by the maintainer) |
 
 ## Options considered
 
@@ -131,7 +131,7 @@ and a warning, so a real stress raiser inside a flagged band (a hole next to a c
 7. [x] Docs: user guide Steps 7 and 9, API reference.
 8. [ ] MCP: `flags` and `trust` fields, and tool descriptions that quote only `clear` or `settled`
        values (the MCP server does not exist yet).
-9. [ ] Amendment 2: maintainer approves N = 5 and the flagged-only scope.
+9. [x] Amendment 2: maintainer approves N = 5 and the flagged-only scope.
 10. [ ] Amendment 2: `model.results` adds `WallSpan`, `StressSpot.wall`, `Verdict.THIN_WALL`,
         `SpotCheck.elements_across` and `MeshCheck.wall_elements_min` (all additive).
 11. [ ] Amendment 2: `post` measures the wall at reported spots (`wall.py`, ray cast) and
@@ -139,9 +139,9 @@ and a warning, so a real stress raiser inside a flagged band (a hole next to a c
         and TS-02.
 12. [ ] Follow-up: local refinement near flagged spots, so N = 5 does not force a fine global mesh.
 
-## Amendment 2 (proposed): thin walls
+## Amendment 2: thin walls
 
-**Status:** Proposed; N needs the maintainer's approval (hard rule 6).
+**Status:** Accepted (maintainer, 2026-10-22), including N = 5.
 
 **Problem.** A mesh too coarse to show the stress rise at a singularity can read `settled`: the
 peak there barely moves between the two meshes because neither resolves it. The user guide's
@@ -169,7 +169,8 @@ at the clamp); at 2.5 mm the same peak is `mesh-dependent`. Today only the user 
 3. **Warn without the check too.** A flagged spot with fewer than N elements across gets one line
    in `tessera solve` saying how many there are and the mesh size that would give N, so the user
    refines before running `--check-mesh`.
-4. **N = 5** (proposed). Every number stored and shown is the measured count, not a pass/fail, so
+4. **N = 5** (approved by the maintainer). Every number stored and shown is the measured count,
+   not a pass/fail, so
    a later N changes no stored data.
 
 **Evidence.** A sweep of `check_mesh=True` solves through the benchmarks' own helpers, recording
