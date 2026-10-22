@@ -20,4 +20,6 @@ def pytest_runtest_logreport(report: pytest.TestReport) -> None:
 
 
 def _escape(text: str) -> str:
+    # ASCII only: the Windows runner's console encoding cannot print every character.
+    text = text.encode("ascii", "backslashreplace").decode("ascii")
     return text.replace("%", "%25").replace("\r", "").replace("\n", "%0A")
