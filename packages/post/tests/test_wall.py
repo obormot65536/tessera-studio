@@ -1,4 +1,4 @@
-"""Wall thickness at a surface node (ADR-007 Amendment 2): ray cast against the outer surface.
+"""Wall thickness at a node (ADR-007 Amendment 2): the largest ball tangent at the node.
 
 The meshes are small structured tet10 grids built here with numpy, so no mesher or solver runs.
 """
@@ -10,16 +10,10 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from tessera.model import (
-    TET10_EDGES,
-    FixedSupport,
-    IsotropicMaterial,
-    Mesh,
-    Section,
-    SolveJob,
-    WallSpan,
-)
+from tessera.model import TET10_EDGES, Mesh, WallSpan
 from tessera.post import WALL_ELEMENTS_MIN, local_edge_length, outer_surface, wall_span
+from tessera.post.flags import _outer_triangles  # pyright: ignore[reportPrivateUsage]
+from tessera.post.wall import _surface  # pyright: ignore[reportPrivateUsage]
 
 Mapping = Callable[[NDArray[np.float64]], NDArray[np.float64]]
 
@@ -69,22 +63,13 @@ def scaled(factor: float) -> Mapping:
     return lambda p: p * factor
 
 
-def job(mesh: Mesh, *supports: FixedSupport) -> SolveJob:
-    return SolveJob(
-        mesh=mesh,
-        materials=(IsotropicMaterial(name="m", youngs_modulus=1000.0, poisson_ratio=0.3),),
-        sections=(Section(element_set="part:p", material="m"),),
-        supports=supports,
-    )
-
-
 def node_at(mesh: Mesh, point: tuple[float, float, float]) -> int:
     (found,) = np.flatnonzero(np.isclose(mesh.nodes, point).all(axis=1))
     return int(found)
 
 
-def span_at(solve_job: SolveJob, point: tuple[float, float, float]) -> WallSpan | None:
-    return wall_span(outer_surface(solve_job), node_at(solve_job.mesh, point))
+def span_at(mesh: Mesh, point: tuple[float, float, float]) -> WallSpan | None:
+    return wall_span(outer_surface(mesh), node_at(mesh, point))
 
 
 def test_the_approved_default() -> None:
@@ -93,99 +78,93 @@ def test_the_approved_default() -> None:
 
 def test_thin_plate_is_its_thickness_across() -> None:
     plate = tet10_grid((6, 6, 2))  # 6 x 6 x 2 mm, 1 mm cells
-    span = span_at(job(plate), (3.0, 3.0, 2.0))
+    span = span_at(plate, (3.0, 3.0, 2.0))
     assert span is not None
     assert span.thickness == pytest.approx(2.0, rel=1e-6)
     assert span.direction == pytest.approx((0.0, 0.0, -1.0))
-    assert not span.mirrored
     assert span.elements == pytest.approx(2.0 / local_edge_length(plate, (3.0, 3.0, 2.0)))
     # From the bottom too, and from a midside node.
-    bottom = span_at(job(plate), (3.0, 3.0, 0.0))
+    bottom = span_at(plate, (3.0, 3.0, 0.0))
     assert bottom is not None and bottom.thickness == pytest.approx(2.0, rel=1e-6)
     assert bottom.direction == pytest.approx((0.0, 0.0, 1.0))
-    middle = span_at(job(plate), (3.5, 3.0, 2.0))
+    middle = span_at(plate, (3.5, 3.0, 2.0))
     assert middle is not None and middle.thickness == pytest.approx(2.0, rel=1e-6)
 
 
 def test_elements_across_scale_with_the_layers() -> None:
     # The same 6 x 6 x 2 mm plate with half-size elements: twice the elements, same thickness.
-    coarse = span_at(job(tet10_grid((6, 6, 2))), (3.0, 3.0, 2.0))
-    fine = span_at(job(tet10_grid((12, 12, 4), mapping=scaled(0.5))), (3.0, 3.0, 2.0))
+    coarse = span_at(tet10_grid((6, 6, 2)), (3.0, 3.0, 2.0))
+    fine = span_at(tet10_grid((12, 12, 4), mapping=scaled(0.5)), (3.0, 3.0, 2.0))
     assert coarse is not None and fine is not None
     assert fine.thickness == pytest.approx(coarse.thickness, rel=1e-6)
     assert fine.elements == pytest.approx(2.0 * coarse.elements, rel=1e-6)
 
 
 @pytest.mark.parametrize(
-    ("point", "thickness", "direction"),
+    "point",
     [
-        ((0.0, 0.0, 0.0), 2.0, (0.0, 0.0, 1.0)),  # corner: x 8, y 4, z 2 mm
-        ((4.0, 0.0, 0.0), 2.0, (0.0, 0.0, 1.0)),  # edge between the y = 0 and z = 0 faces
-        ((0.0, 0.0, 1.0), 4.0, (0.0, 1.0, 0.0)),  # edge between x = 0 (8 mm) and y = 0 (4 mm)
-        ((8.0, 4.0, 1.0), 4.0, (0.0, -1.0, 0.0)),
+        (0.0, 0.0, 0.0),  # corner: 8 mm along x, 4 along y, 6 along z
+        (4.0, 0.0, 0.0),  # edge between the y = 0 and z = 0 faces
+        (0.0, 0.0, 3.0),  # edge between the x = 0 and y = 0 faces
+        (8.0, 4.0, 3.0),
+        (0.0, 2.0, 3.0),  # middle of the x = 0 end face: the wall, not the 8 mm length
     ],
 )
-def test_edges_and_corners_take_the_thinnest_direction(
-    point: tuple[float, float, float], thickness: float, direction: tuple[float, float, float]
+def test_edges_corners_and_end_faces_take_the_thinnest_wall(
+    point: tuple[float, float, float],
 ) -> None:
-    span = span_at(job(tet10_grid((8, 4, 2))), point)
+    span = span_at(tet10_grid((8, 4, 6)), point)
     assert span is not None
-    assert span.thickness == pytest.approx(thickness, rel=1e-6)
-    assert span.direction == pytest.approx(direction)
+    assert span.thickness == pytest.approx(4.0, rel=1e-6)
+
+
+def test_corner_takes_the_smallest_ball_over_its_faces() -> None:
+    # 8 x 4 x 2: the largest ball tangent to the x or the y face at the corner is 4 mm across,
+    # the one tangent to the z face 2 mm; the wall is the smallest, along that face's normal.
+    span = span_at(tet10_grid((8, 4, 2)), (0.0, 0.0, 0.0))
+    assert span is not None
+    assert span.thickness == pytest.approx(2.0, rel=1e-6)
+    assert span.direction == pytest.approx((0.0, 0.0, 1.0))
+
+
+def test_clamped_end_face_of_a_long_bar_is_the_section_not_the_length() -> None:
+    # 40 x 10 x 10 mm bar: a ray cast from the end face reads the 40 mm length.
+    bar = tet10_grid((20, 5, 5), mapping=scaled(2.0))
+    surface = outer_surface(bar)
+    for point in [(0.0, 5.0, 5.0), (0.0, 0.0, 0.0), (0.0, 0.0, 5.0)]:
+        span = wall_span(surface, node_at(bar, point))
+        assert span is not None
+        assert span.thickness == pytest.approx(10.0, rel=1e-6), point
+    # A ball tangent 2 mm from the bottom edge touches the bottom face first.
+    off_centre = wall_span(surface, node_at(bar, (0.0, 4.0, 2.0)))
+    assert off_centre is not None and off_centre.thickness == pytest.approx(4.0, rel=1e-6)
+
+
+def test_corner_of_a_patch_in_the_middle_of_an_end_face() -> None:
+    # A 20 x 20 x 60 mm post: at (14, 14, 0), where an 8 mm patch in the middle of the end face
+    # would have its corner, the largest ball tangent there touches the sides 6 mm away. A ray
+    # cast reads the 60 mm length.
+    post = tet10_grid((10, 10, 30), mapping=scaled(2.0))
+    patch_corner = span_at(post, (14.0, 14.0, 0.0))
+    assert patch_corner is not None
+    assert patch_corner.thickness == pytest.approx(12.0, rel=1e-6)
+    centre = span_at(post, (10.0, 10.0, 0.0))
+    assert centre is not None and centre.thickness == pytest.approx(20.0, rel=1e-6)
 
 
 def test_l_section_inside_corner_is_the_thinner_arm() -> None:
-    # 8 x 2 x 10 mm minus x > 4, z > 6: an upright arm 4 mm thick (x < 4) standing on a base
-    # 6 mm thick (z < 6). The inside edge runs along y at x = 4, z = 6.
-    keep = np.ones((8, 2, 10), dtype=bool)
+    # 12 x 8 x 10 mm minus x > 4, z > 6: an upright arm 4 mm thick (x < 4) standing on a base
+    # 6 mm thick (z < 6). The inside edge runs along y at x = 4, z = 6; it must not collapse.
+    keep = np.ones((12, 8, 10), dtype=bool)
     keep[4:, :, 6:] = False
-    mesh = tet10_grid((8, 2, 10), keep=keep)
-    corner = span_at(job(mesh), (4.0, 1.0, 6.0))
+    mesh = tet10_grid((12, 8, 10), keep=keep)
+    surface = outer_surface(mesh)
+    corner = wall_span(surface, node_at(mesh, (4.0, 4.0, 6.0)))
     assert corner is not None
     assert corner.thickness == pytest.approx(4.0, rel=1e-6)
     assert corner.direction == pytest.approx((-1.0, 0.0, 0.0))
-    base = span_at(job(mesh), (6.0, 1.0, 6.0))
+    base = wall_span(surface, node_at(mesh, (8.0, 4.0, 6.0)))
     assert base is not None and base.thickness == pytest.approx(6.0, rel=1e-6)
-
-
-def _plate_on(*supports: FixedSupport) -> SolveJob:
-    """The 6 x 6 x 2 mm plate with node set ``support:sym`` on its bottom face z = 0."""
-    plate = tet10_grid((6, 6, 2))
-    bottom = np.flatnonzero(np.isclose(plate.nodes[:, 2], 0.0))
-    mesh = Mesh(
-        nodes=plate.nodes,
-        elements=plate.elements,
-        element_sets=plate.element_sets,
-        node_sets={"support:sym": bottom},
-    )
-    return job(mesh, *supports)
-
-
-def test_a_symmetry_plane_doubles_the_wall() -> None:
-    # The bottom holds z only: an exact mirror plane, so the real plate is 4 mm thick.
-    span = span_at(_plate_on(FixedSupport(node_set="support:sym", dofs=(3,))), (3.0, 3.0, 2.0))
-    assert span is not None
-    assert span.thickness == pytest.approx(4.0, rel=1e-6)
-    assert span.mirrored
-    assert span.elements == pytest.approx(
-        4.0 / local_edge_length(_plate_on().mesh, (3.0, 3.0, 2.0))
-    )
-
-
-@pytest.mark.parametrize(
-    "support",
-    [
-        FixedSupport(node_set="support:sym", dofs=(1,)),  # a roller along x: no mirror in z
-        FixedSupport(node_set="support:sym", dofs=(1, 3)),  # two directions: a clamp
-        FixedSupport(node_set="support:sym", dofs=(1, 2, 3)),
-        FixedSupport(node_set="support:sym", dofs=(3,), line=True),
-    ],
-)
-def test_other_supports_do_not_mirror(support: FixedSupport) -> None:
-    span = span_at(_plate_on(support), (3.0, 3.0, 2.0))
-    assert span is not None
-    assert span.thickness == pytest.approx(2.0, rel=1e-6)
-    assert not span.mirrored
 
 
 def annular_sector(segments: int) -> Mapping:
@@ -201,14 +180,28 @@ def annular_sector(segments: int) -> Mapping:
 
 @pytest.mark.parametrize("theta", [45.0, 37.5, 52.5])  # at a corner node, at midside nodes
 def test_tube_bore_is_the_wall_within_one_percent(theta: float) -> None:
-    mesh = tet10_grid((3, 6, 2), mapping=annular_sector(6))
+    mesh = tet10_grid((3, 6, 8), mapping=annular_sector(6))
     t = np.radians(theta)
-    span = span_at(job(mesh), (5.0 * np.cos(t), 5.0 * np.sin(t), 1.0))
+    span = span_at(mesh, (5.0 * np.cos(t), 5.0 * np.sin(t), 4.0))
     assert span is not None
     assert span.thickness == pytest.approx(3.0, rel=0.01)
     assert span.direction == pytest.approx((np.cos(t), np.sin(t), 0.0), abs=0.02)
 
 
-def test_interior_node_has_no_wall() -> None:
-    cube = tet10_grid((4, 4, 4))
-    assert span_at(job(cube), (2.0, 2.0, 2.0)) is None
+def test_interior_node_is_measured_at_the_nearest_surface_node() -> None:
+    # 6 x 6 x 4 block: the node (3, 3, 1) is 1 mm under the bottom face, whose wall is 4 mm.
+    block = tet10_grid((6, 6, 4))
+    span = span_at(block, (3.0, 3.0, 1.0))
+    assert span is not None
+    assert span.thickness == pytest.approx(4.0, rel=1e-6)
+    assert span.direction == pytest.approx((0.0, 0.0, 1.0))
+    assert span.elements == pytest.approx(4.0 / local_edge_length(block, (3.0, 3.0, 0.0)))
+
+
+def test_no_wall_where_the_surface_is_open() -> None:
+    # Only the top face of a plate: nothing for the ball to touch below, as on an open STL.
+    plate = tet10_grid((6, 6, 2))
+    tri6 = _outer_triangles(plate)
+    top = np.isclose(plate.nodes[tri6[:, :3], 2], 2.0).all(axis=1)
+    surface = _surface(plate, tri6[top])
+    assert wall_span(surface, node_at(plate, (3.0, 3.0, 2.0))) is None

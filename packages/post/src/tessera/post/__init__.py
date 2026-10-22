@@ -14,6 +14,7 @@ from tessera.post.mesh_check import (
     WALL_ELEMENTS_MIN,
     compare_meshes,
     local_edge_length,
+    node_edge_length,
     spot_check,
 )
 from tessera.post.summary import summarize, von_mises
@@ -31,6 +32,7 @@ __all__ = [
     "flag_nodes",
     "local_edge_length",
     "median_edge_length",
+    "node_edge_length",
     "outer_surface",
     "sharp_inside_edge_nodes",
     "spot_check",

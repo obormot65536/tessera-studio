@@ -347,25 +347,54 @@ def test_no_result_at_all_is_an_error(bar: Mesh) -> None:
         summarize(job(bar), uniaxial(np.full(bar.n_nodes, np.nan)))
 
 
-def test_summarize_measures_the_wall_at_surface_spots(bar: Mesh) -> None:
-    # ADR-007 Amendment 2: the 10 x 3 x 3 mm bar is 3 mm across at the clamp and away from it.
+def test_summarize_measures_the_wall_where_the_guard_needs_it(bar: Mesh) -> None:
+    # ADR-007 Amendment 2: the raw and clear peaks and every flagged spot get their wall. Both
+    # peaks are on the top edge 1 mm from a side of the 3 x 3 mm section, so the largest ball
+    # touching them is 2 mm across.
     near, away = node_at(bar, (0.0, 1.0, 3.0)), node_at(bar, (8.0, 1.0, 3.0))
     values = np.ones(bar.n_nodes)
     values[near], values[away] = 100.0, 50.0
     result = summarize(job(bar, FixedSupport(node_set="support:root")), uniaxial(values))
-    spots = [result.peak_von_mises, result.clear_peak_von_mises, *result.face_peaks]
-    for spot in spots:
-        assert spot is not None and spot.wall is not None
-        assert spot.wall.thickness == pytest.approx(3.0, rel=1e-6)
+    clear = result.clear_peak_von_mises
+    assert clear is not None
+    for spot in [result.peak_von_mises, clear]:
+        assert spot.wall is not None
+        assert spot.wall.thickness == pytest.approx(2.0, rel=1e-6)
         assert spot.wall.elements == pytest.approx(
-            3.0 / local_edge_length(bar, spot.location), rel=1e-6
+            2.0 / local_edge_length(bar, spot.location), rel=1e-6
         )
-        assert not spot.wall.mirrored
-    assert result.peak_von_mises.wall is not None
-    assert result.peak_von_mises.wall.direction == pytest.approx((0.0, 0.0, -1.0))
+    # Face peaks: measured when flagged, the only ones the guard reads.
+    assert any(not p.flagged for p in result.face_peaks)
+    for spot in result.face_peaks:
+        assert (spot.wall is not None) == spot.flagged, spot
 
 
-def test_summarize_has_no_wall_inside_the_part(bar: Mesh) -> None:
+def test_summarize_measures_an_interior_peak_at_the_nearest_surface_node(bar: Mesh) -> None:
     values = np.zeros(bar.n_nodes)
-    values[node_at(bar, (5.0, 1.0, 1.0))] = 7.0
-    assert summarize(job(bar), uniaxial(values)).peak_von_mises.wall is None
+    values[node_at(bar, (5.0, 1.5, 1.0))] = 7.0  # 1 mm under the bottom, mid-width
+    wall = summarize(job(bar), uniaxial(values)).peak_von_mises.wall
+    assert wall is not None
+    assert wall.thickness == pytest.approx(3.0, rel=1e-6)
+
+
+def test_a_roller_is_not_a_mirror_for_the_wall() -> None:
+    # 60 x 20 x 2 mm plate clamped at x = 0 and resting on a table (a z roller on its bottom):
+    # the roller could be a symmetry plane or a real table, so the wall is never doubled.
+    plate = tet10_grid((30, 10, 1), mapping=lambda p: p * np.array([2.0, 2.0, 2.0]))
+    x = plate.nodes
+    mesh = with_sets(
+        plate,
+        support_root=np.isclose(x[:, 0], 0.0),
+        support_table=np.isclose(x[:, 2], 0.0),
+        **box_faces(plate),
+    )
+    values = np.ones(mesh.n_nodes)
+    values[node_at(mesh, (0.0, 10.0, 2.0))] = 100.0
+    solve_job = job(
+        mesh,
+        FixedSupport(node_set="support:root"),
+        FixedSupport(node_set="support:table", dofs=(3,)),
+    )
+    peak = summarize(solve_job, uniaxial(values)).peak_von_mises
+    assert peak.flagged and peak.wall is not None
+    assert peak.wall.thickness == pytest.approx(2.0, rel=1e-6)

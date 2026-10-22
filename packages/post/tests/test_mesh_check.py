@@ -1,5 +1,6 @@
 """Two-mesh check (ADR-007): each reported number compared between a coarse and a fine solve."""
 
+import dataclasses
 import itertools
 import math
 
@@ -9,6 +10,7 @@ import pytest
 from tessera.model import (
     FlagKind,
     Mesh,
+    MeshCheck,
     NodeFlags,
     SolveResult,
     StressFlag,
@@ -189,7 +191,8 @@ def test_the_approved_wall_minimum() -> None:
         (99.0, 0.7, 4.99, True, Verdict.THIN_WALL),
         (99.0, 0.7, 5.0, True, Verdict.SETTLED),  # exactly the minimum is enough
         (99.0, 0.7, 2.0, False, Verdict.SETTLED),  # not guarded: unflagged spots
-        (99.0, 0.7, None, True, Verdict.SETTLED),  # no wall measured
+        (99.0, 0.7, None, True, Verdict.THIN_WALL),  # no wall measured: fail closed
+        (99.0, 0.7, None, False, Verdict.SETTLED),
         (80.0, 0.7, 2.0, True, Verdict.MESH_DEPENDENT),  # a measured failure needs no guard
         (99.0, 0.9, 2.0, True, Verdict.NOT_REFINED),  # no refinement comes first
     ],
@@ -238,10 +241,24 @@ def test_compare_meshes_judges_flagged_spots_on_walls_thick_enough() -> None:
     assert check.peak_von_mises.verdict is Verdict.THIN_WALL
 
 
-def test_compare_meshes_does_not_guard_unflagged_or_unmeasured_spots() -> None:
+def test_compare_meshes_does_not_guard_unflagged_spots() -> None:
     coarse = _result(2, 1.0, peak=99.0, clear=None, faces={})
     unflagged = _result(4, 1.0, peak=100.0, clear=None, faces={}, wall=1.0)
     assert compare_meshes(coarse, unflagged).peak_von_mises.verdict is Verdict.SETTLED
+    unmeasured = _result(4, 1.0, peak=100.0, clear=None, faces={})
+    check = compare_meshes(coarse, unmeasured).peak_von_mises
+    assert (check.verdict, check.elements_across) == (Verdict.SETTLED, None)
+
+
+def test_compare_meshes_fails_closed_where_no_wall_was_measured() -> None:
+    # A flagged spot whose wall could not be measured (an open surface) is not judged.
+    coarse = _result(2, 1.0, peak=99.0, clear=None, faces={})
     no_wall = _result(4, 1.0, peak=100.0, clear=None, faces={}, flagged=True)
     check = compare_meshes(coarse, no_wall).peak_von_mises
-    assert (check.verdict, check.elements_across) == (Verdict.SETTLED, None)
+    assert (check.verdict, check.elements_across) == (Verdict.THIN_WALL, None)
+
+
+def test_the_model_default_is_the_approved_minimum() -> None:
+    # tessera.model cannot import tessera.post: this ties the two copies of 5 together.
+    fields = {f.name: f for f in dataclasses.fields(MeshCheck)}
+    assert fields["wall_elements_min"].default == WALL_ELEMENTS_MIN

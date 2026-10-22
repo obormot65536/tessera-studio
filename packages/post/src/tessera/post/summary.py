@@ -7,7 +7,7 @@ from numpy.typing import NDArray
 
 from tessera.model import Mesh, SolveJob, SolveResult, StressSpot, StudyResult, WallSpan
 from tessera.post.flags import flag_nodes
-from tessera.post.wall import outer_surface, wall_span
+from tessera.post.wall import OuterSurface, outer_surface, wall_span
 
 _FACE_PREFIX = "face:"
 
@@ -48,31 +48,33 @@ def summarize(job: SolveJob, solution: SolveResult, workdir: Path | None = None)
     for index in reversed(faces):
         lowest_face[faces[index]] = index
 
-    surface = None
+    surface: OuterSurface | None = None
     walls: dict[int, WallSpan | None] = {}
 
     def wall(node: int) -> WallSpan | None:
-        """The wall at a reported node, measured once per node (ADR-007 Amendment 2)."""
+        """The wall at a node, measured once (ADR-007 Amendment 2)."""
         nonlocal surface
         if node not in walls:
-            surface = surface or outer_surface(job)
+            surface = surface or outer_surface(mesh)
             walls[node] = wall_span(surface, node)
         return walls[node]
 
-    def spot(node: int, face: int | None) -> StressSpot:
+    def spot(node: int, face: int | None, measure: bool = False) -> StressSpot:
+        """``measure``: give the wall even if the node is not flagged."""
         x, y, z = (float(c) for c in mesh.nodes[node])
+        node_flags = flags.at(node)
         return StressSpot(
             value=float(stress[node]),
             node=node,
             location=(x, y, z),
             face=face,
-            flags=flags.at(node),
-            wall=wall(node),
+            flags=node_flags,
+            wall=wall(node) if measure or node_flags else None,
         )
 
     def on_lowest_face(node: int) -> StressSpot:
         face = int(lowest_face[node])
-        return spot(node, face if face >= 0 else None)
+        return spot(node, face if face >= 0 else None, measure=True)
 
     all_nodes = np.arange(mesh.n_nodes)
     peak = _peak(stress, all_nodes)
