@@ -22,9 +22,9 @@ with the code.
 
 - Fast tier (ruff, pyright, lint-imports, unit tests) on Ubuntu and Windows gates the solver
   tier (CalculiX benchmarks, Linux).
-- macOS runs the fast tier too, but does not block: GitHub's macOS runners are often
-  unavailable. Label a PR `macos` when it touches macOS-specific behaviour (paths, packaging,
-  native libraries); then a failed or missing macOS run fails the workflow.
+- macOS runs the fast tier only on PRs labelled `macos`. Add the label when a change touches
+  macOS-specific behaviour (paths, packaging, native libraries); the macOS run must then pass.
+  Other PRs and pushes to `main` skip it, because GitHub's macOS runners are often unavailable.
 
 ## Milestones
 
