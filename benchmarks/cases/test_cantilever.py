@@ -320,7 +320,11 @@ def test_cantilever_check_mesh_on_a_thin_wall_does_not_settle_the_root_peak(
     too few to show the stress rise at the clamp, so the root peak barely moves (measured
     +1.4 %) yet is singular (mesh-dependent from 2.5 mm). The thin-wall guard reports it as
     not judged (thin-wall) instead of settled. The clear peak is unflagged, so it is never
-    guarded and still settles (+2.1 %)."""
+    guarded and still settles (+2.1 %).
+
+    The peak sits on the bottom face 3.27 mm from the clamped end face, so the largest ball
+    touching it there also touches the end face: the wall reads 6.5 mm, not the 10 mm depth
+    (1.3 coarse elements across)."""
     from tessera.model import Verdict
 
     result = _solve_beam(beam_step, 5.0, tmp_path, check_mesh=True)
@@ -329,7 +333,8 @@ def test_cantilever_check_mesh_on_a_thin_wall_does_not_settle_the_root_peak(
     peak = result.peak_von_mises
     assert peak.flagged
     assert peak.wall is not None
-    assert peak.wall.thickness == pytest.approx(HEIGHT, rel=0.01)
+    assert peak.location[0] < HEIGHT / 2
+    assert peak.wall.thickness == pytest.approx(2.0 * peak.location[0], rel=0.01)
     spot = check.peak_von_mises
     assert spot.change <= check.threshold, "the root peak barely moves on this mesh"
     assert spot.elements_across is not None and spot.elements_across < check.wall_elements_min

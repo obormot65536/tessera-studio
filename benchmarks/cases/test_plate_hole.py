@@ -357,7 +357,7 @@ def test_plate_hole_check_mesh_settles_the_hole_peak(plate_step: Path, tmp_path:
     settles (measured -1.3 % from 2 mm to 2/sqrt(2) mm, +0.22 % from 1 mm), unlike a singular
     peak. Run at the coarsest sweep mesh to keep it cheap.
 
-    The hole edge has under one element across the plate's thickness there, far below the
+    The hole edge has under one element across the modelled 0.5 mm there, far below the
     thin-wall minimum of 5, but the peak is not flagged, and only flagged spots are guarded
     (ADR-007 Amendment 2): a smooth stress raiser is resolved by quadratic elements even then.
     """
@@ -369,8 +369,10 @@ def test_plate_hole_check_mesh_settles_the_hole_peak(plate_step: Path, tmp_path:
     assert check is not None
     assert not result.peak_von_mises.flagged
     assert check.peak_von_mises.verdict is Verdict.SETTLED
+    # The wall is the modelled half thickness: the z = 0 symmetry plane is a one-direction
+    # support, which is never taken as a mirror (it could be a table the plate rests on).
     wall = result.peak_von_mises.wall
-    assert wall is not None and wall.thickness <= THICKNESS * (1 + 1e-6)
+    assert wall is not None and wall.thickness == pytest.approx(THICKNESS / 2, rel=0.01)
     across = check.peak_von_mises.elements_across
     assert across is not None and across < check.wall_elements_min
     assert check.clear_peak_von_mises is not None
