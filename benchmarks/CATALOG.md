@@ -73,7 +73,7 @@ primary source.
 | TS-09 | v0.1 | Torsion of circular and square bars (Saint-Venant) | passing |
 | TS-10 | v0.1 | Thin ring under diametral compression (curved beam) | planned |
 | TS-11 | v0.1 | NAFEMS LE1 elliptic membrane | planned |
-| TS-12 | v0.1 | NAFEMS LE10 thick plate under pressure (3D) | planned |
+| TS-12 | v0.1 | NAFEMS LE10 thick plate under pressure (3D) | awaiting reference |
 | TO-01 | v0.5 | Orthotropic patch tests: 3 axial + 3 shear | planned |
 | TO-02 | v0.5 | Off-axis (rotated orientation) tension | planned |
 | TO-03 | v0.5 | Orthotropic plate with hole (Lekhnitskii) | planned |
@@ -100,7 +100,7 @@ primary source.
 | TT-04 | v3 | Steady radial conduction and thermal stress in a thick cylinder | planned |
 | TF-01 | v4 | Laminar pipe flow (Hagen-Poiseuille) | planned |
 
-Count: v0.1 12 (9 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
+Count: v0.1 12 (9 passing, 1 awaiting reference), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
 
 ---
 
@@ -391,7 +391,7 @@ Count: v0.1 12 (9 passing), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
   least 2 elements through the thickness), local refinement at D.
 - **Tolerance:** 2 % (published fine-mesh quadratic results: Abaqus CPS8 92.81 MPa, +0.12 %).
 
-### TS-12 NAFEMS LE10, thick plate under pressure (true 3D)
+### TS-12 NAFEMS LE10, thick plate under pressure (true 3D) (awaiting reference)
 
 - **Problem:** the LE1 planform, thickness 0.6 m, 1 MPa pressure on the upper face.
   u_y = 0 on face DCD'C', u_x = 0 on face ABA'B', u_x = u_y = 0 on the outer face BCB'C', and
