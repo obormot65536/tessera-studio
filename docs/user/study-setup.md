@@ -471,7 +471,8 @@ How to read it:
   line says which, and that the value depends on the mesh size.
 - **max von Mises stress by face**: the highest stress on each face, highest first, so you can
   see where the part is loaded. Five faces are shown; the Python API has them all.
-- **solver files**: the folder with the solver input (`job.inp`) and results (`job.frd`).
+- **solver files**: the folder with the solver input (`job.inp`) and results (`job.frd`, and
+  `job.dat` with the stresses inside each element).
   Keep it when you report a problem.
 
 ### Why the peak stress changes with the mesh
