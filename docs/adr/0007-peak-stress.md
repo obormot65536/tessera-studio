@@ -165,8 +165,8 @@ at the clamp); at 2.5 mm the same peak is `mesh-dependent`. Today only the user 
    ADR-001 holds and STL parts work. One KD-tree over the surface per mesh; well under a
    millisecond per spot.
 2. **Guard flagged spots only.** If a spot is flagged and its change is within the threshold, but
-   the coarse mesh had fewer than N elements across the wall there, the verdict is the new no-
-   verdict value `thin-wall`. Like `not-refined`, the spot's flags still apply and MCP's `trust`
+   the coarse mesh had fewer than N elements across the wall there, the verdict is the new
+   no-verdict value `thin-wall`. Like `not-refined`, the spot's flags still apply and MCP's `trust`
    falls back to `flagged`. A `mesh-dependent` reading stays `mesh-dependent`; a measured failure
    needs no guard. A flagged spot whose wall cannot be measured (for example an open STL) is treated
    as thin: it gets no verdict rather than `settled`. Unflagged spots are never guarded: the sweep
