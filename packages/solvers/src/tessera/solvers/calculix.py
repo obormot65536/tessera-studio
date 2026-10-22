@@ -503,6 +503,8 @@ def _signals_stop_ccx() -> Iterator[None]:
 
 def _die_with_parent() -> Callable[[], None] | None:
     """A ``preexec_fn`` that makes Linux kill the child with SIGKILL when Tessera dies."""
+    if sys.platform != "linux":
+        return None
     try:
         libc = ctypes.CDLL(None, use_errno=True)
         prctl = libc.prctl

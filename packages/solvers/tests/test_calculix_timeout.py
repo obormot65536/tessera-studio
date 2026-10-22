@@ -242,8 +242,14 @@ def _wait_for(path: Path) -> None:
         time.sleep(0.05)
 
 
+if sys.platform == "win32":
+    _ENDING_SIGNALS: list[signal.Signals] = []  # no SIGHUP on Windows; POSIX-only test
+else:
+    _ENDING_SIGNALS = [signal.SIGTERM, signal.SIGHUP]
+
+
 @posix_only
-@pytest.mark.parametrize("signum", [signal.SIGTERM, signal.SIGHUP])
+@pytest.mark.parametrize("signum", _ENDING_SIGNALS)
 def test_tessera_ended_by_a_signal_stops_ccx_first(
     tmp_path: Path, pids: Path, signum: signal.Signals
 ) -> None:
