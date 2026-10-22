@@ -182,8 +182,15 @@ Meshes the part, builds the static problem, runs the solver and summarises the r
   so it takes 3 to 5 times as long. The coarse solve's files go to `workdir / "coarse"`.
 
 v0.1 solves exactly one part with no connections and no placement (identity transform). The
-study must have at least one support. The part must have a `material_id` from the built-in
-library.
+study must have at least one support. The part must have a `material_id`: a material defined in
+the project (`Project.materials`) or a built-in one. If both have the id, the project's
+definition is used.
+
+An orthotropic material (ADR-009) is solved in the part's print frame:
+`tessera.printsetup.material_frame(build_direction, raster_angle)` from `part.print_setup`, with
+material axis 3 along the build direction and axis 1 along the rasters. Displacements and
+stresses come back in part axes, and `StudyResult.orthotropic` is true. The part must have a
+print setup; Tessera does not assume one. An isotropic part ignores its print setup.
 
 Raises:
 
@@ -194,6 +201,9 @@ Raises:
   - a face number in a support or load that the part does not have;
   - an edge support on two faces that do not share an edge in the mesh;
   - the part has no material, or the material id is unknown;
+  - the part's material is orthotropic and the part has no print setup ("part 'x' uses
+    orthotropic material 'm' and needs a print setup (build direction)"), or its build
+    direction is zero;
   - the study has no supports;
   - gravity is set but the material has no density;
   - the geometry is unsupported, or cannot be meshed;
@@ -248,7 +258,53 @@ def material_ids() -> list[str]
 ```
 
 The ids of the built-in materials, sorted, for `material_id`. Currently `aluminium-6061-t6` and
-`steel-generic`. It raises nothing.
+`steel-generic`. It raises nothing. Materials defined in the project are in
+`project.materials`.
+
+#### `add_material`
+
+```python
+def add_material(
+    project: Project, definition: MaterialDefinition | Mapping[str, Any]
+) -> MaterialDefinition
+```
+
+Defines a material in the project (ADR-009) and returns the stored definition. Parts then name
+it by its id in `add_part` or `set_material`.
+
+- `definition` is an `IsotropicDefinition` or `OrthotropicDefinition` (see "Model types"), or
+  their fields as a mapping with `kind`, e.g. `{"kind": "orthotropic", "id": "pla-xy", "e1":
+  3000.0, ...}`. It is checked again here, so a definition changed after it was built is checked
+  too. Orthotropic constants must give a positive definite compliance (`check_orthotropic`).
+- Material ids are a separate namespace from part, support and load ids.
+
+Raises `InputError`: the definition is invalid (the message names the material and, for
+orthotropic constants, the usual bounds); the id is a built-in material's id; or the project
+already defines that id.
+
+#### `set_print_setup`
+
+```python
+def set_print_setup(
+    project: Project,
+    part_id: str,
+    process: Literal["fdm", "resin"],
+    build_direction: Vec3 = (0.0, 0.0, 1.0),
+    raster_angle: float = 0.0,
+) -> PrintSetup
+```
+
+Sets how a part is printed and returns the new `PrintSetup`. `build_direction` is the vector in
+part coordinates that points up on the printer (any non-zero length). `raster_angle` turns the
+rasters about it, in degrees, counter-clockwise looking down the build direction. A part with an
+orthotropic material needs a print setup to be solved; an isotropic part ignores it. It replaces
+any print setup the part had, including its `slicer_profile`.
+
+Raises:
+
+- `InputError`: no part has `part_id`; `process` is not `"fdm"` or `"resin"`; the build
+  direction is zero or a number is not finite.
+- `FileNotFoundError`: the part's geometry file does not exist.
 
 #### `add_part`
 
@@ -267,7 +323,8 @@ Adds a STEP or STL file as a new part and returns it.
 
 - `part_id` defaults to the file name, with characters other than letters, digits, `_` and `-`
   replaced by `-`. If that id is taken, `-2`, `-3`, ... is added until it is free.
-- `name` defaults to the id. `material_id` is optional; if given it must be a built-in id.
+- `name` defaults to the id. `material_id` is optional; if given it must be a project material's
+  id or a built-in id.
 - The file is read once, so a file Tessera cannot use is refused at once.
 - The geometry path is stored as an absolute path in the project. `save_project` writes it
   relative to the JSON file.
@@ -286,7 +343,8 @@ Raises:
 def set_material(project: Project, part_id: str, material_id: str) -> None
 ```
 
-Sets the material of a part.
+Sets the material of a part: a material defined in the project (`add_material`) or a built-in
+one.
 
 Raises:
 
@@ -448,7 +506,7 @@ them from `tessera.model` for the full set.
 | `Assembly` | `parts: list[PartInstance]`, `connections: list[Connection]` | Part ids must be unique. |
 | `PartInstance` | `id: str`, `name: str`, `geometry: Path`, `transform: Transform`, `material_id: str \| None`, `print_setup: PrintSetup \| None` | `geometry` is a STEP or STL path. |
 | `Transform` | `rotation`, `translation` | Rotation is a row-major 3 × 3 matrix; translation in mm. Only the identity is solved in v0.1. |
-| `PrintSetup` | `process: "fdm" \| "resin"`, `slicer_profile: str \| None`, `build_direction`, `raster_angle: float = 0.0` | `raster_angle` in degrees, counter-clockwise looking down the build direction. Stored only; not used by the solver yet. |
+| `PrintSetup` | `process: "fdm" \| "resin"`, `slicer_profile: str \| None`, `build_direction`, `raster_angle: float = 0.0` | `raster_angle` in degrees, counter-clockwise looking down the build direction. `solve` uses `build_direction` and `raster_angle` to orient an orthotropic material; `process` and `slicer_profile` are stored only. Set it with `edit.set_print_setup`. |
 | `Connection` | `id`, `kind: ConnectionKind`, `a: FaceSet`, `b: FaceSet`, `friction`, `preload_n` | Stored only. Connections are not solved in v0.1. |
 | `ConnectionKind` | `"bonded"`, `"contact"`, `"bolt"`, `"pin"` | |
 | `FaceSet` | `part_id: str`, `faces: tuple[int, ...]` | At least one face. Face numbers come from `describe_faces`. |
@@ -461,8 +519,8 @@ them from `tessera.model` for the full set.
 
 `Load` is the union `ForceLoad | PressureLoad | MomentLoad`. Files without a `kind` are read as
 force loads. `MaterialDefinition` is the union `IsotropicDefinition | OrthotropicDefinition`,
-chosen by `kind` (required). Project materials are stored only in this version; nothing
-solves with them yet.
+chosen by `kind` (required). Add one with `edit.add_material`; a part names it by its id, and
+`solve` finds project materials before built-in ones.
 
 Validation: a `Study` item that names a part id not in `assembly.parts`, or two parts with the
 same id, is an error. Items you add later with `append` skip pydantic's checks at that moment,
@@ -473,7 +531,7 @@ so `solve`, `describe_faces` and `save_project` check the whole project again an
 
 | Type | Fields | Notes |
 |---|---|---|
-| `StudyResult` | `mesh: Mesh`, `solution: SolveResult`, `max_displacement: float` (mm), `max_von_mises: float` (MPa), `workdir: Path \| None`, `peak_von_mises: StressSpot`, `clear_peak_von_mises: StressSpot \| None`, `face_peaks: tuple[StressSpot, ...]`, `node_flags: NodeFlags`, `mesh_check: MeshCheck \| None` | Returned by `solve`. `displacement_magnitude` gives the per-node displacement length. See "Peak stress" below. |
+| `StudyResult` | `mesh: Mesh`, `solution: SolveResult`, `max_displacement: float` (mm), `max_von_mises: float` (MPa), `workdir: Path \| None`, `peak_von_mises: StressSpot`, `clear_peak_von_mises: StressSpot \| None`, `face_peaks: tuple[StressSpot, ...]`, `node_flags: NodeFlags`, `mesh_check: MeshCheck \| None`, `orthotropic: bool = False` | Returned by `solve`. `displacement_magnitude` gives the per-node displacement length. See "Peak stress" below. `orthotropic` is true when the part's material is orthotropic: von Mises then shows where the stress is, but it is not a strength check for a layer-wise part. |
 | `StressSpot` | `value: float` (MPa), `node: int`, `location: (x, y, z)` (mm), `face: int \| None`, `flags: tuple[StressFlag, ...]` | A stress at one node. `face` is the face the node lies on (the lowest number on an edge between faces), `None` inside the part. `flagged` is `True` when `flags` is not empty. |
 | `StressFlag` | `kind: FlagKind`, `support: str \| None` | Why a node is flagged. `support` is the support's id for `FlagKind.SUPPORT`. `str()` gives `near support 'root'` or `near a sharp inside edge`. |
 | `FlagKind` | `"support"`, `"sharp-inside-edge"` | |
@@ -579,8 +637,10 @@ class SolverAdapter(Protocol):
 
 ### Solve-job materials and orientation
 
-These types are in `tessera.model` (ADR-009). Projects cannot name an orthotropic material yet;
-the CalculiX adapter writes one as engineering constants and a section's `MaterialFrame` as an
+These types are in `tessera.model` (ADR-009). `solve` builds them from the project:
+`tessera.materials.get_material(material_id, project.materials)` gives the `Material`, and an
+orthotropic part's `Section.orientation` is its print frame. The CalculiX adapter writes an
+orthotropic material as engineering constants and a section's `MaterialFrame` as an
 `*ORIENTATION`, and returns displacements and stresses in global (part) axes.
 
 | Type | Fields | Notes |

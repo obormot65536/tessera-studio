@@ -10,7 +10,8 @@ from tessera.model import (
     FixedSupport,
     ForceLoad,
     InputError,
-    IsotropicMaterial,
+    Material,
+    MaterialFrame,
     Mesh,
     MomentLoad,
     NodalLoads,
@@ -55,8 +56,15 @@ def _support_nodes(mesh: Mesh, support: Support, part: PartInstance) -> np.ndarr
 
 
 def build_static_job(
-    study: Study, part: PartInstance, mesh: Mesh, material: IsotropicMaterial
+    study: Study,
+    part: PartInstance,
+    mesh: Mesh,
+    material: Material,
+    frame: MaterialFrame | None = None,
 ) -> SolveJob:
+    """The static solve job of one part. ``frame`` orients the material axes (ADR-009 D2);
+    ``None`` means the part axes. Gravity uses the material's density, of either kind.
+    """
     if not study.supports:
         raise InputError("the study needs at least one support")
     node_sets = dict(mesh.node_sets)
@@ -95,7 +103,9 @@ def build_static_job(
     return SolveJob(
         mesh=dataclasses.replace(mesh, node_sets=node_sets),
         materials=(material,),
-        sections=(Section(element_set=f"part:{part.id}", material=material.name),),
+        sections=(
+            Section(element_set=f"part:{part.id}", material=material.name, orientation=frame),
+        ),
         supports=tuple(supports),
         loads=tuple(loads),
     )

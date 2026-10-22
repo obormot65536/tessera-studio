@@ -10,13 +10,17 @@ import tessera.materials as materials
 import tessera.mesh as mesh
 import tessera.physics as physics
 import tessera.post as post
+import tessera.printsetup as printsetup
 from tessera.core._checks import check_geometry, part_named, validated
 from tessera.model import (
     AnalysisKind,
     EdgeInfo,
     FaceInfo,
     InputError,
+    Material,
+    MaterialFrame,
     Mesh,
+    OrthotropicMaterial,
     PartInstance,
     Project,
     SolverAdapter,
@@ -52,6 +56,27 @@ def _default_adapter() -> SolverAdapter:
     return CalculixAdapter()
 
 
+def _material_frame(part: PartInstance, material: Material) -> MaterialFrame | None:
+    """Material axes of an orthotropic part, from its print setup (ADR-009 D2).
+
+    An isotropic material needs no axes, so its part gets ``None`` even with a print setup.
+    Assuming the part axes for an orthotropic part would silently solve the wrong orientation,
+    so a missing print setup is refused.
+    """
+    if not isinstance(material, OrthotropicMaterial):
+        return None
+    setup = part.print_setup
+    if setup is None:
+        raise InputError(
+            f"part {part.id!r} uses orthotropic material {material.name!r} and needs a print "
+            "setup (build direction)"
+        )
+    try:
+        return printsetup.material_frame(setup.build_direction, setup.raster_angle)
+    except ValueError as exc:
+        raise InputError(f"part {part.id!r}: {exc}") from None
+
+
 MESH_CHECK_REFINEMENT = 1.0 / math.sqrt(2.0)
 """Every element size of the fine mesh in a two-mesh check, as a fraction of the coarse mesh's
 (ADR-007, approved by the maintainer)."""
@@ -85,7 +110,8 @@ def solve(
     analysis = AnalysisKind(project.study.analysis)
     if analysis not in adapter.capabilities():
         raise InputError(f"solver {adapter.name!r} cannot run a {analysis} analysis")
-    material = materials.get_isotropic(part.material_id)
+    material = materials.get_material(part.material_id, project.materials)
+    frame = _material_frame(part, material)
     if workdir is None:
         workdir = Path(tempfile.mkdtemp(prefix="tessera-"))
 
@@ -93,7 +119,7 @@ def solve(
 
     def run(where: Path, size_factor: float = 1.0) -> StudyResult:
         part_mesh = _mesh_part(part, size, size_factor)
-        job = physics.build_static_job(project.study, part, part_mesh, material)
+        job = physics.build_static_job(project.study, part, part_mesh, material, frame)
         where.mkdir(parents=True, exist_ok=True)
         return post.summarize(job, adapter.run(job, where), workdir=where)
 

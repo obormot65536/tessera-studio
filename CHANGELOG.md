@@ -2,27 +2,37 @@
 
 ## Unreleased
 
+- Solve parts made of your own orthotropic (layer-wise) material (ADR-009): define a material
+  in the project with `edit.add_material` (an `IsotropicDefinition` or
+  `OrthotropicDefinition`, or its fields; an id that is built in or already defined is
+  refused), give the part a print setup with `edit.set_print_setup(project, part_id, process,
+  build_direction, raster_angle)`, and `solve` orients the material axes from the build
+  direction and raster angle. An orthotropic part without a print setup is refused ("needs a
+  print setup (build direction)") rather than solved in the part axes; an isotropic part
+  ignores its print setup. `set_material`, `add_part` and the gravity density check accept
+  project materials. API: `tessera.materials.get_material(material_id, defined=())` (project
+  definitions win over the library) and `build_static_job(..., material, frame=None)`.
+  Invalid orthotropic constants on these paths raise `InputError`. No command-line support
+  yet.
 - Material frame from a print setup (ADR-009 D2):
   `tessera.printsetup.material_frame(build_direction, raster_angle=0.0)` gives the `MaterialFrame` of a part printed with that direction up (axis 3)
   and rasters turned by `raster_angle` degrees about it (axis 1 starts at printer X carried by
-  the smallest tilt; upside down uses a half turn about X). Nothing calls it yet.
+  the smallest tilt; upside down uses a half turn about X).
 - Project files are now schema 6 (ADR-009 D3): `Project.materials` holds materials defined in
   the project (`IsotropicDefinition`, `OrthotropicDefinition`, discriminated on `kind`, ids
   unique, orthotropic constants checked with `check_orthotropic`), and `PrintSetup` gains
   `raster_angle` (degrees, default 0). Schema 5 files open unchanged; older Tessera versions
-  refuse schema 6 files. Nothing reads these fields yet; solving with them comes later.
+  refuse schema 6 files.
 - Orthotropic results are labelled (ADR-009 D4): `StudyResult.orthotropic` is true when any
   material in the study is an `OrthotropicMaterial` (set by `tessera.post.summarize`), and
   `tessera solve` then prints a note before the stress lines that von Mises shows where the
   stress is but is not a strength check for a layer-wise part. Peaks, flags and mesh-check
-  verdicts are unchanged. Projects cannot define an orthotropic material yet, so no solve shows
-  the note until the wiring lands.
+  verdicts are unchanged.
 - Orthotropic material types (ADR-009, model only): `OrthotropicMaterial` (engineering
   constants, major Poisson ratios, validated to a positive definite compliance), `Material`,
   `MaterialFrame` and `Section.orientation` in `tessera.model`, and
   `tessera.model.elasticity` (`orthotropic_compliance`, `check_orthotropic`, `rotate_stress`).
-  `SolveJob.materials` now takes either kind. Nothing uses them yet: projects cannot define an
-  orthotropic material yet.
+  `SolveJob.materials` now takes either kind.
 - CalculiX deck for orthotropic materials (ADR-009): `write_deck` writes an
   `OrthotropicMaterial` as `*ELASTIC, TYPE=ENGINEERING CONSTANTS` and a section's
   `MaterialFrame` as `*ORIENTATION, SYSTEM=RECTANGULAR` with `ORIENTATION=` on its

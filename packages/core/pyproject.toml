@@ -12,6 +12,7 @@ dependencies = [
     "tessera-mesh",
     "tessera-physics",
     "tessera-post",
+    "tessera-printsetup",
     "tessera-solvers",
 ]
 
@@ -22,6 +23,7 @@ tessera-materials = { workspace = true }
 tessera-mesh = { workspace = true }
 tessera-physics = { workspace = true }
 tessera-post = { workspace = true }
+tessera-printsetup = { workspace = true }
 tessera-solvers = { workspace = true }
 
 [build-system]
