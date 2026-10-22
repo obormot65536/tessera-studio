@@ -6,6 +6,8 @@ a maximum over them reads low at surfaces. Do not build peaks on these functions
 ADR and the maintainer's approval (hard rule 6).
 """
 
+import warnings
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -17,6 +19,18 @@ _FLAT = 1e-8
 element's points count as lying in one plane."""
 
 
+class DegenerateElementsWarning(UserWarning):
+    """Some elements' integration points lie in one plane (or on a line), so no affine field
+    passes through them; those elements got NaN. ``elements`` holds their indices."""
+
+    def __init__(self, elements: NDArray[np.int64]) -> None:
+        self.elements = elements
+        super().__init__(
+            f"{elements.size} element(s) have integration points in one plane and got NaN, "
+            f"e.g. element {elements[0]}"
+        )
+
+
 def element_nodal_stresses(mesh: Mesh, point_stresses: PointStresses) -> NDArray[np.float64]:
     """(M, 10, 6) stresses at each element's ten nodes, from that element's points only (MPa).
 
@@ -25,10 +39,12 @@ def element_nodal_stresses(mesh: Mesh, point_stresses: PointStresses) -> NDArray
     through four points, by least squares through more. Elements are not averaged, so a node
     shared by two elements has two values, one per element, each in that element's material.
     The result is exact for a linear stress field. Components in the neutral order xx, yy, zz,
-    xy, yz, zx. An element with a NaN point or stress gets NaN.
+    xy, yz, zx. An element with a NaN or infinite point or stress gets NaN.
 
-    Raises ``ValueError`` if ``point_stresses`` does not have one row per mesh element, has
-    fewer than four points per element, or an element's points lie in one plane.
+    An element whose points lie in one plane (a flat or collapsed element) gets NaN too, and a
+    ``DegenerateElementsWarning`` lists such elements; the other elements are still fitted.
+    Raises ``ValueError`` if ``point_stresses`` does not have one row per mesh element or has
+    fewer than four points per element.
     """
     m, q = point_stresses.n_elements, point_stresses.n_points
     if m != mesh.n_elements:
@@ -50,15 +66,14 @@ def element_nodal_stresses(mesh: Mesh, point_stresses: PointStresses) -> NDArray
     fit = _affine_basis((points - centre) / scale)  # (K, Q, 4)
     singular = np.linalg.svd(fit, compute_uv=False)
     flat = singular[:, -1] <= _FLAT * singular[:, 0]
+    fitted = np.flatnonzero(ok)
     if flat.any():
-        element = int(np.flatnonzero(ok)[np.argmax(flat)])
-        raise ValueError(
-            f"the integration points of element {element} lie in one plane; "
-            "no affine field passes through them"
-        )
-    coefficients = np.linalg.pinv(fit) @ point_stresses.stresses[ok]  # (K, 4, 6)
-    nodes = mesh.nodes[mesh.elements[ok]]
-    out[ok] = _affine_basis((nodes - centre) / scale) @ coefficients
+        warnings.warn(DegenerateElementsWarning(fitted[flat]), stacklevel=2)
+        good = ~flat
+        fitted, fit, centre, scale = fitted[good], fit[good], centre[good], scale[good]
+    coefficients = np.linalg.pinv(fit) @ point_stresses.stresses[fitted]  # (K, 4, 6)
+    nodes = mesh.nodes[mesh.elements[fitted]]
+    out[fitted] = _affine_basis((nodes - centre) / scale) @ coefficients
     return out
 
 

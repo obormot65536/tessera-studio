@@ -520,8 +520,11 @@ points. `tessera.post` works with them without knowing the solver:
 - `element_nodal_stresses(mesh, point_stresses)`: (M, 10, 6) stresses at each element's ten
   nodes, from the affine field through that element's points in physical coordinates. Not
   averaged: a node shared by two elements has a value in each. Exact for a linear stress field.
-  Raises `ValueError` if the points do not match the mesh, there are fewer than four per
-  element, or an element's points lie in one plane. An element with a NaN entry gets NaN.
+  From CalculiX's printed stresses (7 significant digits) it is exact to within about
+  1.4e-6 of the element's largest stress. Raises `ValueError` if the points do not match the
+  mesh or there are fewer than four per element. An element with a NaN or infinite entry gets
+  NaN; so does an element whose points lie in one plane, and a `DegenerateElementsWarning`
+  (its `elements` attribute) lists those.
 - `point_von_mises(point_stresses)`: (M, Q) von Mises stress at every point. `von_mises` itself
   takes any (..., 6) array and returns (...).
 - `flag_points(job, points)`: the flags of ADR-007 at any (P, 3) points, e.g.

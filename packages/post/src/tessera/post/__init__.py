@@ -16,7 +16,11 @@ from tessera.post.mesh_check import (
     local_edge_length,
     spot_check,
 )
-from tessera.post.points import element_nodal_stresses, point_von_mises
+from tessera.post.points import (
+    DegenerateElementsWarning,
+    element_nodal_stresses,
+    point_von_mises,
+)
 from tessera.post.summary import summarize, von_mises
 
 __all__ = [
@@ -24,6 +28,7 @@ __all__ = [
     "INSIDE_EDGE_ANGLE",
     "MESH_CHECK_REFINEMENT_LIMIT",
     "MESH_CHECK_THRESHOLD",
+    "DegenerateElementsWarning",
     "compare_meshes",
     "element_nodal_stresses",
     "flag_nodes",
