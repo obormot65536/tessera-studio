@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Orthotropic results are labelled (ADR-009 D4): `StudyResult.orthotropic` is true when any
+  material in the study is an `OrthotropicMaterial` (set by `tessera.post.summarize`), and
+  `tessera solve` then prints a note before the stress lines that von Mises shows where the
+  stress is but is not a strength check for a layer-wise part. Peaks, flags and mesh-check
+  verdicts are unchanged. Projects cannot define an orthotropic material yet, so no solve shows
+  the note until the wiring lands.
 - Orthotropic material types (ADR-009, model only): `OrthotropicMaterial` (engineering
   constants, major Poisson ratios, validated to a positive definite compliance), `Material`,
   `MaterialFrame` and `Section.orientation` in `tessera.model`, and

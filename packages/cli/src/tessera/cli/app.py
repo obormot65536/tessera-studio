@@ -363,6 +363,12 @@ def edges(
 FACE_PEAKS_SHOWN = 5
 """Faces listed by ``tessera solve`` (ADR-007); the API has them all."""
 _CLEAR = "away from supports and sharp inside edges"
+_ORTHOTROPIC_NOTE = (
+    "note: this part uses an orthotropic (layer-wise) material; von Mises stress shows where the"
+    " stress is, but it is not a strength check: printed parts are weaker across layers."
+    " Layer-wise failure checks are planned for v0.5."
+)
+"""Printed before the stress lines for an orthotropic part (ADR-009 D4, approved wording)."""
 
 
 def _where(spot: StressSpot) -> str:
@@ -428,6 +434,8 @@ def solve_cmd(
         f"max displacement: {result.max_displacement:.6g} mm"
         + verdict(check and check.max_displacement)
     )
+    if result.orthotropic:
+        typer.echo(_ORTHOTROPIC_NOTE)
 
     clear, peak = result.clear_peak_von_mises, result.peak_von_mises
     d = result.node_flags.distance

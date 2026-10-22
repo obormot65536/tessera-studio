@@ -5,7 +5,14 @@ from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 
-from tessera.model import Mesh, SolveJob, SolveResult, StressSpot, StudyResult
+from tessera.model import (
+    Mesh,
+    OrthotropicMaterial,
+    SolveJob,
+    SolveResult,
+    StressSpot,
+    StudyResult,
+)
 from tessera.post.flags import flag_nodes
 
 _FACE_PREFIX = "face:"
@@ -83,4 +90,5 @@ def summarize(job: SolveJob, solution: SolveResult, workdir: Path | None = None)
         clear_peak_von_mises=None if clear is None else on_lowest_face(clear),
         face_peaks=tuple(face_peaks),
         node_flags=flags,
+        orthotropic=any(isinstance(m, OrthotropicMaterial) for m in job.materials),
     )
