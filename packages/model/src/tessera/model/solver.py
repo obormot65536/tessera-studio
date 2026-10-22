@@ -63,6 +63,9 @@ class SolveJob:
     supports: tuple[FixedSupport, ...] = ()
     loads: tuple[NodalLoads, ...] = ()
     analysis: AnalysisKind = AnalysisKind.STATIC
+    point_stresses: bool = field(default=False, kw_only=True)
+    """Ask the solver for integration-point stresses (``SolveResult.point_stresses``, ADR-008);
+    costs about 0.6 kB per element in .dat plus parse time."""
 
 
 @dataclass(frozen=True)

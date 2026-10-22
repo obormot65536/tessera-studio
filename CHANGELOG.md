@@ -2,14 +2,11 @@
 
 ## Unreleased
 
-- API: `SolveResult.point_stresses` (`PointStresses` in `tessera.model`) carries each
-  element's stresses at its integration points, unaveraged (ADR-008). It is `None` until a
-  solver fills it. No reported number changes: peaks, flags and the mesh check stay nodal.
-- The CalculiX adapter fills `SolveResult.point_stresses` from `job.dat` (ADR-008): the stresses
-  at each element's four integration points and their coordinates, 7 significant digits and
-  without the 1e-5 bias of the nodal `.frd` stresses. A missing, empty or incomplete `job.dat`,
-  or one with repeated rows, is now a `SolverError`. Each solve writes about 624 bytes more per
-  element to the solver folder.
+- API (ADR-008): `SolveJob(point_stresses=True)` asks for each element's own stresses at its
+  integration points, returned in `SolveResult.point_stresses` (`PointStresses`). Opt-in;
+  no reported number changes.
+- CalculiX fills it from `job.dat` when asked; a missing, empty or incomplete `job.dat` is
+  then a `SolverError`.
 - Two-mesh check (ADR-007): `tessera solve --check-mesh` solves the study again with every
   element about 1/√2 as long and marks each printed number `settled` (changed by 5 % or less),
   `mesh-dependent`, or `not judged` where the second mesh did not get finer (its elements there
