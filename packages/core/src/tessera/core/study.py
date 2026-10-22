@@ -20,6 +20,7 @@ from tessera.model import (
     PartInstance,
     Project,
     SolverAdapter,
+    SolverTimeoutError,
     StudyResult,
     Transform,
 )
@@ -62,6 +63,19 @@ MESH_CHECK_REFINEMENT = 1.0 / math.sqrt(2.0)
 (ADR-007, approved by the maintainer)."""
 
 
+def _check_timeout(timeout: object) -> None:
+    valid = (
+        isinstance(timeout, int | float)
+        and not isinstance(timeout, bool)
+        and math.isfinite(timeout)
+        and timeout > 0
+    )
+    if not valid:
+        number = isinstance(timeout, int | float) and not isinstance(timeout, bool)
+        shown = f"{timeout:g}" if number else repr(timeout)
+        raise InputError(f"the solver timeout must be a positive number of seconds, got {shown}")
+
+
 def solve(
     project: Project,
     workdir: Path | None = None,
@@ -85,10 +99,7 @@ def solve(
     if timeout is not None:
         if adapter is not None:
             raise ValueError("solve's timeout is for the built-in solver; set it on the adapter")
-        if not (math.isfinite(timeout) and timeout > 0):
-            raise InputError(
-                f"the solver timeout must be a positive number of seconds, got {timeout:g}"
-            )
+        _check_timeout(timeout)
     project = validated(project)
     parts = project.assembly.parts
     if len(parts) != 1 or project.assembly.connections:
@@ -109,14 +120,22 @@ def solve(
 
     size = project.study.mesh_size
 
-    def run(where: Path, size_factor: float = 1.0) -> StudyResult:
+    def run(where: Path, size_factor: float = 1.0, which: str | None = None) -> StudyResult:
         part_mesh = _mesh_part(part, size, size_factor)
         job = physics.build_static_job(project.study, part, part_mesh, material)
         where.mkdir(parents=True, exist_ok=True)
-        return post.summarize(job, adapter.run(job, where), workdir=where)
+        try:
+            solution = adapter.run(job, where)
+        except SolverTimeoutError as exc:
+            if which is None:
+                raise
+            raise SolverTimeoutError(
+                f"{exc} (in the {which} solve of the mesh check)", exc.timeout, exc.log
+            ) from exc
+        return post.summarize(job, solution, workdir=where)
 
     if not check_mesh:
         return run(workdir)
-    coarse = run(workdir / "coarse")
-    fine = run(workdir, MESH_CHECK_REFINEMENT)
+    coarse = run(workdir / "coarse", which="coarse")
+    fine = run(workdir, MESH_CHECK_REFINEMENT, which="fine")
     return dataclasses.replace(fine, mesh_check=post.compare_meshes(coarse, fine))

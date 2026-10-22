@@ -181,8 +181,8 @@ Meshes the part, builds the static problem, runs the solver and summarises the r
   must support the `static` analysis.
 - `check_mesh`: also run the two-mesh check (see "Mesh check" below). The study is solved twice,
   so it takes 3 to 5 times as long. The coarse solve's files go to `workdir / "coarse"`.
-- `timeout`: seconds each solver run may take before CalculiX, and every process it started,
-  is stopped and `SolverTimeoutError` is raised. `None` uses `SOLVE_TIMEOUT` (1800 s). The
+- `timeout`: seconds each solver run may take before CalculiX, and the processes it started,
+  are stopped and `SolverTimeoutError` is raised. `None` uses `SOLVE_TIMEOUT` (1800 s). The
   limit applies to each solve on its own: with `check_mesh` the two solves may take up to
   twice as long together. Meshing is not counted. It applies to the built-in solver only;
   passing both `adapter` and `timeout` raises `ValueError` (set the limit on your adapter,
@@ -212,7 +212,8 @@ Raises:
   solver output.
 - `SolverTimeoutError` (from `tessera.model`, a subclass of `SolverError`): a solver run took
   longer than `timeout` and was stopped. `SolverTimeoutError.timeout` is the limit in seconds;
-  `log` holds what the solver wrote before it was stopped.
+  `log` holds what the solver wrote before it was stopped. With `check_mesh` the message ends
+  with the solve that was stopped, e.g. `(in the coarse solve of the mesh check)`.
 
 Returns a `StudyResult`: the largest displacement, the raw peak von Mises stress, the peak away
 from supports and sharp inside edges, and the peak on each face (see "Peak stress" below). With

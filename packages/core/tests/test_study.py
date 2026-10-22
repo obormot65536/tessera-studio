@@ -411,15 +411,55 @@ def test_the_timeout_can_be_set_per_solve_and_applies_to_each_mesh_of_the_check(
     assert adapter.run_timeouts == [42.5, 42.5]
 
 
-@pytest.mark.parametrize("timeout", [0.0, -5.0, math.nan, math.inf])
+@pytest.mark.parametrize("timeout", [0.0, -5.0, math.nan, math.inf, True, False, "60", [60]])
 def test_the_timeout_must_be_a_positive_number_of_seconds(
-    bracket_step: Path, recording_calculix: list[RecordingCalculix], timeout: float
+    bracket_step: Path, recording_calculix: list[RecordingCalculix], timeout: object
 ) -> None:
     with pytest.raises(InputError, match="timeout must be a positive number of seconds"):
-        solve(_project(bracket_step, 1, 1), timeout=timeout)
+        solve(_project(bracket_step, 1, 1), timeout=timeout)  # type: ignore[arg-type]
     assert recording_calculix == []
 
 
 def test_a_timeout_for_an_adapter_you_pass_belongs_on_that_adapter(bracket_step: Path) -> None:
     with pytest.raises(ValueError, match="set it on the adapter"):
         solve(_project(bracket_step, 1, 1), adapter=FakeSolver(), timeout=10.0)
+
+
+@pytest.mark.parametrize(("hung_run", "which"), [(1, "coarse"), (2, "fine")])
+def test_a_timeout_in_the_mesh_check_names_the_solve(
+    bracket_step: Path, tmp_path: Path, hung_run: int, which: str
+) -> None:
+    from tessera.model import SolverTimeoutError
+
+    class Hangs(FakeSolver):
+        runs = 0
+
+        def run(self, job: SolveJob, workdir: Path) -> SolveResult:
+            self.runs += 1
+            if self.runs == hung_run:
+                raise SolverTimeoutError("CalculiX did not finish within 9 s", 9.0, "log")
+            return super().run(job, workdir)
+
+    root, tip = _root_and_tip(bracket_step)
+    project = _project(bracket_step, root, tip)
+    project.study.mesh_size = 8.0
+    with pytest.raises(SolverTimeoutError) as caught:
+        solve(project, workdir=tmp_path, adapter=Hangs(), check_mesh=True)
+    assert str(caught.value) == (
+        f"CalculiX did not finish within 9 s (in the {which} solve of the mesh check)"
+    )
+    assert (caught.value.timeout, caught.value.log) == (9.0, "log")
+
+
+def test_a_timeout_without_the_mesh_check_keeps_its_message(
+    bracket_step: Path, tmp_path: Path
+) -> None:
+    from tessera.model import SolverTimeoutError
+
+    class Hangs(FakeSolver):
+        def run(self, job: SolveJob, workdir: Path) -> SolveResult:
+            raise SolverTimeoutError("CalculiX did not finish within 9 s", 9.0)
+
+    root, tip = _root_and_tip(bracket_step)
+    with pytest.raises(SolverTimeoutError, match=r"^CalculiX did not finish within 9 s$"):
+        solve(_project(bracket_step, root, tip), workdir=tmp_path, adapter=Hangs())

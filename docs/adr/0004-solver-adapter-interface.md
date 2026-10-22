@@ -72,9 +72,15 @@ seam: it is exactly what a benchmark or a bug report needs to reproduce a run.
        must not block them forever). Done: `tessera.core.solve` gives the built-in solver
        `SOLVE_TIMEOUT` = 1800 s per solver run, overridable with `solve(timeout=...)` and
        `tessera solve --timeout SECONDS`. The limit is per run, so `check_mesh` (two solves) can
-       take up to twice as long; meshing is not counted. On a timeout, or an interrupt while
-       waiting, the adapter kills ccx and everything it started (its own process group on
-       POSIX, `taskkill /F /T` on Windows) and raises `SolverTimeoutError`, a `SolverError`.
+       take up to twice as long; meshing is not counted. On a timeout the adapter kills ccx
+       and the processes it started (its own process group on POSIX, `taskkill /F /T` on
+       Windows) and raises `SolverTimeoutError`, a `SolverError`; with `check_mesh` the
+       message names the coarse or fine solve. An exception while waiting (Ctrl+C, a cancel)
+       kills them the same way and re-raises that exception. On POSIX, SIGTERM or SIGHUP to
+       a main thread that is waiting kills them before the signal takes effect, and on Linux
+       `PR_SET_PDEATHSIG` kills the direct ccx process if Tessera dies in any way. Not
+       covered: a process that leaves the group itself (`setsid`), and SIGTERM, SIGHUP or
+       SIGKILL on macOS while a non-main thread waits (or SIGKILL at all on macOS/Windows).
        1800 s leaves room for a large fine mesh of the two-mesh check on a slow laptop, where
        killing a solve that would have finished costs more than waiting for a rare hang; the
        GUI should still offer a cancel button.

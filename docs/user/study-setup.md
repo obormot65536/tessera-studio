@@ -590,15 +590,17 @@ carries the load and has only one or two elements across it, refine before you t
 ### If the solve takes too long
 
 Tessera stops the solver if one solve takes longer than 30 minutes (1800 s), so a solve that
-hangs cannot block you forever. It also stops any program the solver started. To allow more
-or less time, give the limit in seconds:
+hangs cannot block you forever. It also stops the programs the solver started, unless one of
+them detached itself from the solver. Closing the terminal, or stopping Tessera with Ctrl+C,
+stops the solver too; if Tessera is killed outright (for example from the task manager), check
+that no `ccx` process is left running. To allow more or less time, give the limit in seconds:
 
 ```
 tessera solve beam.tessera.json --timeout 3600
 ```
 
 With `--check-mesh` each of the two solves gets this long, so the whole command can take up to
-twice as long, plus the meshing. A part that needs more than 30 minutes usually has a mesh
+twice as long, plus the meshing. The message says which of the two solves was stopped. A part that needs more than 30 minutes usually has a mesh
 finer than it needs; try a larger `--mesh-size` first (Step 7).
 
 ### What to change in the print
