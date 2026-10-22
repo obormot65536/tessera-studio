@@ -396,35 +396,54 @@ def _elements(count: float) -> str:
 
 
 def _change(
-    check: SpotCheck, spot: StressSpot | None = None, minimum: float = WALL_ELEMENTS_MIN
+    check: SpotCheck,
+    spot: StressSpot | None = None,
+    minimum: float = WALL_ELEMENTS_MIN,
+    mesh_size: float | None = None,
 ) -> str:
-    """How a number moved between the two meshes of ``--check-mesh``; ``spot`` is where it is
-    and ``minimum`` the elements a flagged spot needs across its wall to be judged."""
+    """How a number moved between the two meshes of ``--check-mesh``; ``spot`` is where it is,
+    ``minimum`` the elements a flagged spot needs across its wall to be judged and
+    ``mesh_size`` the coarse mesh's element size, for the advice."""
     if check.verdict is Verdict.NOT_REFINED:
         return (
             f"not judged: the finer mesh is only {check.refinement:.2f} times the element size here"
         )
     if check.verdict is Verdict.THIN_WALL:
-        across = _elements(check.elements_across or 0.0)
-        wall = None if spot is None else spot.wall
         line = f"not judged: changed {_percent(check.change)} % between the meshes, but the "
-        if wall is None:
-            return line + f"coarse mesh had only {across} elements across the wall here"
+        wall = None if spot is None else spot.wall
+        if check.elements_across is None or wall is None:
+            return line + "wall could not be measured here"
+        across = check.elements_across
+        advice = (
+            ""
+            if mesh_size is None
+            else f"; try --mesh-size {_size_at_most(mesh_size * across / minimum)} or less"
+        )
         return line + (
-            f"coarse mesh had only {across} elements across the {wall.thickness:.3g} mm wall "
-            f"here (at least {minimum:g} needed); try --mesh-size "
-            f"{_size_at_most(wall.thickness / minimum)} or less"
+            f"coarse mesh had only {_elements(across)} elements across the "
+            f"{wall.thickness:.3g} mm wall here (at least {minimum:g} needed){advice}"
         )
     if math.isinf(check.change):
         return f"{check.verdict}, was {check.coarse:.6g} on the coarse mesh"
     return f"{check.verdict}, changed {_percent(check.change)} % between the meshes"
 
 
-def _thin_wall(spot: StressSpot) -> WallSpan | None:
-    """The wall at a flagged spot with too few elements across it for the two-mesh check to
-    judge, else ``None``."""
+def _thin_wall(
+    spot: StressSpot, check: SpotCheck | None, minimum: float
+) -> tuple[WallSpan, float] | None:
+    """The wall at a flagged spot, and its elements across, when it has too few for the
+    two-mesh check to judge it and no verdict says so already: without a check (the elements
+    of this mesh), or where the check did not refine (the coarse mesh's elements)."""
     wall = spot.wall
-    return wall if spot.flagged and wall is not None and wall.elements < WALL_ELEMENTS_MIN else None
+    if not spot.flagged or wall is None:
+        return None
+    if check is None:
+        across = wall.elements
+    elif check.verdict is Verdict.NOT_REFINED and check.elements_across is not None:
+        across = check.elements_across
+    else:
+        return None
+    return (wall, across) if across < minimum else None
 
 
 def _mesh_check_header(check: MeshCheck) -> str:
@@ -448,16 +467,23 @@ def solve_cmd(
 ) -> None:
     """Mesh and solve the project's static study, then print a summary."""
     with _user_errors():
-        result = solve(load_project(path), workdir=workdir, check_mesh=check_mesh)
+        project = load_project(path)
+        result = solve(project, workdir=workdir, check_mesh=check_mesh)
     check = result.mesh_check
     typer.echo(f"nodes: {result.mesh.n_nodes}, elements: {result.mesh.n_elements}")
     if check is not None:
         typer.echo(_mesh_check_header(check))
 
     minimum = WALL_ELEMENTS_MIN if check is None else check.wall_elements_min
+    # The size the user set for the (coarse) mesh; with an automatic size, its median edge.
+    mesh_size = project.study.mesh_size or (
+        result.node_flags.edge_length if check is None else check.coarse_edge_length
+    )
 
     def verdict(spot_check: SpotCheck | None, spot: StressSpot | None = None) -> str:
-        return "" if spot_check is None else f" ({_change(spot_check, spot, minimum)})"
+        if spot_check is None:
+            return ""
+        return f" ({_change(spot_check, spot, minimum, mesh_size)})"
 
     typer.echo(
         f"max displacement: {result.max_displacement:.6g} mm"
@@ -483,7 +509,7 @@ def solve_cmd(
     unjudged = (Verdict.NOT_REFINED, Verdict.THIN_WALL)
     if check is not None and check.peak_von_mises.verdict not in unjudged:
         # The measured verdict replaces the flags' guess (ADR-007).
-        line = _change(check.peak_von_mises, peak, minimum)
+        line = _change(check.peak_von_mises, peak, minimum, mesh_size)
         if check.peak_von_mises.verdict is Verdict.MESH_DEPENDENT:
             line += "; do not compare it with a strength"
         typer.echo(f"  {near}: {line}" if peak.flagged else f"  {line}")
@@ -491,17 +517,18 @@ def solve_cmd(
         advice = (
             "compare two mesh sizes (--check-mesh) before trusting either value"
             if check is None
-            else _change(check.peak_von_mises, peak, minimum)
+            else _change(check.peak_von_mises, peak, minimum, mesh_size)
         )
         typer.echo(f"  {near}: the stress there may keep rising as the mesh is refined; {advice}")
     elif check is not None:
-        typer.echo(f"  {_change(check.peak_von_mises, peak, minimum)}")
-    if check is None and (wall := _thin_wall(peak)) is not None:
+        typer.echo(f"  {_change(check.peak_von_mises, peak, minimum, mesh_size)}")
+    if (thin := _thin_wall(peak, check and check.peak_von_mises, minimum)) is not None:
+        wall, across = thin
+        where = "" if check is None else " on the coarse mesh"
         typer.echo(
-            f"  thin wall: {_elements(wall.elements)} elements across the "
-            f"{wall.thickness:.3g} mm wall here; use --mesh-size "
-            f"{_size_at_most(wall.thickness / WALL_ELEMENTS_MIN)} or less before "
-            "--check-mesh, or the comparison cannot see the rise"
+            f"  thin wall: {_elements(across)} elements across the {wall.thickness:.3g} mm wall "
+            f"here{where}; use --mesh-size {_size_at_most(mesh_size * across / minimum)} or "
+            "less before --check-mesh, or the comparison cannot see the rise"
         )
     shown = result.face_peaks[:FACE_PEAKS_SHOWN]
     if shown:
@@ -511,10 +538,11 @@ def solve_cmd(
         line = f"  face {spot.face}: {spot.value:.6g} MPa at ({x:.4g}, {y:.4g}, {z:.4g}) mm"
         if spot.flagged:
             line += f", {_reasons(spot)}"
-        if check is None and (wall := _thin_wall(spot)) is not None:
-            line += f", thin wall ({_elements(wall.elements)} elements across)"
-        if check is not None and spot.face is not None:
-            line += verdict(check.face_peaks.get(spot.face), spot)
+        face_check = None if check is None or spot.face is None else check.face_peaks.get(spot.face)
+        thin = None if check and not face_check else _thin_wall(spot, face_check, minimum)
+        if thin is not None:
+            line += f", thin wall ({_elements(thin[1])} elements across)"
+        line += verdict(face_check, spot)
         typer.echo(line)
     typer.echo(f"solver files: {result.workdir}")
 
