@@ -22,9 +22,12 @@ from pydantic import (
     model_validator,
 )
 
-SCHEMA_VERSION = 5
+from tessera.model.elasticity import check_orthotropic
+
+SCHEMA_VERSION = 6
 """2: Support.dofs (directional supports). 3: PressureLoad, Study.gravity, load ``kind``.
-4: MomentLoad. 5: Support.edges (line supports, ADR-006). Older files load unchanged."""
+4: MomentLoad. 5: Support.edges (line supports, ADR-006).
+6: Project.materials, PrintSetup.raster_angle (ADR-009). Older files load unchanged."""
 
 Vec3 = tuple[float, float, float]
 
@@ -46,6 +49,67 @@ class PrintSetup(_Model):
     process: Literal["fdm", "resin"]
     slicer_profile: str | None = None
     build_direction: Vec3 = (0.0, 0.0, 1.0)
+    raster_angle: float = 0.0
+    """Degrees, counter-clockwise looking down the build direction (ADR-009 D2)."""
+
+
+_Density = Annotated[float, Field(gt=0.0)] | None
+"""t/mm^3; ``None`` when unknown (gravity then refuses the material)."""
+
+
+class IsotropicDefinition(_Model):
+    """A linear isotropic material defined in the project (ADR-009 D3). Moduli in MPa."""
+
+    kind: Literal["isotropic"] = "isotropic"
+    id: str
+    youngs_modulus: Annotated[float, Field(gt=0.0)]
+    poisson_ratio: Annotated[float, Field(gt=-1.0, lt=0.5)]
+    density: _Density = None
+
+
+class OrthotropicDefinition(_Model):
+    """A linear orthotropic material defined in the project (ADR-009 D1, D3).
+
+    Engineering constants in MPa on the material axes (1 = raster, 2 = across the road in the
+    layer, 3 = build), with the major Poisson ratios nu_ij = -eps_j / eps_i under uniaxial
+    sigma_i. Validated with ``tessera.model.elasticity.check_orthotropic``.
+    """
+
+    kind: Literal["orthotropic"] = "orthotropic"
+    id: str
+    e1: float
+    e2: float
+    e3: float
+    nu12: float
+    nu13: float
+    nu23: float
+    g12: float
+    g13: float
+    g23: float
+    density: _Density = None
+
+    @model_validator(mode="after")
+    def _check_constants(self) -> OrthotropicDefinition:
+        try:
+            check_orthotropic(
+                self.e1,
+                self.e2,
+                self.e3,
+                self.nu12,
+                self.nu13,
+                self.nu23,
+                self.g12,
+                self.g13,
+                self.g23,
+            )
+        except ValueError as exc:
+            raise ValueError(f"material {self.id!r}: {exc}") from None
+        return self
+
+
+MaterialDefinition = Annotated[
+    IsotropicDefinition | OrthotropicDefinition, Field(discriminator="kind")
+]
 
 
 class PartInstance(_Model):
@@ -225,6 +289,17 @@ class Project(_Model):
     name: str
     assembly: Assembly = Field(default_factory=Assembly)
     study: Study = Field(default_factory=Study)
+    materials: list[MaterialDefinition] = Field(default_factory=list)
+    """Materials defined in this project; at solve time they win over the library."""
+
+    @model_validator(mode="after")
+    def _check_material_ids(self) -> Project:
+        seen: set[str] = set()
+        for material in self.materials:
+            if material.id in seen:
+                raise ValueError(f"material id {material.id!r} is used twice")
+            seen.add(material.id)
+        return self
 
     @model_validator(mode="after")
     def _check_study_references(self) -> Project:

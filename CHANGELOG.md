@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Project files are now schema 6 (ADR-009 D3): `Project.materials` holds materials defined in
+  the project (`IsotropicDefinition`, `OrthotropicDefinition`, discriminated on `kind`, ids
+  unique, orthotropic constants checked with `check_orthotropic`), and `PrintSetup` gains
+  `raster_angle` (degrees, default 0). Schema 5 files open unchanged; older Tessera versions
+  refuse schema 6 files. Nothing reads these fields yet; solving with them comes later.
 - Orthotropic material types (ADR-009, model only): `OrthotropicMaterial` (engineering
   constants, major Poisson ratios, validated to a positive definite compliance), `Material`,
   `MaterialFrame` and `Section.orientation` in `tessera.model`, and
