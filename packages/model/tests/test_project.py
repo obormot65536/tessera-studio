@@ -213,5 +213,133 @@ def test_schema_4_project_loads_unchanged() -> None:
     project = Project.model_validate(data)
     support = project.study.supports[0]
     assert (support.part_id, support.edges, support.dofs) == ("p1", None, (3,))
-    assert SCHEMA_VERSION == 5
+    assert SCHEMA_VERSION >= 5
     assert project.model_dump(mode="json")["study"]["supports"] == supports
+
+
+# Catalog TO constants (ADR-009 test plan); Delta = 0.7427, positive definite.
+_TO: dict[str, object] = {
+    "e1": 3000.0,
+    "e2": 2400.0,
+    "e3": 1800.0,
+    "nu12": 0.35,
+    "nu13": 0.30,
+    "nu23": 0.30,
+    "g12": 1000.0,
+    "g13": 700.0,
+    "g23": 650.0,
+}
+
+
+def _orthotropic(mid: str = "pla-xyz", **changes: object) -> dict[str, object]:
+    return {"kind": "orthotropic", "id": mid, **_TO, "density": 1.24e-9, **changes}
+
+
+def test_project_materials_round_trip_through_json() -> None:
+    from tessera.model import IsotropicDefinition, OrthotropicDefinition
+
+    raw = {
+        "name": "p",
+        "materials": [
+            _orthotropic(),
+            {"kind": "isotropic", "id": "petg", "youngs_modulus": 2100.0, "poisson_ratio": 0.38},
+        ],
+    }
+    project = Project.model_validate(raw)
+    ortho, iso = project.materials
+    assert isinstance(ortho, OrthotropicDefinition) and isinstance(iso, IsotropicDefinition)
+    assert (ortho.e2, ortho.nu23, ortho.g23, ortho.density) == (2400.0, 0.30, 650.0, 1.24e-9)
+    assert iso.density is None
+    again = Project.model_validate_json(project.model_dump_json())
+    assert again == project
+    assert again.model_dump(mode="json")["materials"][0] == _orthotropic()
+
+
+def test_projects_have_no_materials_by_default() -> None:
+    assert Project(name="p").materials == []
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"nu12": 1.2, "e2": 3000.0}, "positive definite"),
+        ({"g13": 0.0}, "g13 must be positive"),
+        ({"e3": -1.0}, "e3 must be positive"),
+    ],
+)
+def test_invalid_orthotropic_definition_is_rejected(
+    changes: dict[str, object], message: str
+) -> None:
+    with pytest.raises(ValidationError, match=message) as info:
+        Project.model_validate({"name": "p", "materials": [_orthotropic("bad", **changes)]})
+    assert "material 'bad'" in str(info.value), "the message names the material"
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [{"youngs_modulus": 0.0}, {"poisson_ratio": 0.5}, {"poisson_ratio": -1.0}, {"density": 0.0}],
+)
+def test_invalid_isotropic_definition_is_rejected(changes: dict[str, object]) -> None:
+    from tessera.model import IsotropicDefinition
+
+    data = {"id": "m", "youngs_modulus": 2000.0, "poisson_ratio": 0.3, **changes}
+    with pytest.raises(ValidationError):
+        IsotropicDefinition.model_validate(data)
+
+
+def test_unknown_material_kind_is_rejected() -> None:
+    with pytest.raises(ValidationError, match="anisotropic"):
+        Project.model_validate({"name": "p", "materials": [{"kind": "anisotropic", "id": "m"}]})
+
+
+def test_duplicate_material_ids_are_rejected() -> None:
+    iso = {"kind": "isotropic", "id": "pla", "youngs_modulus": 3000.0, "poisson_ratio": 0.35}
+    with pytest.raises(ValidationError, match="material id 'pla' is used twice"):
+        Project.model_validate({"name": "p", "materials": [iso, _orthotropic("pla")]})
+
+
+def test_raster_angle_round_trips_and_defaults_to_zero() -> None:
+    from tessera.model import PrintSetup
+
+    assert PrintSetup(process="fdm").raster_angle == 0.0
+    setup = PrintSetup(process="fdm", build_direction=(1.0, 0.0, 0.0), raster_angle=45.0)
+    part = PartInstance(id="p1", name="p1", geometry=Path("p1.step"), print_setup=setup)
+    project = Project(name="p", assembly=Assembly(parts=[part]))
+    again = Project.model_validate_json(project.model_dump_json())
+    assert again.assembly.parts[0].print_setup == setup
+    assert (
+        again.model_dump(mode="json")["assembly"]["parts"][0]["print_setup"]["raster_angle"] == 45
+    )
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), -float("inf")])
+def test_raster_angle_must_be_finite(bad: float) -> None:
+    from tessera.model import PrintSetup
+
+    with pytest.raises(ValidationError, match="finite number"):
+        PrintSetup(process="fdm", raster_angle=bad)
+
+
+def test_schema_5_project_loads_unchanged() -> None:
+    from tessera.model import SCHEMA_VERSION
+
+    setup = {"process": "fdm", "slicer_profile": None, "build_direction": [0.0, 1.0, 0.0]}
+    part = {"id": "p1", "name": "p1", "geometry": "p1.step", "material_id": "steel"}
+    supports = [{"id": "s", "edges": {"part_id": "p1", "edges": [[1, 2]]}, "dofs": [3]}]
+    data = {
+        "schema_version": 5,
+        "name": "bracket",
+        "assembly": {"parts": [{**part, "print_setup": setup}]},
+        "study": {"supports": supports},
+    }
+    project = Project.model_validate(data)
+    assert SCHEMA_VERSION == 6
+    assert project.materials == []
+    loaded = project.assembly.parts[0]
+    assert loaded.material_id == "steel" and loaded.print_setup is not None
+    assert loaded.print_setup.build_direction == (0.0, 1.0, 0.0)
+    assert loaded.print_setup.raster_angle == 0.0
+    dumped = project.model_dump(mode="json")
+    assert dumped["assembly"]["parts"][0]["print_setup"] == {**setup, "raster_angle": 0.0}
+    assert dumped["study"]["supports"] == supports
+    assert dumped["materials"] == []

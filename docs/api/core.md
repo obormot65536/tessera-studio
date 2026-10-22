@@ -61,7 +61,7 @@ Writes the project to `path`.
 
 The file is written to a temporary file in the same folder and then renamed over the target. A
 failed save leaves the previous file in place. The saved file always carries the current
-`schema_version` (5).
+`schema_version` (6).
 
 Raises:
 
@@ -89,9 +89,10 @@ not its name: a zip file is read as a container, anything else as JSON.
 - Container: the geometry is copied to a private temporary folder, which Tessera removes when
   the process exits. The part geometry paths point there.
 
-Files with a `schema_version` newer than `SCHEMA_VERSION` (5) are refused. Files without a
+Files with a `schema_version` newer than `SCHEMA_VERSION` (6) are refused. Files without a
 version, or with an older one, load. Files up to schema 4 hold only face supports and load
-unchanged.
+unchanged; files up to schema 5 have no `materials` and no `raster_angle` and load unchanged
+(an empty list and 0).
 
 Raises:
 
@@ -441,11 +442,13 @@ them from `tessera.model` for the full set.
 
 | Type | Fields (type, default) | Notes |
 |---|---|---|
-| `Project` | `name: str`, `schema_version: int = 5`, `assembly: Assembly`, `study: Study` | Root object. Extra fields are errors. |
+| `Project` | `name: str`, `schema_version: int = 6`, `assembly: Assembly`, `study: Study`, `materials: list[MaterialDefinition] = []` | Root object. Extra fields are errors. Material ids must be unique. |
+| `IsotropicDefinition` | `kind: "isotropic"`, `id: str`, `youngs_modulus: float`, `poisson_ratio: float`, `density: float \| None = None` | A material defined in the project. MPa; t/mm³. E > 0, -1 < ν < 0.5, density > 0. |
+| `OrthotropicDefinition` | `kind: "orthotropic"`, `id: str`, `e1`, `e2`, `e3`, `nu12`, `nu13`, `nu23`, `g12`, `g13`, `g23`, `density: float \| None = None` | Engineering constants in MPa on the material axes (1 = raster, 2 = across the road, 3 = build), major Poisson ratios. Checked with `check_orthotropic` (positive definite compliance). |
 | `Assembly` | `parts: list[PartInstance]`, `connections: list[Connection]` | Part ids must be unique. |
 | `PartInstance` | `id: str`, `name: str`, `geometry: Path`, `transform: Transform`, `material_id: str \| None`, `print_setup: PrintSetup \| None` | `geometry` is a STEP or STL path. |
 | `Transform` | `rotation`, `translation` | Rotation is a row-major 3 × 3 matrix; translation in mm. Only the identity is solved in v0.1. |
-| `PrintSetup` | `process: "fdm" \| "resin"`, `slicer_profile: str \| None`, `build_direction` | Stored only. Not used by the solver in v0.1. |
+| `PrintSetup` | `process: "fdm" \| "resin"`, `slicer_profile: str \| None`, `build_direction`, `raster_angle: float = 0.0` | `raster_angle` in degrees, counter-clockwise looking down the build direction. Stored only; not used by the solver yet. |
 | `Connection` | `id`, `kind: ConnectionKind`, `a: FaceSet`, `b: FaceSet`, `friction`, `preload_n` | Stored only. Connections are not solved in v0.1. |
 | `ConnectionKind` | `"bonded"`, `"contact"`, `"bolt"`, `"pin"` | |
 | `FaceSet` | `part_id: str`, `faces: tuple[int, ...]` | At least one face. Face numbers come from `describe_faces`. |
@@ -457,7 +460,9 @@ them from `tessera.model` for the full set.
 | `MomentLoad` | `kind: "moment"`, `id: str`, `faces: FaceSet`, `moment: (float, float, float)` | N·mm about the faces' area centroid. No net force. |
 
 `Load` is the union `ForceLoad | PressureLoad | MomentLoad`. Files without a `kind` are read as
-force loads.
+force loads. `MaterialDefinition` is the union `IsotropicDefinition | OrthotropicDefinition`,
+chosen by `kind` (required). Project materials are stored only in this version; nothing
+solves with them yet.
 
 Validation: a `Study` item that names a part id not in `assembly.parts`, or two parts with the
 same id, is an error. Items you add later with `append` skip pydantic's checks at that moment,

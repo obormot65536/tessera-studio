@@ -196,6 +196,51 @@ def test_container_with_newer_schema_is_rejected(tmp_path: Path) -> None:
         load_project(path)
 
 
+def test_project_materials_and_raster_angle_round_trip_through_a_container(
+    tmp_path: Path,
+) -> None:
+    from tessera.model import OrthotropicDefinition, PrintSetup
+
+    source = tmp_path / "part.step"
+    source.write_bytes(b"step bytes")
+    project = _project_with(source)
+    project.assembly.parts[0].print_setup = PrintSetup(process="fdm", raster_angle=90.0)
+    project.materials.append(
+        OrthotropicDefinition(
+            id="pla-xyz",
+            e1=3000.0,
+            e2=2400.0,
+            e3=1800.0,
+            nu12=0.35,
+            nu13=0.30,
+            nu23=0.30,
+            g12=1000.0,
+            g13=700.0,
+            g23=650.0,
+        )
+    )
+    path = tmp_path / "part.tessera"
+    save_project(project, path)
+
+    with zipfile.ZipFile(path) as zf:
+        stored = json.loads(zf.read("project.json"))
+    assert stored["schema_version"] == 6
+    assert stored["materials"][0]["kind"] == "orthotropic"
+    assert stored["assembly"]["parts"][0]["print_setup"]["raster_angle"] == 90.0
+    loaded = load_project(path)
+    assert loaded.materials == project.materials
+    assert loaded.assembly.parts[0].print_setup == project.assembly.parts[0].print_setup
+
+
+def test_invalid_material_in_a_container_is_an_input_error(tmp_path: Path) -> None:
+    bad = {"kind": "orthotropic", "id": "bad", "e1": 3000.0, "e2": 3000.0, "e3": 1800.0}
+    bad |= {"nu12": 1.2, "nu13": 0.3, "nu23": 0.3, "g12": 1000.0, "g13": 700.0, "g23": 650.0}
+    text = json.dumps({"schema_version": 6, "name": "x", "materials": [bad]})
+    path = _write_zip(tmp_path / "x.tessera", {"project.json": text})
+    with pytest.raises(InputError, match="positive definite"):
+        load_project(path)
+
+
 def test_json_geometry_paths_resolve_against_the_project_folder(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
