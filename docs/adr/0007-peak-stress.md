@@ -170,8 +170,7 @@ at the clamp); at 2.5 mm the same peak is `mesh-dependent`. Today only the user 
    in `tessera solve` saying how many there are and the mesh size that would give N, so the user
    refines before running `--check-mesh`.
 4. **N = 5** (approved by the maintainer). Every number stored and shown is the measured count,
-   not a pass/fail, so
-   a later N changes no stored data.
+   not a pass/fail, so a later N changes no stored data.
 
 **Evidence.** A sweep of `check_mesh=True` solves through the benchmarks' own helpers, recording
 each flagged spot's coarse elements across, change and verdict, and the same spot's verdict at
