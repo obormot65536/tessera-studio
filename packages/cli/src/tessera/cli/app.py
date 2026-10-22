@@ -385,6 +385,18 @@ def _percent(fraction: float) -> str:
     return f"{percent:.3g}" if percent < 100 else f"{percent:.0f}"
 
 
+_ADVICE_MARGIN = 0.9
+"""The advised mesh size is this much below the estimate: gmsh's element edges come out a few
+percent longer than ``--mesh-size`` and vary with it (TS-01: 2.07 mm at 2 mm, 4.83 elements
+across where 5 were advised; 5.94 at 1.8 mm)."""
+
+
+def _advised_size(mesh_size: float, across: float, minimum: float) -> str:
+    """A mesh size that should put ``minimum`` elements across a wall that has ``across`` at
+    ``mesh_size``."""
+    return _size_at_most(_ADVICE_MARGIN * mesh_size * across / minimum)
+
+
 def _size_at_most(size: float) -> str:
     """``size`` rounded down to two significant digits: a mesh size that is small enough."""
     step = 10.0 ** (math.floor(math.log10(size)) - 1)
@@ -417,7 +429,7 @@ def _change(
         advice = (
             ""
             if mesh_size is None
-            else f"; try --mesh-size {_size_at_most(mesh_size * across / minimum)} or less"
+            else f"; try --mesh-size {_advised_size(mesh_size, across, minimum)} or less"
         )
         return line + (
             f"coarse mesh had only {_elements(across)} elements across the "
@@ -527,7 +539,7 @@ def solve_cmd(
         where = "" if check is None else " on the coarse mesh"
         typer.echo(
             f"  thin wall: {_elements(across)} elements across the {wall.thickness:.3g} mm wall "
-            f"here{where}; use --mesh-size {_size_at_most(mesh_size * across / minimum)} or "
+            f"here{where}; use --mesh-size {_advised_size(mesh_size, across, minimum)} or "
             "less before --check-mesh, or the comparison cannot see the rise"
         )
     shown = result.face_peaks[:FACE_PEAKS_SHOWN]
