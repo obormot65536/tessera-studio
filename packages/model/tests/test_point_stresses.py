@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 import tessera.model as model
-from tessera.model import PointStresses, SolveResult
+from tessera.model import AnalysisKind, Mesh, PointStresses, SolveJob, SolveResult
 
 
 def point_stresses(m: int = 3, q: int = 4) -> PointStresses:
@@ -66,3 +66,24 @@ def test_point_stresses_is_an_additive_last_field() -> None:
 def test_exported_from_the_package() -> None:
     assert "PointStresses" in model.__all__
     assert model.PointStresses is PointStresses
+
+
+def _mesh() -> Mesh:
+    return Mesh(nodes=np.zeros((10, 3)), elements=np.arange(10, dtype=np.int64).reshape(1, 10))
+
+
+def test_point_stresses_are_not_requested_by_default() -> None:
+    job = SolveJob(mesh=_mesh(), materials=(), sections=())
+    assert job.point_stresses is False
+
+
+def test_point_stresses_are_requested_by_keyword_only() -> None:
+    # Opt-in (ADR-008): the request is additive and keyword-only, so positional calls that
+    # pass ``analysis`` keep working and cannot set it by accident.
+    job = SolveJob(_mesh(), (), (), (), (), AnalysisKind.STATIC, point_stresses=True)
+    assert job.point_stresses is True
+    with pytest.raises(TypeError):
+        SolveJob(_mesh(), (), (), (), (), AnalysisKind.STATIC, True)  # type: ignore[misc]
+    names = [f.name for f in dataclasses.fields(SolveJob)]
+    assert names[-1] == "point_stresses"
+    assert next(f for f in dataclasses.fields(SolveJob) if f.name == "point_stresses").kw_only
