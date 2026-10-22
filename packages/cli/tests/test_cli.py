@@ -1,4 +1,5 @@
 import dataclasses
+import re
 from pathlib import Path
 
 import pytest
@@ -547,5 +548,7 @@ def test_solve_help_shows_the_default_timeout() -> None:
     from tessera.core import SOLVE_TIMEOUT
 
     result = runner.invoke(app, ["solve", "--help"])
-    assert "--timeout" in result.output
-    assert f"{SOLVE_TIMEOUT:g}" in result.output
+    # Rich styles the help on CI (GITHUB_ACTIONS forces colour), splitting words with escapes.
+    text = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "--timeout" in text
+    assert f"{SOLVE_TIMEOUT:g}" in text
