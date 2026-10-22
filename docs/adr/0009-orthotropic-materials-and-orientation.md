@@ -1,6 +1,6 @@
 # ADR-009: Orthotropic materials and print orientation (v0.5, slice 1)
 
-**Status:** Proposed
+**Status:** Accepted (maintainer, 2026-10-22)
 **Deciders:** Maintainer
 
 ## Context
