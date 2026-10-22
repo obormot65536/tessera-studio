@@ -130,6 +130,7 @@ class MaterialFrame:
             )
         u = u / nu
         w = v - (v @ u) * u
+        w = w - (w @ u) * u  # a second pass restores orthogonality lost to round-off
         nw = float(np.linalg.norm(w))
         if nw <= _FRAME_TOLERANCE * nv:
             raise ValueError(f"MaterialFrame.from_axes: {b!r} is parallel to {a!r}")

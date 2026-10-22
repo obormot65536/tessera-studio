@@ -581,7 +581,7 @@ code that is being built.
 | Type | Fields | Notes |
 |---|---|---|
 | `IsotropicMaterial` | `name`, `youngs_modulus`, `poisson_ratio`, `density = None` | MPa; density in t/mm³. |
-| `OrthotropicMaterial` | `name`, `e1`, `e2`, `e3`, `nu12`, `nu13`, `nu23`, `g12`, `g13`, `g23`, `density = None` | Axes 1 = raster, 2 = across the road, 3 = build. Major Poisson ratios: nu_ij = -eps_j / eps_i under uniaxial sigma_i; nu_ji = nu_ij E_j / E_i is derived. Raises `ValueError` unless every E and G is positive and finite and the compliance is positive definite. |
+| `OrthotropicMaterial` | `name`, `e1`, `e2`, `e3`, `nu12`, `nu13`, `nu23`, `g12`, `g13`, `g23`, `density = None` | Axes 1 = raster, 2 = across the road, 3 = build. Major Poisson ratios: nu_ij = -eps_j / eps_i under uniaxial sigma_i; nu_ji = nu_ij E_j / E_i is derived. Raises `ValueError` unless every E and G is positive and finite, every Poisson ratio is finite, and the compliance is positive definite. |
 | `Material` | | The union `IsotropicMaterial \| OrthotropicMaterial`; `SolveJob.materials` is a `tuple[Material, ...]`. |
 | `MaterialFrame` | `axis_1`, `axis_2` | Material axes 1 and 2 in part coordinates, unit and orthogonal within 1e-9. `axis_3` = `axis_1` × `axis_2`; `rotation` is the 3 × 3 matrix whose rows are axes 1, 2, 3; `MaterialFrame.from_axes(a, b)` builds one from two non-parallel vectors (Gram-Schmidt). |
 | `Section` | `element_set`, `material`, `orientation: MaterialFrame \| None = None` | `None` means the part axes. |
