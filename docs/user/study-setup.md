@@ -442,12 +442,12 @@ max displacement: 1.52177 mm
 von Mises stress away from supports and sharp inside edges: 116.508 MPa at (5.684, 5.092, 0) mm, face 5
 max von Mises stress: 120.398 MPa at (1.83, 8.17, 10) mm, face 6
   near support 'root' (within 5.39 mm): the stress there may keep rising as the mesh is refined; compare two mesh sizes (--check-mesh) before trusting either value
-  thin wall: 1.41 elements across the 3.66 mm wall here; use --mesh-size 0.7 or less before --check-mesh, or the comparison cannot see the rise
+  thin wall: 1.41 elements across the 3.66 mm wall here; use --mesh-size 0.63 or less before --check-mesh, or the comparison cannot see the rise
 max von Mises stress by face (5 of 6):
   face 6: 120.398 MPa at (1.83, 8.17, 10) mm, near support 'root', thin wall (1.41 elements across)
   face 5: 119.969 MPa at (1.83, 8.17, 0) mm, near support 'root', thin wall (1.41 elements across)
-  face 3: 117.341 MPa at (1.25, 0, 0) mm, near support 'root', thin wall (0.983 elements across)
-  face 4: 117.324 MPa at (1.25, 10, 10) mm, near support 'root', thin wall (0.983 elements across)
+  face 3: 117.341 MPa at (1.25, 0, 0) mm, near support 'root', thin wall (3.93 elements across)
+  face 4: 117.324 MPa at (1.25, 10, 10) mm, near support 'root', thin wall (3.93 elements across)
   face 1: 114.319 MPa at (0, 0, 0) mm, near support 'root', thin wall (3.86 elements across)
 solver files: run-2.5
 ```
@@ -472,15 +472,17 @@ How to read it:
   line says which, and that the value depends on the mesh size.
 - **thin wall**: shown under a marked peak when the part there is less than 5 elements thick.
   Below that, the two-mesh check cannot judge a marked peak: see "Let Tessera compare two
-  meshes" below. The line gives a mesh size that would put 5 elements across: your mesh size
-  times the elements across, divided by 5.
+  meshes" below. The line gives a mesh size that should put 5 elements across: 0.9 times your
+  mesh size times the elements across, divided by 5 (elements come out a little longer than
+  `--mesh-size`, hence the 0.9).
   The wall is the width of the largest ball that fits inside the part and touches its surface
-  at the peak. On a plate that is the plate's thickness. Close to another face it is less: the
-  peak here is 1.83 mm from the clamped end, so the ball touches that face too and the wall is
-  3.66 mm, not the beam's 10 mm depth. A marked peak is usually close to the clamped face it
-  is marked for, so refining moves it closer and the wall there may stay too thin to judge.
-  A support never doubles the wall, not even a symmetry plane: Tessera cannot tell it from a
-  table the part rests on.
+  at the peak. On a plate that is the plate's thickness. Close to another face it is less, as
+  the ball touches that face too: the peak here is 1.83 mm from the side face y = 10, so the
+  wall there is 3.66 mm. The faces of the support that marks the peak do not count, because the
+  part continues into the fixture: the peak is also 1.83 mm from the clamped end, which does
+  not make the wall thinner. A support never doubles the wall, not even a symmetry plane:
+  Tessera cannot tell it from a table the part rests on. The advice is for this mesh's peak;
+  on a finer mesh the peak may move (here to the clamped corner, on the full 10 mm depth).
 - **max von Mises stress by face**: the highest stress on each face, highest first, so you can
   see where the part is loaded. Five faces are shown; the Python API has them all. A marked
   face peak on a wall less than 5 elements thick says `thin wall` and how many elements there
@@ -614,11 +616,10 @@ The lines for the largest stress:
 
 ```
 max von Mises stress: 123.339 MPa at (3.27, 5, 0) mm, face 5
-  near support 'root' (within 7.02 mm): the stress there may keep rising as the mesh is refined; not judged: changed 1.12 % between the meshes, but the coarse mesh had only 1.38 elements across the 6.54 mm wall here (at least 5 needed); try --mesh-size 1.3 or less
+  near support 'root' (within 7.02 mm): the stress there may keep rising as the mesh is refined; not judged: changed 1.12 % between the meshes, but the coarse mesh had only 2.11 elements across the 10 mm wall here (at least 5 needed); try --mesh-size 1.8 or less
 ```
 
-The peak is 3.27 mm from the clamped end, so the wall there is 6.54 mm. Without this guard the
-peak would read settled; at 2.5 mm the same peak is
+Without this guard the peak would read settled; at 2.5 mm the same peak is
 `mesh-dependent`, and it keeps rising at every finer mesh. A number that moved by more than 5 %
 is `mesh-dependent` however thin the wall, because the check did see it move. Unmarked numbers
 are judged on any wall: a smooth stress, such as at a hole or in the middle of a bent beam, is

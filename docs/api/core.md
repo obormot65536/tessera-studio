@@ -566,9 +566,13 @@ centroids are the samples, in one k-d tree per mesh, and q is refined to the sam
 plane. A sample stops the ball only where the ball would leave the part through it, so a
 neighbouring face at a convex edge (which the ball meets edge-on) and the other face at an inside
 edge do not collapse it. So a plate reads its thickness, a bar's end face its section (not its
-length), and a node near another face less than the wall: the ball touches that face too. A node
-inside the part is measured at the nearest surface node. A support never doubles the wall, not
-even a one-direction one: it cannot be told from a roller on a table.
+length), and a node near another face less than the wall: the ball touches that face too. At a
+spot flagged by a face support, the samples on that support's faces are left out
+(`samples_on(surface, nodes)`, passed as `wall_span(..., ignore=)`): the part continues into the
+fixture there, so a peak next to a clamped face reads the section, not twice its distance to
+the clamp. Line supports hold no face, so nothing is left out for them. A node inside the part
+is measured at the nearest surface node. A support never doubles the wall, not even a
+one-direction one: it cannot be told from a roller on a table.
 
 `WallSpan.elements` uses the mesh the spot comes from (the fine one after a check);
 `SpotCheck.elements_across` uses the coarse mesh, which decides the guard.

@@ -7,11 +7,12 @@
   the wall there, too few to show the stress rise, or when the wall could not be measured; it
   reads `not judged` with the elements across and a mesh size that gives 5. The wall is the
   width of the largest ball inside the part touching the surface at the peak, never doubled
-  across a support. Without `--check-mesh`, a marked peak on such a wall gets a `thin wall` line
+  across a support; at a peak marked by a face support, that support's faces are left out, as
+  the part continues into the fixture. Without `--check-mesh`, a marked peak on such a wall gets a `thin wall` line
   with the same advice, and marked face peaks say `thin wall`. Unmarked numbers are judged as
   before. API: `StressSpot.wall` (`WallSpan`), `Verdict.THIN_WALL`, `SpotCheck.elements_across`,
-  `MeshCheck.wall_elements_min`; `WALL_ELEMENTS_MIN`, `outer_surface`, `wall_span` and
-  `node_edge_length` in `tessera.post`, `WALL_ELEMENTS_MIN` in `tessera.core`.
+  `MeshCheck.wall_elements_min`; `WALL_ELEMENTS_MIN`, `outer_surface`, `wall_span`,
+  `samples_on` and `node_edge_length` in `tessera.post`, `WALL_ELEMENTS_MIN` in `tessera.core`.
 - Two-mesh check (ADR-007): `tessera solve --check-mesh` solves the study again with every
   element about 1/√2 as long and marks each printed number `settled` (changed by 5 % or less),
   `mesh-dependent`, or `not judged` where the second mesh did not get finer (its elements there
