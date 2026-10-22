@@ -12,6 +12,7 @@ from tessera.model.solver import (
     FixedSupport,
     IsotropicMaterial,
     NodalLoads,
+    OrthotropicMaterial,
     Section,
     SolveJob,
     SolverAdapter,
@@ -163,6 +164,14 @@ def test_deck_rejects_invalid_jobs(change: dict[str, object]) -> None:
     kwargs.update(change)
     with pytest.raises(SolverError):
         write_deck(SolveJob(**kwargs))  # type: ignore[arg-type]
+
+
+def test_orthotropic_material_is_not_written_yet() -> None:
+    # ADR-009 PR-2 writes *ELASTIC, TYPE=ENGINEERING CONSTANTS; until then refuse it clearly.
+    job = tiny_job()
+    to = OrthotropicMaterial("resin", 3000.0, 2400.0, 1800.0, 0.35, 0.3, 0.3, 1000.0, 700.0, 650.0)
+    with pytest.raises(NotImplementedError, match="orthotropic material 'resin'"):
+        write_deck(SolveJob(job.mesh, (to,), job.sections))
 
 
 def test_missing_executable_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

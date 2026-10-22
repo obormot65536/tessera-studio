@@ -572,6 +572,26 @@ class SolverAdapter(Protocol):
 
 `AnalysisKind` has one member, `STATIC = "static"`.
 
+### Solve-job materials and orientation
+
+These types are in `tessera.model` (ADR-009). Projects cannot name an orthotropic material yet,
+and the CalculiX adapter raises `NotImplementedError` for one; they are for adapter and results
+code that is being built.
+
+| Type | Fields | Notes |
+|---|---|---|
+| `IsotropicMaterial` | `name`, `youngs_modulus`, `poisson_ratio`, `density = None` | MPa; density in t/mm³. |
+| `OrthotropicMaterial` | `name`, `e1`, `e2`, `e3`, `nu12`, `nu13`, `nu23`, `g12`, `g13`, `g23`, `density = None` | Axes 1 = raster, 2 = across the road, 3 = build. Major Poisson ratios: nu_ij = -eps_j / eps_i under uniaxial sigma_i; nu_ji = nu_ij E_j / E_i is derived. Raises `ValueError` unless every E and G is positive and finite and the compliance is positive definite. |
+| `Material` | | The union `IsotropicMaterial \| OrthotropicMaterial`; `SolveJob.materials` is a `tuple[Material, ...]`. |
+| `MaterialFrame` | `axis_1`, `axis_2` | Material axes 1 and 2 in part coordinates, unit and orthogonal within 1e-9. `axis_3` = `axis_1` × `axis_2`; `rotation` is the 3 × 3 matrix whose rows are axes 1, 2, 3; `MaterialFrame.from_axes(a, b)` builds one from two non-parallel vectors (Gram-Schmidt). |
+| `Section` | `element_set`, `material`, `orientation: MaterialFrame \| None = None` | `None` means the part axes. |
+
+`tessera.model.elasticity` has the pure functions: `orthotropic_compliance(e1, ..., g23)` returns
+the 6 × 6 compliance in Voigt order xx, yy, zz, xy, yz, zx (the order of `SolveResult.stresses`)
+with engineering shear strains; `check_orthotropic(e1, ..., g23)` raises the `ValueError` above;
+`rotate_stress(stress, frame)` takes (6,) or (N, 6) stresses in part axes and returns them in the
+frame's material axes (11, 22, 33, 12, 23, 31).
+
 ## Example
 
 The example starts from a project file with one part (`bar`) and no supports or loads.

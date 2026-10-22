@@ -23,7 +23,13 @@ import numpy as np
 from numpy.typing import NDArray
 
 from tessera.model.mesh import Mesh
-from tessera.model.solver import AnalysisKind, SolveJob, SolverError, SolveResult
+from tessera.model.solver import (
+    AnalysisKind,
+    OrthotropicMaterial,
+    SolveJob,
+    SolverError,
+    SolveResult,
+)
 
 JOB_NAME = "job"
 CCX_ENV_VAR = "TESSERA_CCX"
@@ -117,7 +123,8 @@ def write_deck(job: SolveJob) -> str:
     Neutral set and material names are mapped to CalculiX-safe names (see ``deck_names``);
     the mapping is written as comments at the top of the deck. Raises ``SolverError`` when the
     job cannot be expressed as a valid deck (duplicate material names, unknown sets or
-    materials, out-of-range indices, unsupported analysis).
+    materials, out-of-range indices, unsupported analysis), and ``NotImplementedError`` for an
+    ``OrthotropicMaterial`` (not written yet, ADR-009).
     """
     if job.analysis is not AnalysisKind.STATIC:
         raise SolverError(f"CalculiX adapter does not support analysis {job.analysis!r}")
@@ -155,6 +162,11 @@ def write_deck(job: SolveJob) -> str:
         out.extend(_id_lines(int(n) + 1 for n in np.asarray(nodes).ravel()))
 
     for mat in job.materials:
+        if isinstance(mat, OrthotropicMaterial):
+            # ADR-009 PR-2 writes *ELASTIC, TYPE=ENGINEERING CONSTANTS and *ORIENTATION.
+            raise NotImplementedError(
+                f"CalculiX adapter cannot write orthotropic material {mat.name!r} yet"
+            )
         out.append(f"*MATERIAL, NAME={mats[mat.name]}")
         out.append("*ELASTIC")
         out.append(f"{_num(mat.youngs_modulus)}, {_num(mat.poisson_ratio)}")

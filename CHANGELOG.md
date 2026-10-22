@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Orthotropic material types (ADR-009, model only): `OrthotropicMaterial` (engineering
+  constants, major Poisson ratios, validated to a positive definite compliance), `Material`,
+  `MaterialFrame` and `Section.orientation` in `tessera.model`, and
+  `tessera.model.elasticity` (`orthotropic_compliance`, `check_orthotropic`, `rotate_stress`).
+  `SolveJob.materials` now takes either kind. Nothing uses them yet: projects cannot define an
+  orthotropic material, and the CalculiX adapter refuses one with `NotImplementedError`.
 - Two-mesh check (ADR-007): `tessera solve --check-mesh` solves the study again with every
   element about 1/√2 as long and marks each printed number `settled` (changed by 5 % or less),
   `mesh-dependent`, or `not judged` where the second mesh did not get finer (its elements there
