@@ -22,7 +22,7 @@ from tessera.model import (
     SolveResult,
     StressFlag,
 )
-from tessera.post import flag_nodes, summarize
+from tessera.post import flag_nodes, local_edge_length, summarize
 
 Mapping = Callable[[NDArray[np.float64]], NDArray[np.float64]]
 ROOT = StressFlag(FlagKind.SUPPORT, support="root")
@@ -345,3 +345,27 @@ def test_face_without_any_result_is_left_out(bar: Mesh) -> None:
 def test_no_result_at_all_is_an_error(bar: Mesh) -> None:
     with pytest.raises(ValueError, match="no node"):
         summarize(job(bar), uniaxial(np.full(bar.n_nodes, np.nan)))
+
+
+def test_summarize_measures_the_wall_at_surface_spots(bar: Mesh) -> None:
+    # ADR-007 Amendment 2: the 10 x 3 x 3 mm bar is 3 mm across at the clamp and away from it.
+    near, away = node_at(bar, (0.0, 1.0, 3.0)), node_at(bar, (8.0, 1.0, 3.0))
+    values = np.ones(bar.n_nodes)
+    values[near], values[away] = 100.0, 50.0
+    result = summarize(job(bar, FixedSupport(node_set="support:root")), uniaxial(values))
+    spots = [result.peak_von_mises, result.clear_peak_von_mises, *result.face_peaks]
+    for spot in spots:
+        assert spot is not None and spot.wall is not None
+        assert spot.wall.thickness == pytest.approx(3.0, rel=1e-6)
+        assert spot.wall.elements == pytest.approx(
+            3.0 / local_edge_length(bar, spot.location), rel=1e-6
+        )
+        assert not spot.wall.mirrored
+    assert result.peak_von_mises.wall is not None
+    assert result.peak_von_mises.wall.direction == pytest.approx((0.0, 0.0, -1.0))
+
+
+def test_summarize_has_no_wall_inside_the_part(bar: Mesh) -> None:
+    values = np.zeros(bar.n_nodes)
+    values[node_at(bar, (5.0, 1.0, 1.0))] = 7.0
+    assert summarize(job(bar), uniaxial(values)).peak_von_mises.wall is None

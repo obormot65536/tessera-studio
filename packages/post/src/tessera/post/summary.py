@@ -5,8 +5,9 @@ from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 
-from tessera.model import Mesh, SolveJob, SolveResult, StressSpot, StudyResult
+from tessera.model import Mesh, SolveJob, SolveResult, StressSpot, StudyResult, WallSpan
 from tessera.post.flags import flag_nodes
+from tessera.post.wall import outer_surface, wall_span
 
 _FACE_PREFIX = "face:"
 
@@ -47,6 +48,17 @@ def summarize(job: SolveJob, solution: SolveResult, workdir: Path | None = None)
     for index in reversed(faces):
         lowest_face[faces[index]] = index
 
+    surface = None
+    walls: dict[int, WallSpan | None] = {}
+
+    def wall(node: int) -> WallSpan | None:
+        """The wall at a reported node, measured once per node (ADR-007 Amendment 2)."""
+        nonlocal surface
+        if node not in walls:
+            surface = surface or outer_surface(job)
+            walls[node] = wall_span(surface, node)
+        return walls[node]
+
     def spot(node: int, face: int | None) -> StressSpot:
         x, y, z = (float(c) for c in mesh.nodes[node])
         return StressSpot(
@@ -55,6 +67,7 @@ def summarize(job: SolveJob, solution: SolveResult, workdir: Path | None = None)
             location=(x, y, z),
             face=face,
             flags=flags.at(node),
+            wall=wall(node),
         )
 
     def on_lowest_face(node: int) -> StressSpot:
