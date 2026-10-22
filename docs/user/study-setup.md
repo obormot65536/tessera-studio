@@ -461,6 +461,10 @@ How to read it:
   about 1.53 mm for this bar (bending 1.524 mm plus shear 0.003 mm). The solver gave 1.52 mm.
   A linear model only holds while the movement is small compared with the part. If the
   largest movement is a large fraction of the part's size, the answer is not reliable.
+- **note: this part uses an orthotropic (layer-wise) material**: printed only when the part's
+  material is orthotropic. Von Mises stress still shows where the stress is, but it is not a
+  strength check: a printed part is weaker across its layers than along them, so do not compare
+  these numbers with a datasheet strength. Layer-wise failure checks are planned for v0.5.
 - **von Mises stress away from supports and sharp inside edges (MPa)**: the highest
   equivalent stress outside the marked places (see below), with its location and face. It is
   not always the stress to compare with the **yield strength** from the material's datasheet:
