@@ -11,6 +11,7 @@ from tessera.model.mesh import Mesh
 from tessera.model.solver import (
     FixedSupport,
     IsotropicMaterial,
+    MaterialFrame,
     NodalLoads,
     OrthotropicMaterial,
     Section,
@@ -166,12 +167,84 @@ def test_deck_rejects_invalid_jobs(change: dict[str, object]) -> None:
         write_deck(SolveJob(**kwargs))  # type: ignore[arg-type]
 
 
-def test_orthotropic_material_is_not_written_yet() -> None:
-    # ADR-009 PR-2 writes *ELASTIC, TYPE=ENGINEERING CONSTANTS; until then refuse it clearly.
+# ADR-009 catalog TO constants (made-up test values, not material data).
+TO = OrthotropicMaterial("to", 3000.0, 2400.0, 1800.0, 0.35, 0.3, 0.3, 1000.0, 700.0, 650.0)
+SIDE = MaterialFrame((0.0, 0.0, -1.0), (0.0, 1.0, 0.0))  # build direction (1, 0, 0)
+
+
+def orthotropic_job(*sections: Section) -> SolveJob:
     job = tiny_job()
-    to = OrthotropicMaterial("resin", 3000.0, 2400.0, 1800.0, 0.35, 0.3, 0.3, 1000.0, 700.0, 650.0)
-    with pytest.raises(NotImplementedError, match="orthotropic material 'resin'"):
-        write_deck(SolveJob(job.mesh, (to,), job.sections))
+    return SolveJob(job.mesh, (TO,), sections or (Section("part", "to", SIDE),), job.supports)
+
+
+def test_orthotropic_elastic_block_is_engineering_constants() -> None:
+    lines = write_deck(orthotropic_job()).splitlines()
+    k = lines.index("*MATERIAL, NAME=M_to")
+    n = calculix._num
+    assert lines[k + 1 : k + 4] == [
+        "*ELASTIC, TYPE=ENGINEERING CONSTANTS",
+        ", ".join(n(v) for v in (3000, 2400, 1800, 0.35, 0.3, 0.3, 1000, 700)),
+        n(650),
+    ]
+    assert lines[k + 4].startswith("*")  # no density given, no *DENSITY
+    with_density = OrthotropicMaterial("to", 3.0, 2.4, 1.8, 0.35, 0.3, 0.3, 1.0, 0.7, 0.65, 1.2e-9)
+    job = orthotropic_job()
+    lines = write_deck(SolveJob(job.mesh, (with_density,), job.sections)).splitlines()
+    k = lines.index("*DENSITY")
+    assert lines[k - 1] == n(0.65)
+    assert lines[k + 1] == n(1.2e-9)
+
+
+def test_orientation_card_and_section_reference() -> None:
+    lines = write_deck(orthotropic_job()).splitlines()
+    n = calculix._num
+    k = lines.index("*ORIENTATION, NAME=O_part, SYSTEM=RECTANGULAR")
+    assert lines[k + 1] == ", ".join(n(v) for v in (0, 0, -1, 0, 1, 0))
+    assert lines[k + 2] == "*SOLID SECTION, ELSET=E_part, MATERIAL=M_to, ORIENTATION=O_part"
+    assert lines.index("*MATERIAL, NAME=M_to") < k  # card order verified on ccx 2.21
+    assert "** ORIENTATION 'part' -> O_part" in lines
+
+
+def test_no_orientation_card_without_orientation() -> None:
+    deck = write_deck(orthotropic_job(Section("part", "to")))
+    assert "*ORIENTATION" not in deck
+    assert "ORIENTATION=" not in deck
+    assert "*SOLID SECTION, ELSET=E_part, MATERIAL=M_to\n" in deck
+    assert deck_names(orthotropic_job(Section("part", "to"))).orientations == {}
+
+
+def test_orientation_names_are_safe_and_unique() -> None:
+    job = tiny_job()
+    one = np.array([0], dtype=np.int64)
+    sets = {"part:a": one, "Part:A": one, "plain": one, "no frame": one}
+    mesh = Mesh(job.mesh.nodes, job.mesh.elements, element_sets=sets)
+    frame = MaterialFrame((1.0, 0.0, 0.0), (0.0, 1.0, 0.0))
+    sections = (
+        Section("part:a", "to", frame),
+        Section("Part:A", "to", SIDE),
+        Section("plain", "to", frame),
+        Section("no frame", "to"),
+    )
+    job = SolveJob(mesh, (TO,), sections)
+    names = deck_names(job)
+    assert names.orientations == {"part:a": "O_part_a", "Part:A": "O_Part_A_2", "plain": "O_plain"}
+    lines = write_deck(job).splitlines()
+    for elset, ccx in names.orientations.items():
+        assert f"*ORIENTATION, NAME={ccx}, SYSTEM=RECTANGULAR" in lines
+        section = f"*SOLID SECTION, ELSET={names.element_sets[elset]}, MATERIAL=M_to"
+        assert f"{section}, ORIENTATION={ccx}" in lines
+    assert "*SOLID SECTION, ELSET=E_no_frame, MATERIAL=M_to" in lines
+    assert sum(line.startswith("*ORIENTATION") for line in lines) == 3
+
+
+def test_orientation_names_in_metadata() -> None:
+    meta = deck_names(orthotropic_job()).as_metadata()
+    assert meta["ccx_name.orientation.part"] == "O_part"
+    assert meta["ccx_name.elset.part"] == "E_part"
+    assert meta["ccx_name.material.to"] == "M_to"
+    assert not any(
+        k.startswith("ccx_name.orientation.") for k in deck_names(tiny_job()).as_metadata()
+    )
 
 
 def test_missing_executable_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
