@@ -470,8 +470,8 @@ so `solve`, `describe_faces` and `save_project` check the whole project again an
 | Type | Fields | Notes |
 |---|---|---|
 | `StudyResult` | `mesh: Mesh`, `solution: SolveResult`, `max_displacement: float` (mm), `max_von_mises: float` (MPa), `workdir: Path \| None`, `peak_von_mises: StressSpot`, `clear_peak_von_mises: StressSpot \| None`, `face_peaks: tuple[StressSpot, ...]`, `node_flags: NodeFlags`, `mesh_check: MeshCheck \| None` | Returned by `solve`. `displacement_magnitude` gives the per-node displacement length. See "Peak stress" below. |
-| `StressSpot` | `value: float` (MPa), `node: int`, `location: (x, y, z)` (mm), `face: int \| None`, `flags: tuple[StressFlag, ...]`, `wall: WallSpan \| None` | A stress at one node. `face` is the face the node lies on (the lowest number on an edge between faces), `None` inside the part. `flagged` is `True` when `flags` is not empty. `wall` is the wall at the node (see "Thin walls" below), `None` inside the part. |
-| `WallSpan` | `thickness: float` (mm), `elements: float`, `direction: (x, y, z)`, `mirrored: bool` | How thick the part is at a surface node. `elements` = `thickness` / the local median corner edge length of the mesh it was measured on. `direction` is the unit direction into the part along which the thickness was measured. `mirrored` when the wall ends on a symmetry plane and was doubled. |
+| `StressSpot` | `value: float` (MPa), `node: int`, `location: (x, y, z)` (mm), `face: int \| None`, `flags: tuple[StressFlag, ...]`, `wall: WallSpan \| None` | A stress at one node. `face` is the face the node lies on (the lowest number on an edge between faces), `None` inside the part. `flagged` is `True` when `flags` is not empty. `wall` is the wall at the node (see "Thin walls" below); `None` where it was not measured. |
+| `WallSpan` | `thickness: float` (mm), `elements: float`, `direction: (x, y, z)` | How thick the part is at a node: the diameter of the largest ball inside the part touching the surface there. `elements` = `thickness` / the local median corner edge length of the mesh it was measured on. `direction` is the unit direction from the node to the ball's centre. |
 | `StressFlag` | `kind: FlagKind`, `support: str \| None` | Why a node is flagged. `support` is the support's id for `FlagKind.SUPPORT`. `str()` gives `near support 'root'` or `near a sharp inside edge`. |
 | `FlagKind` | `"support"`, `"sharp-inside-edge"` | |
 | `NodeFlags` | `masks: dict[StressFlag, (N,) bool]`, `n_nodes: int`, `distance: float` (mm), `edge_length: float` (mm) | One mask per reason that flags at least one node. `flagged` is the (N,) union; `at(node)` lists the reasons for one node. `edge_length` is h, `distance` is d = 2 h. |
@@ -548,27 +548,36 @@ unflagged one that is mesh-dependent.
 
 On a mesh too coarse to resolve a clamp (two elements through a beam's depth in TS-01) the
 singular peak there barely moves between the meshes and would read settled. So `solve` measures
-the wall at every reported surface spot (`StressSpot.wall`), and the check judges a flagged spot
-only where the coarse mesh had at least `WALL_ELEMENTS_MIN` (5, approved by the maintainer)
-elements across it; a flagged spot that changed within the threshold on a thinner wall is
-`THIN_WALL` (ADR-007 Amendment 2). Unflagged spots are never guarded: a smooth stress is
-represented well with one or two quadratic elements across. A `mesh-dependent` reading stays
-mesh-dependent whatever the wall.
+the wall (`StressSpot.wall`) at the raw peak, the clear peak and every flagged spot, and the
+check judges a flagged spot only where the coarse mesh had at least `WALL_ELEMENTS_MIN` (5,
+approved by the maintainer) elements across it; a flagged spot that changed within the threshold
+on a thinner wall, or whose wall could not be measured, is `THIN_WALL` (ADR-007 Amendment 2).
+Unflagged spots are never guarded: a smooth stress is represented well with one or two quadratic
+elements across. A `mesh-dependent` reading stays mesh-dependent whatever the wall. Unflagged
+face peaks are not measured (`wall` is `None`).
 
-The wall is measured by casting a ray from the node into the part along the inward normal of
-each distinct face meeting there (normals within 30° are one face), against the mesh's outer
-surface with each TRI6 face split into four flat triangles, and taking the shortest distance to
-where a ray leaves the part. Where a ray leaves through a face of a support holding only the
-direction normal to it (a symmetry plane), the distance is doubled and `mirrored` is set. A ray
-from a node in the middle of a face measures straight through to the opposite side, so at a
-node on a long bar's end face the wall is the bar's length. `WallSpan.elements` uses the mesh
-the spot comes from (the fine one after a check); `SpotCheck.elements_across` uses the coarse
-mesh, which decides the guard.
+The wall is the diameter of the largest ball inside the part that touches the surface at the
+node (a shrinking ball): its centre moves in along a face's inward normal and its radius shrinks
+to r = \|p − q\|² / (2 d · (q − p)), the ball through the node p and the surface point q
+nearest the centre, until no surface point is inside it. Where faces meet at an edge or a
+corner (normals more than 30° apart), each face gets its own ball and the smallest counts. The
+surface is the mesh's outer element faces, each TRI6 split into four flat triangles; their
+centroids are the samples, in one k-d tree per mesh, and q is refined to the sample triangle's
+plane. A sample stops the ball only where the ball would leave the part through it, so a
+neighbouring face at a convex edge (which the ball meets edge-on) and the other face at an inside
+edge do not collapse it. So a plate reads its thickness, a bar's end face its section (not its
+length), and a node near another face less than the wall: the ball touches that face too. A node
+inside the part is measured at the nearest surface node. A support never doubles the wall, not
+even a one-direction one: it cannot be told from a roller on a table.
+
+`WallSpan.elements` uses the mesh the spot comes from (the fine one after a check);
+`SpotCheck.elements_across` uses the coarse mesh, which decides the guard.
 
 `tessera.core.WALL_ELEMENTS_MIN` is the same value as `tessera.post.WALL_ELEMENTS_MIN`, for
-clients that import only `tessera.core`. `tessera.post.outer_surface(job)` builds the surface
-once, and `tessera.post.wall_span(surface, node)` measures one node (`None` inside the part, or
-if no ray leaves the part).
+clients that import only `tessera.core`. `tessera.post.outer_surface(mesh)` builds the surface
+once, and `tessera.post.wall_span(surface, node)` measures one node (`None` if no ball is stopped,
+as on an open surface). `tessera.post.node_edge_length(mesh, node)` is `local_edge_length` for a
+known node.
 
 In the `SolveJob` that physics builds, each support is a `FixedSupport` whose node set is named
 `support:<id>`. A line support has `FixedSupport.line = True`, so results code can find the
