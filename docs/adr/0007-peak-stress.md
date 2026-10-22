@@ -84,6 +84,7 @@ request.
 | Mesh-check local refinement needed for a verdict R | 0.85 (fine / coarse edge length) |
 | Face peaks shown by the CLI | Top 5 (all in the API) |
 | Mesh check default | Off; opt in with `--check-mesh` |
+| Thin-wall minimum N (Amendment 2) | 5 elements across the wall at a flagged spot, on the coarse mesh (proposed, needs maintainer approval) |
 
 ## Options considered
 
@@ -130,3 +131,76 @@ and a warning, so a real stress raiser inside a flagged band (a hole next to a c
 7. [x] Docs: user guide Steps 7 and 9, API reference.
 8. [ ] MCP: `flags` and `trust` fields, and tool descriptions that quote only `clear` or `settled`
        values (the MCP server does not exist yet).
+9. [ ] Amendment 2: maintainer approves N = 5 and the flagged-only scope.
+10. [ ] Amendment 2: `model.results` adds `WallSpan`, `StressSpot.wall`, `Verdict.THIN_WALL`,
+        `SpotCheck.elements_across` and `MeshCheck.wall_elements_min` (all additive).
+11. [ ] Amendment 2: `post` measures the wall at reported spots (`wall.py`, ray cast) and
+        `compare_meshes` applies the guard; CLI wording; benchmark assertions on TS-01, TS-08A
+        and TS-02.
+12. [ ] Follow-up: local refinement near flagged spots, so N = 5 does not force a fine global mesh.
+
+## Amendment 2 (proposed): thin walls
+
+**Status:** Proposed; N needs the maintainer's approval (hard rule 6).
+
+**Problem.** A mesh too coarse to show the stress rise at a singularity can read `settled`: the
+peak there barely moves between the two meshes because neither resolves it. The user guide's
+example beam does this at 5 mm, two elements through its 10 mm depth (`settled, changed 1.12 %`
+at the clamp); at 2.5 mm the same peak is `mesh-dependent`. Today only the user guide warns.
+
+**Decision.**
+
+1. **Measure the wall at each reported spot.** `tessera.post` casts rays from the spot's surface
+   node into the part, along the inward normal of each distinct face meeting there, against the
+   mesh's outer surface (TRI6 faces split into flat sub-triangles), and takes the shortest
+   distance to where a ray leaves the solid. Across a one-direction support whose direction is
+   normal to the hit face (a symmetry plane, as decision 1 already reads it), the distance is
+   doubled. Elements across = thickness / local median corner edge (`local_edge_length`, as for
+   the refinement ratio). Post imports only `tessera.model`, so ADR-001 holds and STL parts work.
+   Cost is milliseconds for the handful of reported spots.
+2. **Guard flagged spots only.** If a spot is flagged and its change is within the threshold, but
+   the coarse mesh had fewer than N elements across the wall there, the verdict is the new
+   no-verdict value `thin-wall`. Like `not-refined`, the spot's flags still apply and MCP's
+   `trust` falls back to `flagged`. A `mesh-dependent` reading stays `mesh-dependent`; a measured
+   failure needs no guard. Unflagged spots are never guarded: the sweep below shows truly settled
+   unflagged spots with 0.5 to 3.3 elements across (TS-02 hole, TS-05 midspan, TS-01 and TS-08B
+   clear peaks), because a smooth bending or membrane stress is represented well by quadratic
+   tets even with one or two layers.
+3. **Warn without the check too.** A flagged spot with fewer than N elements across gets one line
+   in `tessera solve` saying how many there are and the mesh size that would give N, so the user
+   refines before running `--check-mesh`.
+4. **N = 5** (proposed). Every number stored and shown is the measured count, not a pass/fail, so
+   a later N changes no stored data.
+
+**Evidence.** A sweep of `check_mesh=True` solves through the benchmarks' own helpers, recording
+each flagged spot's coarse elements across, change and verdict, and the same spot's verdict at
+each finer size:
+
+| Case | Coarse h (mm) | Across (flagged peak) | Raw peak | Flagged spots |
+|---|---|---|---|---|
+| TS-01 cantilever, 10 mm deep | 5 / 3.54 / 2.5 / 1.77 | 2.0 / 2.9 / 3.9 / 6.0 | settled +1.4 % / settled −2.9 % / mesh-dep. +8.5 % / mesh-dep. +9.2 % | all settled at 2.0; mixed at 2.9; all mesh-dep. from 3.9 |
+| TS-05 beam, line supports | 3.33 / 2.5 / 1.77 | 3.2–4.0 / 4.1–4.5 / 5.9 | mesh-dep. +27 % / +16 % / +25 % | face 5 settled +2.0 % at 3.21; face 3 settled +3.2 % at 4.50; all mesh-dep. at 5.9 |
+| TS-08A disc, clamped rim, t = 2 | 2 / 1 / 0.667 / 0.471 / 0.333 | 1.0 / 1.9 / 3.0 / 4.1 / 5.8 | settled +3.7 % / settled +3.9 % / mesh-dep. +5.6 % / +10.9 % / +11.3 % | face 4 settled +4.5, +4.1, +4.4 % up to 4.56 across; mesh-dep. +10.1 % at 5.8 |
+| TS-08B disc, ring line support | 2 / 1 / 0.667 | 0.9 / 1.8 / 3.0 | mesh-dep. at every size (+8.7 to +25 %) | no settled flagged reading |
+| TS-02 strip with hole (control) | 2 | 0.25 modelled (0.5 full) | settled −1.3 %, unflagged | no flags; correctly settled |
+
+Every flagged spot at 5 or more elements across reads `mesh-dependent` (18 of 18). Of the 28
+flagged readings below 5 that read `settled`, none is truly settled: each reads `mesh-dependent`
+at a finer size, 15 of them at the next one. N = 3 would pass false settles at 2.91 (TS-01 at
+3.54 mm) and 3.21 (TS-05 face 5); N = 4 at 4.50 (TS-05 face 3) and 4.56 (TS-08A face 4, which
+read +4.40 % and then +10.07 %). The benchmark helper loads TS-01 slightly differently from the
+user guide's example beam, so it reads +1.44 % at 5 mm where the guide's beam reads 1.12 %; both
+are re-run and reproduce, with the same verdict.
+
+**Limits of the evidence.** Only three geometries (TS-01, TS-05, TS-08A) were measured at 5 or more
+elements across, and there is no measurement between 4.56 and 5.8 across: N = 5 clears the
+weakest case seen (TS-08A face 4, hovering at 4.1–4.5 % before rising) by one √2 step. A
+weaker singularity could still hover under 5 % beyond 5 across. Revisit N when a re-entrant
+corner benchmark exists.
+
+**Cost to makers.** Printed walls are often 1.2 to 2 mm, so N = 5 means about 0.25 to 0.4 mm
+elements near a flagged spot; with today's global mesh size that is minutes per solve for a
+small part (TS-08A at 0.333 mm: about 19 min for both solves). The guard will therefore fire
+often on thin printed parts. Local refinement near flagged spots (action item 12) is the
+follow-up that makes resolving them affordable; until then the guard tells the truth, which is
+that the check cannot judge that spot at that mesh.
