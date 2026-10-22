@@ -389,9 +389,8 @@ def test_clamped_plate_check_mesh_does_not_settle_the_clamp_on_a_thin_wall(
     planes barely move (measured +4.1 % and +3.9 %, 3.0 coarse elements across the 2 mm plate)
     but keep rising at finer meshes (mesh-dependent from 0.47 mm). With fewer than 5 elements
     across, the guard reports them as not judged (thin-wall), never settled. The peaks sit
-    0.23 mm from the rim, so the largest ball touching them there is 0.46 mm across (0.7 coarse
-    elements), not the 2 mm thickness: a wall is never doubled across a symmetry plane, and the
-    ball cannot cross the clamped rim. Measured: 37 s for both solves."""
+    0.23 mm from the clamped rim, which is left out of the wall (the part continues into the
+    fixture), so the wall is the 2 mm thickness. Measured: 37 s for both solves."""
     from tessera.model import Verdict
 
     result = _solve_disc(disc_step, THIN_WALL_MESH_SIZE, tmp_path, check_mesh=True)
@@ -404,6 +403,8 @@ def test_clamped_plate_check_mesh_does_not_settle_the_clamp_on_a_thin_wall(
     for spot in flagged:
         verdict = check.face_peaks[spot.face]
         assert spot.wall is not None and spot.wall.thickness <= THICKNESS * (1 + 1e-6)
+        if spot.face == 4:
+            assert spot.wall.thickness == pytest.approx(THICKNESS, rel=0.01)
         assert verdict.verdict is not Verdict.SETTLED or (
             verdict.elements_across is not None
             and verdict.elements_across >= check.wall_elements_min

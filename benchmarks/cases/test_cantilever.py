@@ -322,9 +322,9 @@ def test_cantilever_check_mesh_on_a_thin_wall_does_not_settle_the_root_peak(
     not judged (thin-wall) instead of settled. The clear peak is unflagged, so it is never
     guarded and still settles (+2.1 %).
 
-    The peak sits on the bottom face 3.27 mm from the clamped end face, so the largest ball
-    touching it there also touches the end face: the wall reads 6.5 mm, not the 10 mm depth
-    (1.3 coarse elements across)."""
+    The peak sits on the bottom face 3.27 mm from the clamped end face. The part continues into
+    the fixture there, so the clamped face is left out of the wall and it reads the 10 mm depth
+    (2.0 coarse elements across)."""
     from tessera.model import Verdict
 
     result = _solve_beam(beam_step, 5.0, tmp_path, check_mesh=True)
@@ -333,11 +333,32 @@ def test_cantilever_check_mesh_on_a_thin_wall_does_not_settle_the_root_peak(
     peak = result.peak_von_mises
     assert peak.flagged
     assert peak.wall is not None
-    assert peak.location[0] < HEIGHT / 2
-    assert peak.wall.thickness == pytest.approx(2.0 * peak.location[0], rel=0.01)
+    assert peak.location[0] < HEIGHT / 2, "the peak is next to the clamped face"
+    assert peak.wall.thickness == pytest.approx(HEIGHT, rel=0.01)
     spot = check.peak_von_mises
+    assert spot.elements_across == pytest.approx(2.0, abs=0.25)
     assert spot.change <= check.threshold, "the root peak barely moves on this mesh"
     assert spot.elements_across is not None and spot.elements_across < check.wall_elements_min
     assert spot.verdict is Verdict.THIN_WALL
     assert check.clear_peak_von_mises is not None
     assert check.clear_peak_von_mises.verdict is Verdict.SETTLED
+
+
+def test_cantilever_thin_wall_advice_gives_enough_elements(beam_step: Path, tmp_path: Path) -> None:
+    """ADR-007 Amendment 2: `tessera solve --check-mesh` at 5 mm advises a mesh size for the
+    thin-wall root peak, 0.9 x 5 mm x elements across / 5 rounded down to two digits (1.8 mm
+    for 2.0 across). Solving at that size must give the coarse mesh at least 5 elements across
+    the 10 mm depth there (measured 5.94). Without the 0.9 margin the advice would be 2 mm,
+    which gives only 4.83: gmsh's edges at 2 mm come out 2.07 mm long."""
+    first = _solve_beam(beam_step, 5.0, tmp_path / "h5", check_mesh=True).mesh_check
+    assert first is not None and first.peak_von_mises.elements_across is not None
+    estimate = 0.9 * 5.0 * first.peak_von_mises.elements_across / first.wall_elements_min
+    step = 10.0 ** (math.floor(math.log10(estimate)) - 1)
+    advised = math.floor(estimate / step + 1e-9) * step
+    assert advised == pytest.approx(1.8)
+
+    result = _solve_beam(beam_step, advised, tmp_path / "advised", check_mesh=True)
+    check = result.mesh_check
+    assert check is not None and result.peak_von_mises.flagged
+    across = check.peak_von_mises.elements_across
+    assert across is not None and across >= check.wall_elements_min
