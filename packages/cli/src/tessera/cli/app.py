@@ -10,6 +10,7 @@ from pathlib import Path
 import typer
 
 from tessera.core import (
+    SOLVE_TIMEOUT,
     describe_edges,
     describe_faces,
     edit,
@@ -26,6 +27,7 @@ from tessera.model import (
     MomentLoad,
     Project,
     SolverError,
+    SolverTimeoutError,
     SpotCheck,
     StressSpot,
     Verdict,
@@ -44,6 +46,9 @@ def _user_errors() -> Iterator[None]:
     except (InputError, FileNotFoundError, NotImplementedError) as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(1) from None
+    except SolverTimeoutError as exc:
+        typer.echo(f"solver failed: {exc}; give it longer with --timeout SECONDS", err=True)
+        raise typer.Exit(2) from None
     except SolverError as exc:
         typer.echo(f"solver failed: {exc}", err=True)
         raise typer.Exit(2) from None
@@ -412,10 +417,17 @@ def solve_cmd(
         help="Solve again with elements 1/sqrt(2) as long and say which numbers settled "
         "(takes 3 to 5 times as long).",
     ),
+    timeout: float | None = typer.Option(
+        None,
+        metavar="SECONDS",
+        help=f"Stop the solver if one solve takes longer (default {SOLVE_TIMEOUT:g} s); "
+        "with --check-mesh, each of the two solves gets this long.",
+        show_default=False,
+    ),
 ) -> None:
     """Mesh and solve the project's static study, then print a summary."""
     with _user_errors():
-        result = solve(load_project(path), workdir=workdir, check_mesh=check_mesh)
+        result = solve(load_project(path), workdir=workdir, check_mesh=check_mesh, timeout=timeout)
     check = result.mesh_check
     typer.echo(f"nodes: {result.mesh.n_nodes}, elements: {result.mesh.n_elements}")
     if check is not None:
