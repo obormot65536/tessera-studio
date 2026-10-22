@@ -120,5 +120,5 @@ support when reporting peak stress.
 3. [x] `physics`: edge node sets from shared tri6 element edges.
 4. [x] `core`: `edit.add_edge_support`, `describe_edges`.
 5. [x] `cli`: `tessera edges`, `support add --edge A-B`, `info` output.
-6. [ ] Benchmarks: TS-05 (supports on the bottom edges of the end faces) and TS-08B.
+6. [x] Benchmarks: TS-05 (supports on the bottom edges of the end faces) and TS-08B.
 7. [x] Docs: API reference, user guide, catalog "Features" lines.

@@ -71,7 +71,7 @@ primary source.
 | TS-07 | v0.1 | Thick-walled sphere, internal pressure (Lamé) | passing |
 | TS-08 | v0.1 | Circular plate, uniform pressure, clamped and simply supported | passing (A and B) |
 | TS-09 | v0.1 | Torsion of circular and square bars (Saint-Venant) | passing |
-| TS-10 | v0.1 | Thin ring under diametral compression (curved beam) | planned |
+| TS-10 | v0.1 | Thin ring under diametral compression (curved beam) | awaiting reference |
 | TS-11 | v0.1 | NAFEMS LE1 elliptic membrane | awaiting reference |
 | TS-12 | v0.1 | NAFEMS LE10 thick plate under pressure (3D) | planned |
 | TO-01 | v0.5 | Orthotropic patch tests: 3 axial + 3 shear | planned |
@@ -100,7 +100,7 @@ primary source.
 | TT-04 | v3 | Steady radial conduction and thermal stress in a thick cylinder | planned |
 | TF-01 | v4 | Laminar pipe flow (Hagen-Poiseuille) | planned |
 
-Count: v0.1 12 (9 passing, 1 awaiting reference), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
+Count: v0.1 12 (9 passing, 2 awaiting reference), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
 
 ---
 
