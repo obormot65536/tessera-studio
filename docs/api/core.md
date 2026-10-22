@@ -574,9 +574,9 @@ class SolverAdapter(Protocol):
 
 ### Solve-job materials and orientation
 
-These types are in `tessera.model` (ADR-009). Projects cannot name an orthotropic material yet,
-and the CalculiX adapter raises `NotImplementedError` for one; they are for adapter and results
-code that is being built.
+These types are in `tessera.model` (ADR-009). Projects cannot name an orthotropic material yet;
+the CalculiX adapter writes one as engineering constants and a section's `MaterialFrame` as an
+`*ORIENTATION`, and returns displacements and stresses in global (part) axes.
 
 | Type | Fields | Notes |
 |---|---|---|

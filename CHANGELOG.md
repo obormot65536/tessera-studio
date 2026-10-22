@@ -7,7 +7,12 @@
   `MaterialFrame` and `Section.orientation` in `tessera.model`, and
   `tessera.model.elasticity` (`orthotropic_compliance`, `check_orthotropic`, `rotate_stress`).
   `SolveJob.materials` now takes either kind. Nothing uses them yet: projects cannot define an
-  orthotropic material, and the CalculiX adapter refuses one with `NotImplementedError`.
+  orthotropic material yet.
+- CalculiX deck for orthotropic materials (ADR-009): `write_deck` writes an
+  `OrthotropicMaterial` as `*ELASTIC, TYPE=ENGINEERING CONSTANTS` and a section's
+  `MaterialFrame` as `*ORIENTATION, SYSTEM=RECTANGULAR` with `ORIENTATION=` on its
+  `*SOLID SECTION` (names in `DeckNames.orientations` and `ccx_name.orientation.<elset>`
+  metadata). Results stay in global axes. Decks without orientations are unchanged.
 - Two-mesh check (ADR-007): `tessera solve --check-mesh` solves the study again with every
   element about 1/√2 as long and marks each printed number `settled` (changed by 5 % or less),
   `mesh-dependent`, or `not judged` where the second mesh did not get finer (its elements there
