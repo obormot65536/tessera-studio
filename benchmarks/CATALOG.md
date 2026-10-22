@@ -427,9 +427,15 @@ nu12 = 0.35, nu13 = nu23 = 0.30 (check positive definiteness in the case).
 
 ### TO-01 Orthotropic patch tests (3 axial + 3 shear)
 
-- **Problem:** unit cube with a distorted mesh. (a) Uniaxial traction along 1, 2 and 3 in turn,
-  with rollers on the three opposite faces. (b) Pure shear in planes 12, 13 and 23, imposed as a
-  linear displacement field on all boundary nodes (displacement patch test).
+- **Problem:** cube with a distorted (unstructured) mesh. (a) Uniaxial traction along 1, 2 and 3
+  in turn, with rollers on the three opposite faces, printed upright (build Z) and on its side
+  (build along x, so the material axes are permuted). (b) Simple shear in planes 12, 13 and 23:
+  one face fixed, shear forces on the opposite face and balancing forces on the two side faces,
+  so the exact field is linear (u = gamma y e_x for 12).
+- **Method change (proposed in ADR-009, pending maintainer approval):** (b) replaces the
+  displacement patch test (a linear displacement prescribed on all boundary nodes), which needs
+  prescribed non-zero displacements that Tessera does not have; the simple-shear form is still
+  exact. The three "side" cases are added to (a) to check the print orientation.
 - **Quantity:** strains eps = S sigma with the orthotropic compliance S (axial: eps_ii =
   sigma/E_i, eps_jj = -nu_ij sigma/E_i; shear: gamma_ij = tau/G_ij). Also check that the
   reciprocity nu_ij/E_i = nu_ji/E_j holds in the material conversion.
@@ -438,8 +444,10 @@ nu12 = 0.35, nu13 = nu23 = 0.30 (check positive definiteness in the case).
   (1999), ch. 2 (both locations `unverified`).
 - **Licence:** formula only.
 - **Equivalents:** none recorded.
-- **Features:** orthotropic material, material orientation, prescribed non-zero displacements.
-- **Tolerance:** 1e-6 relative (v0.5 gate: "orthotropic patch tests exact").
+- **Features:** orthotropic material, material orientation from the print setup.
+- **Tolerance:** 1e-6 relative (v0.5 gate: "orthotropic patch tests exact"). ADR-009 proposes
+  gating at the TS-03 frd precision floor (2e-5 stress, 1e-5 displacement) until integration-point
+  output (ADR-008) lands; the closed form itself is checked to 1e-9.
 
 ### TO-02 Off-axis tension (rotated material orientation)
 
