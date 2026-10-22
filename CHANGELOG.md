@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- API: `SolveResult.point_stresses` (`PointStresses` in `tessera.model`) carries each
+  element's stresses at its integration points, unaveraged (ADR-008). It is `None` until a
+  solver fills it. No reported number changes: peaks, flags and the mesh check stay nodal.
 - Two-mesh check (ADR-007): `tessera solve --check-mesh` solves the study again with every
   element about 1/√2 as long and marks each printed number `settled` (changed by 5 % or less),
   `mesh-dependent`, or `not judged` where the second mesh did not get finer (its elements there
