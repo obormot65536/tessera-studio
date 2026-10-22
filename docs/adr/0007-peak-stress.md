@@ -141,9 +141,10 @@ and a warning, so a real stress raiser inside a flagged band (a hole next to a c
 
 ## Amendment 2: thin walls
 
-**Status:** Accepted (maintainer, 2026-10-22), including N = 5. Revised the same day after review
-of the first implementation: the maintainer chose the largest-ball wall measure over the ray cast,
-no doubling across one-direction supports, and no verdict where no wall can be measured.
+**Status:** Accepted (maintainer, 2026-10-22), including N = 5. Revised the same day after review of
+the first implementation: the maintainer chose the largest-ball wall measure over the ray cast, no
+doubling across one-direction supports, and no verdict where no wall can be measured; then that the
+faces of the flagging support are left out of the wall measure.
 
 **Problem.** A mesh too coarse to show the stress rise at a singularity can read `settled`: the
 peak there barely moves between the two meshes because neither resolves it. The user guide's
@@ -155,15 +156,17 @@ at the clamp); at 2.5 mm the same peak is `mesh-dependent`. Today only the user 
 1. **Measure the wall at each reported spot** as the diameter of the largest ball inside the part
    that touches the spot's surface node (the "shrinking ball": centre on the inward normal, grown
    until another surface sample would fall inside it; samples on the spot's own faces or within
-   about one edge length are ignored, so an inside edge does not collapse the ball). This reads
-   the beam depth at a node in the middle of a clamped end face, where a straight inward ray
-   would read the bar's length. A flagged spot inside the part is measured at its nearest
-   surface node. Nothing is doubled across a one-direction support: such a support may be a
-   symmetry plane or a real roller, and doubling across a roller would hide a thin wall, so the
-   guard errs toward judging less. Elements across = thickness / local median corner edge
-   (`local_edge_length`, as for the refinement ratio). Post imports only `tessera.model`, so
-   ADR-001 holds and STL parts work. One KD-tree over the surface per mesh; well under a
-   millisecond per spot.
+   about one edge length are ignored, so an inside edge does not collapse the ball). This reads the
+   beam depth at a node in the middle of a clamped end face, where a straight inward ray would read
+   the bar's length. At a flagged spot, the faces of the support that flags it are left out (the
+   part continues into the fixture there), so a peak beside a clamp reads the section depth, not
+   twice its distance from the clamp. A flagged spot inside the part is measured at its nearest
+   surface node. Nothing is doubled across a one-direction support: such a support may be a symmetry
+   plane or a real roller, and doubling across a roller would hide a thin wall, so the guard errs
+   toward judging less. Elements across = thickness / local median corner edge (`local_edge_length`,
+   as for the refinement ratio). Post imports only `tessera.model`, so ADR-001 holds and STL parts
+   work. One KD-tree over the surface per mesh; a few milliseconds per spot (3 ms at 20k nodes, 30
+   ms at 400k), measured only at the raw peak, the clear peak and flagged spots.
 2. **Guard flagged spots only.** If a spot is flagged and its change is within the threshold, but
    the coarse mesh had fewer than N elements across the wall there, the verdict is the new
    no-verdict value `thin-wall`. Like `not-refined`, the spot's flags still apply and MCP's `trust`
