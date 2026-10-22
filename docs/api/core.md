@@ -172,8 +172,8 @@ def solve(
 
 Meshes the part, builds the static problem, runs the solver and summarises the result.
 
-- `workdir`: the folder for solver files (`job.inp`, `job.frd`, `job.dat` and CalculiX logs).
-  The folder is created if needed. If `None`, a new folder named `tessera-*` is created in the system
+- `workdir`: the folder for solver files (`job.inp`, `job.frd` and CalculiX logs). The folder
+  is created if needed. If `None`, a new folder named `tessera-*` is created in the system
   temporary directory. Tessera does not delete it.
 - `adapter`: the solver. `None` uses CalculiX (`tessera.solvers.CalculixAdapter`). The adapter
   must support the `static` analysis.

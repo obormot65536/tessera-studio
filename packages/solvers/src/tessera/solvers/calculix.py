@@ -10,16 +10,21 @@ connectivity is already in C3D10 order, so it is written unchanged (plus one).
 Precision: the ASCII ``.frd`` file stores results as ``E12.5``, i.e. six significant digits.
 Results read back from it carry a relative rounding error of up to 5e-6.
 
-Integration points (ADR-008): ``*EL PRINT`` writes every element's stresses at its integration
-points, and their coordinates, to ``job.dat`` (``E13.6``, seven significant digits). These are
-ccx's own values, not extrapolated or averaged. ``.dat`` prints sxx syy szz sxy sxz syz, so its
-stress columns ``[0, 1, 2, 3, 5, 4]`` are the neutral order xx yy zz xy yz zx.
+Integration points (ADR-008), only when ``SolveJob.point_stresses`` asks for them:
+``*EL PRINT`` writes every element's stresses at its integration points to ``job.dat``
+(``E13.6``, seven significant digits). These are ccx's own values, not extrapolated or averaged.
+``.dat`` prints sxx syy szz sxy sxz syz, so its stress columns ``[0, 1, 2, 3, 5, 4]`` are the
+neutral order xx yy zz xy yz zx. The points' coordinates are computed from the mesh with the
+C3D10 rule (``rule_points``), in full double precision: ccx's ``COORD`` output has seven
+significant digits of the absolute position, too few for a small element far from the origin.
 """
 
+import mmap
 import os
 import re
 import shutil
 import subprocess
+import warnings
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,7 +32,7 @@ from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 
-from tessera.model.mesh import Mesh
+from tessera.model.mesh import TET10_EDGES, Mesh
 from tessera.model.solver import (
     AnalysisKind,
     PointStresses,
@@ -46,11 +51,22 @@ _MAX_NAME = 80
 _IDS_PER_LINE = 16  # ccx accepts at most 16 entries per data line in *NSET/*ELSET
 
 ALL_ELSET = "EALL"
-"""The set of every element, defined on ``*ELEMENT`` and printed to ``job.dat``. User sets are
-always prefixed (``E_``), so none can extend it: ccx would print its elements twice."""
+"""The set of every element, defined on ``*ELEMENT`` and printed to ``job.dat`` when point
+stresses are asked for. User sets are always prefixed (``E_``), so none can extend it: ccx
+would print its elements twice."""
 POINT_RULE = "tet4"
 """C3D10's 4-point rule; point k is the one nearest corner node k (ADR-008, finding 4)."""
-_RULE_POINTS = 4
+_RULE_A = (5.0 - np.sqrt(5.0)) / 20.0
+_RULE_B = (5.0 + 3.0 * np.sqrt(5.0)) / 20.0
+_RULE_NATURAL = np.array(
+    [
+        [_RULE_A, _RULE_A, _RULE_A],
+        [_RULE_B, _RULE_A, _RULE_A],
+        [_RULE_A, _RULE_B, _RULE_A],
+        [_RULE_A, _RULE_A, _RULE_B],
+    ]
+)
+"""(xi, eta, zeta) of the four points, along the edges from corner 1 to corners 2, 3, 4."""
 
 
 # --------------------------------------------------------------------------------------------
@@ -160,7 +176,10 @@ def write_deck(job: SolveJob) -> str:
     out.extend(
         f"{i + 1}, {_num(x)}, {_num(y)}, {_num(z)}" for i, (x, y, z) in enumerate(mesh.nodes)
     )
-    out.append(f"*ELEMENT, TYPE=C3D10, ELSET={ALL_ELSET}")
+    # Without point stresses the deck is exactly what it was before ADR-008.
+    out.append(
+        f"*ELEMENT, TYPE=C3D10, ELSET={ALL_ELSET}" if job.point_stresses else "*ELEMENT, TYPE=C3D10"
+    )
     out.extend(
         f"{j + 1}, " + ", ".join(str(int(n) + 1) for n in conn)
         for j, conn in enumerate(mesh.elements)
@@ -225,7 +244,8 @@ def write_deck(job: SolveJob) -> str:
         out.extend(cloads)
 
     out.extend(["*NODE FILE", "U", "*EL FILE", "S"])
-    out.extend([f"*EL PRINT, ELSET={ALL_ELSET}", "S", f"*EL PRINT, ELSET={ALL_ELSET}", "COORD"])
+    if job.point_stresses:
+        out.extend([f"*EL PRINT, ELSET={ALL_ELSET}", "S"])
     out.extend(["*END STEP", ""])
     return "\n".join(out)
 
@@ -307,7 +327,8 @@ def check_results_complete(
     """Raise if a node used by an element has no result (orphan nodes may stay NaN), or, when
     ``point_stresses`` are given, if an element lacks an integration-point result."""
     used = np.unique(mesh.elements)
-    bad = used[np.isnan(displacements[used]).any(axis=1) | np.isnan(stresses[used]).any(axis=1)]
+    finite = np.isfinite(displacements[used]).all(axis=1) & np.isfinite(stresses[used]).all(axis=1)
+    bad = used[~finite]
     if bad.size:
         raise SolverError(
             f"CalculiX returned no result for {bad.size} mesh node(s), e.g. node {bad[0]}", log
@@ -320,9 +341,9 @@ def check_results_complete(
             f"element(s); the mesh has {mesh.n_elements} element(s)",
             log,
         )
-    missing = np.isnan(point_stresses.points).any(axis=(1, 2))
-    missing |= np.isnan(point_stresses.stresses).any(axis=(1, 2))
-    bad = np.flatnonzero(missing)
+    finite = np.isfinite(point_stresses.points).all(axis=(1, 2))
+    finite &= np.isfinite(point_stresses.stresses).all(axis=(1, 2))
+    bad = np.flatnonzero(~finite)
     if bad.size:
         raise SolverError(
             f"CalculiX returned no integration-point result for {bad.size} element(s), "
@@ -339,11 +360,12 @@ DAT_STRESSES = "stresses"
 DAT_COORDINATES = "global coordinates"
 _DAT_STRESS_COLUMNS = "sxx,syy,szz,sxy,sxz,syz"
 _DAT_TO_NEUTRAL = [0, 1, 2, 3, 5, 4]
+_DAT_MARK = b" (elem, integ.pnt.,"
 _DAT_HEADER = re.compile(
-    r"^ (?P<name>[a-z][a-z ]*?) \(elem, integ\.pnt\.,(?P<columns>[^)]*)\) for set \S+ and time.*$",
-    re.MULTILINE,
+    rb" (?P<name>[a-z][a-z ]*?) \(elem, integ\.pnt\.,(?P<columns>[^)\r\n]*)\) for set \S+ and time"
 )
-_BLANK_LINE = re.compile(r"\n[ \t]*\n")
+_DAT_FIRST_ROW = re.compile(rb"\S")
+_DAT_BLANK_LINE = re.compile(rb"\n[ \t\r]*\n")
 
 
 @dataclass(frozen=True)
@@ -364,38 +386,79 @@ class DatResults:
     blocks: dict[str, DatBlock] = field(default_factory=dict)
 
 
-def parse_dat(text: str) -> DatResults:
+def parse_dat(data: str | bytes | mmap.mmap) -> DatResults:
     """Parse the integration-point blocks of a CalculiX ``.dat`` file.
 
     Each block has a header line, a blank line and one row per element and point: element id,
-    point number, then the values, all separated by spaces. A later block of the same name
-    replaces an earlier one (ccx writes a block per increment and step). Stresses are reordered
-    from ``.dat``'s sxx syy szz sxy sxz syz to the neutral xx yy zz xy yz zx. Raises
-    ``SolverError`` for a malformed row, a duplicate row, or an element that does not have
-    exactly points 1..Q, Q being the same for every element of the block.
+    point number, then the values, all separated by spaces. Only the last block of each name
+    is parsed (ccx writes a block per increment and step), one block at a time, with numpy's
+    C parser and without a Python token list, so ``data`` can be a memory-mapped file. Stresses
+    are reordered from ``.dat``'s sxx syy szz sxy sxz syz to the neutral xx yy zz xy yz zx.
+    Raises ``SolverError`` for a malformed row, a point number below 1, a duplicate row, or an
+    element that does not have exactly points 1..Q, Q being the same for every element.
     """
+    buffer = data.encode() if isinstance(data, str) else data
+    headers = _dat_headers(buffer)
+    last = {name: k for k, (name, _, _, _) in enumerate(headers)}
     result = DatResults()
-    headers = list(_DAT_HEADER.finditer(text))
-    for k, header in enumerate(headers):
-        name, columns = header["name"], header["columns"]
-        end = headers[k + 1].start() if k + 1 < len(headers) else len(text)
-        rows = _BLANK_LINE.split(text[header.end() : end].strip(), maxsplit=1)[0]
-        n_rows = rows.count("\n") + 1 if rows else 0
-        width = 2 + len(columns.split(","))
-        tokens = rows.split()
+    for name, k in last.items():
+        columns, end = headers[k][1], headers[k][3]
         if name == DAT_STRESSES and columns != _DAT_STRESS_COLUMNS:
             raise SolverError(f"CalculiX job.dat: unexpected stress columns {columns!r}")
-        try:
-            if len(tokens) != n_rows * width:
-                raise ValueError(f"expected {width} numbers per row")
-            table = np.array(tokens, dtype=np.float64).reshape(n_rows, width)
-        except ValueError as exc:
-            raise SolverError(f"CalculiX job.dat block {name!r} is malformed: {exc}") from None
-        values = _point_block(name, table)
+        limit = headers[k + 1][2] if k + 1 < len(headers) else len(buffer)
+        table = _dat_table(name, buffer, end, limit, 2 + len(columns.split(",")))
+        block = _point_block(name, table)
         if name == DAT_STRESSES:
-            values = DatBlock(values.elements, values.values[..., _DAT_TO_NEUTRAL])
-        result.blocks[name] = values
+            block = DatBlock(block.elements, block.values[..., _DAT_TO_NEUTRAL])
+        result.blocks[name] = block
     return result
+
+
+def _dat_headers(buffer: bytes | mmap.mmap) -> list[tuple[str, str, int, int]]:
+    """(name, columns, line start, line end) of every block header, in file order.
+
+    A plain substring search, not a multi-line regex over the whole file: the file is mostly
+    data rows, and a regex anchored at each line start costs about as much as parsing them.
+    """
+    headers: list[tuple[str, str, int, int]] = []
+    pos = 0
+    while (mark := buffer.find(_DAT_MARK, pos)) >= 0:
+        start = buffer.rfind(b"\n", 0, mark) + 1
+        end = buffer.find(b"\n", mark)
+        end = len(buffer) if end < 0 else end
+        header = _DAT_HEADER.match(buffer[start:end])
+        if header:
+            headers.append((header["name"].decode(), header["columns"].decode(), start, end))
+        pos = end
+    return headers
+
+
+def _dat_table(
+    name: str, buffer: bytes | mmap.mmap, start: int, limit: int, width: int
+) -> NDArray[np.float64]:
+    """(R, width) rows of the block whose header line ends at ``start``, up to a blank line."""
+    first = _DAT_FIRST_ROW.search(buffer, start, limit)  # skips the blank line after the header
+    if first is None:
+        return np.zeros((0, width))
+    blank = _DAT_BLANK_LINE.search(buffer, first.start(), limit)
+    end = blank.start() if blank else limit
+    while end > first.start() and buffer[end - 1 : end].isspace():
+        end -= 1
+    rows = buffer[first.start() : end]  # the one copy: this block's text
+    n_rows = rows.count(b"\n") + 1
+    try:
+        with warnings.catch_warnings():
+            # numpy warns (DeprecationWarning) and stops at text it cannot read as a number.
+            warnings.simplefilter("error", DeprecationWarning)
+            numbers = np.fromstring(rows, sep=" ")  # type: ignore[call-overload]
+    except (ValueError, DeprecationWarning):
+        raise SolverError(f"CalculiX job.dat block {name!r} is malformed: not a number") from None
+    del rows
+    if numbers.size != n_rows * width:
+        raise SolverError(
+            f"CalculiX job.dat block {name!r} is malformed: expected {width} numbers per row"
+        )
+    return numbers.reshape(n_rows, width)
 
 
 def _point_block(name: str, table: NDArray[np.float64]) -> DatBlock:
@@ -403,6 +466,11 @@ def _point_block(name: str, table: NDArray[np.float64]) -> DatBlock:
     ids, points = table[:, 0].astype(np.int64), table[:, 1].astype(np.int64)
     if not (np.array_equal(ids, table[:, 0]) and np.array_equal(points, table[:, 1])):
         raise SolverError(f"CalculiX job.dat block {name!r} is malformed: non-integer ids")
+    if points.size and points.min() < 1:
+        raise SolverError(
+            f"CalculiX job.dat block {name!r} has point number {points.min()}; "
+            "point numbers start at 1"
+        )
     q = int(points.max()) if points.size else 0
     keys = np.sort(ids * (q + 1) + points)
     repeated = keys[1:][keys[1:] == keys[:-1]]
@@ -412,51 +480,72 @@ def _point_block(name: str, table: NDArray[np.float64]) -> DatBlock:
             f"CalculiX job.dat block {name!r} has duplicate rows, e.g. element {element} "
             f"point {point}"
         )
+    # No duplicates and every point in 1..Q: an element with Q rows has each point once.
     elements, counts = np.unique(ids, return_counts=True)
-    if points.size and (points.min() < 1 or (counts != q).any()):
-        bad = elements[counts != q][0] if (counts != q).any() else ids[points.argmin()]
+    if (counts != q).any():
         raise SolverError(
             f"CalculiX job.dat block {name!r}: every element needs points 1 to {q} once; "
-            f"element {bad} does not have them"
+            f"element {elements[counts != q][0]} does not have them"
         )
     order = np.lexsort((points, ids))
     values = table[order, 2:].reshape(len(elements), q, table.shape[1] - 2)
     return DatBlock(elements=elements, values=values)
 
 
-def point_stresses(dat: DatResults, n_elements: int, n_points: int = _RULE_POINTS) -> PointStresses:
-    """Integration-point stresses in mesh element order; elements ccx did not print are NaN."""
-    arrays: list[NDArray[np.float64]] = []
-    for name, width in ((DAT_COORDINATES, 3), (DAT_STRESSES, 6)):
-        block = dat.blocks.get(name)
-        if block is None:
-            raise SolverError(f"CalculiX job.dat lacks the {name!r} block")
-        if block.values.shape[1:] != (n_points, width):
-            raise SolverError(
-                f"CalculiX job.dat block {name!r} has {block.values.shape[1]} integration "
-                f"points per element with {block.values.shape[2]} values; expected {n_points} "
-                f"with {width}"
-            )
-        index = block.elements - 1
-        if index.size and (index.min() < 0 or index.max() >= n_elements):
-            raise SolverError(
-                f"CalculiX job.dat block {name!r} has element ids outside 1..{n_elements}"
-            )
-        array = np.full((n_elements, n_points, width), np.nan)
-        array[index] = block.values
-        arrays.append(array)
-    return PointStresses(points=arrays[0], stresses=arrays[1])
+def rule_points(mesh: Mesh) -> NDArray[np.float64]:
+    """(M, 4, 3) physical coordinates (mm) of every element's C3D10 integration points.
+
+    The isoparametric tet10 map of the 4-point rule, in ccx's point order (point k nearest
+    corner node k), so it follows curved midside nodes. It equals ccx's ``COORD`` output to
+    its print precision (pinned by the ccx tests), without the rounding.
+    """
+    xi = _RULE_NATURAL
+    lam = np.column_stack([1.0 - xi.sum(axis=1), xi])  # (4, 4) barycentric
+    corner = [lam[:, k] * (2.0 * lam[:, k] - 1.0) for k in range(4)]
+    midside = [4.0 * lam[:, i] * lam[:, j] for i, j in TET10_EDGES]
+    shape = np.column_stack(corner + midside)  # (4 points, 10 nodes)
+    # One (M, 10) @ (10, 4) product per axis: less memory and faster than an einsum over
+    # the gathered (M, 10, 3) node coordinates.
+    return np.stack([mesh.nodes[mesh.elements, k] @ shape.T for k in range(3)], axis=-1)
 
 
-def read_point_stresses(path: Path, n_elements: int, log: str = "") -> PointStresses:
-    """Read ``job.dat``. A missing or empty file is a ``SolverError``: ccx exits 0 with an empty
-    ``.dat`` when ``*EL PRINT`` names no set (ADR-008, finding 7)."""
+def point_stresses(dat: DatResults, mesh: Mesh) -> PointStresses:
+    """Integration-point stresses in mesh element order, at the points ``rule_points`` gives.
+
+    Elements ccx did not print are NaN.
+    """
+    block = dat.blocks.get(DAT_STRESSES)
+    if block is None:
+        raise SolverError(f"CalculiX job.dat lacks the {DAT_STRESSES!r} block")
+    n_points = _RULE_NATURAL.shape[0]
+    if block.values.shape[1] != n_points:
+        raise SolverError(
+            f"CalculiX job.dat has {block.values.shape[1]} integration points per element; "
+            f"C3D10 ({POINT_RULE}) has {n_points}"
+        )
+    index = block.elements - 1
+    if index.size and (index.min() < 0 or index.max() >= mesh.n_elements):
+        raise SolverError(
+            f"CalculiX job.dat has element ids outside 1..{mesh.n_elements} (the mesh)"
+        )
+    stresses = np.full((mesh.n_elements, n_points, 6), np.nan)
+    stresses[index] = block.values
+    return PointStresses(points=rule_points(mesh), stresses=stresses)
+
+
+def read_point_stresses(path: Path, mesh: Mesh, log: str = "") -> PointStresses:
+    """Read ``job.dat`` (memory-mapped, parsed block by block).
+
+    A missing or empty file is a ``SolverError``: ccx exits 0 with an empty ``.dat`` when
+    ``*EL PRINT`` names no set (ADR-008, finding 7). Parse errors carry ``log`` too.
+    """
     if not path.is_file() or path.stat().st_size == 0:
         raise SolverError(
             f"CalculiX wrote no integration-point results ({path.name} is missing or empty)", log
         )
     try:
-        return point_stresses(parse_dat(path.read_text()), n_elements)
+        with path.open("rb") as file, mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ) as data:
+            return point_stresses(parse_dat(data), mesh)
     except SolverError as exc:
         raise SolverError(str(exc), log) from None
 
@@ -539,9 +628,11 @@ class CalculixAdapter:
             metadata["ccx_version"] = parsed.version
         displacements = _to_array(parsed.blocks["DISP"], n, 3)
         stresses = _to_array(parsed.blocks["STRESS"], n, 6)
-        points = read_point_stresses(workdir / f"{JOB_NAME}.dat", job.mesh.n_elements, log)
+        points = None
+        if job.point_stresses:
+            points = read_point_stresses(workdir / f"{JOB_NAME}.dat", job.mesh, log)
+            metadata["point_rule"] = POINT_RULE
         check_results_complete(job.mesh, displacements, stresses, points, log)
-        metadata["point_rule"] = POINT_RULE
         return SolveResult(
             displacements=displacements,
             stresses=stresses,

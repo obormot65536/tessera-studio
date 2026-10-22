@@ -10,6 +10,9 @@ linear stress field). Where every point of an element is exact, so is the affine
 them that ``tessera.post`` evaluates at the element's nodes.
 """
 
+import dataclasses
+import shutil
+import sys
 from collections.abc import Callable
 from itertools import permutations
 from pathlib import Path
@@ -28,6 +31,7 @@ from tessera.model.solver import (
     SolverError,
 )
 from tessera.solvers import CalculixAdapter, calculix
+from tessera.solvers.calculix import CCX_ENV_VAR, parse_dat
 
 # Values chosen so every exact nodal result has a short decimal expansion: the ASCII .frd file
 # stores six significant digits (E12.5), so a generic value would carry up to 5e-6 relative
@@ -284,6 +288,7 @@ def traction_job(
         sections=(Section("block", "pla"),),
         supports=(FixedSupport("a"), FixedSupport("b", (2, 3)), FixedSupport("c", (3,))),
         loads=(NodalLoads(np.array(load_nodes), forces),),
+        point_stresses=True,
     )
 
 
@@ -294,7 +299,7 @@ def straight_rule_points(mesh: Mesh) -> NDArray[np.float64]:
 
 @pytest.mark.solver
 def test_patch_points_are_exact_without_the_frd_bias(tmp_path: Path) -> None:
-    job = tension_job()
+    job = dataclasses.replace(tension_job(), point_stresses=True)
     result = CalculixAdapter(timeout=120).run(job, tmp_path)
     ps = result.point_stresses
     assert ps is not None
@@ -367,8 +372,20 @@ def test_pure_bending_points_are_exact_and_below_the_surface_peak(tmp_path: Path
     assert point_peak < 0.9 * nodal_peak
 
 
+def _edit_deck(monkeypatch: pytest.MonkeyPatch, edit: Callable[[str], str]) -> None:
+    write = calculix.write_deck
+    monkeypatch.setattr(calculix, "write_deck", lambda job: edit(write(job)))
+
+
+def _also_print_coord(deck: str) -> str:
+    """Ask ccx for COORD too: the oracle for ``rule_points`` (production decks do not)."""
+    return deck.replace("*END STEP\n", "*EL PRINT, ELSET=EALL\nCOORD\n*END STEP\n")
+
+
 @pytest.mark.solver
-def test_point_coordinates_follow_the_rule_on_a_curved_tet(tmp_path: Path) -> None:
+def test_point_coordinates_follow_the_rule_on_a_curved_tet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     corners = np.array([[0, 0, 0], [1.2, 0.1, 0], [0.2, 1.1, 0.1], [0.1, 0.2, 0.9]], dtype=float)
     mid = np.array([(corners[i] + corners[j]) / 2 for i, j in TET10_EDGES])
     bulge = np.array(
@@ -394,44 +411,46 @@ def test_point_coordinates_follow_the_rule_on_a_curved_tet(tmp_path: Path) -> No
         sections=(Section("part", "pla"),),
         supports=(FixedSupport("base"),),
         loads=(NodalLoads(np.array([3]), np.array([[0.5, -0.25, 1.0]])),),
+        point_stresses=True,
     )
+    _edit_deck(monkeypatch, _also_print_coord)
     result = CalculixAdapter(timeout=120).run(job, tmp_path)
     ps = result.point_stresses
     assert ps is not None
-    # Natural coordinates (xi, eta, zeta) = (a, a, a), (b, a, a), (a, b, a), (a, a, b).
+    # ccx's own COORD output pins the rule and its point order (ADR-008, finding 4) ...
+    coord = parse_dat((tmp_path / "job.dat").read_text()).blocks["global coordinates"]
+    np.testing.assert_allclose(ps.points[0], coord.values[0], rtol=0, atol=1e-6)
+    # ... and both are the isoparametric map of (a, a, a), (b, a, a), (a, b, a), (a, a, b).
     curved = tet10_map(nodes, RULE_BARYCENTRIC[:, 1:])
-    np.testing.assert_allclose(ps.points[0], curved, rtol=0, atol=1e-6)
+    np.testing.assert_allclose(ps.points[0], curved, rtol=0, atol=1e-12)
     straight = RULE_BARYCENTRIC @ corners
     assert np.abs(ps.points[0] - straight).max() > 1e-2  # the curved midsides are visible
     assert np.isfinite(ps.stresses).all()
 
 
-PRINT_CARDS = "*EL PRINT, ELSET=EALL\nS\n*EL PRINT, ELSET=EALL\nCOORD\n"
+PRINT_CARDS = "*EL PRINT, ELSET=EALL\nS\n"
 
 
 def _run_with_edited_deck(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, edit: Callable[[str], str]
 ) -> None:
-    """Run the patch job (plus a set ``half``) through ccx with ``edit`` applied to its deck."""
+    """Run the patch job (point stresses on, plus a set ``half``) with ``edit`` on its deck."""
     job = tension_job()
     mesh = job.mesh
     half = {"half": np.arange(mesh.n_elements // 2, dtype=np.int64)}
     mesh = Mesh(mesh.nodes, mesh.elements, {**mesh.element_sets, **half}, mesh.node_sets)
-    write = calculix.write_deck
-    monkeypatch.setattr(calculix, "write_deck", lambda job: edit(write(job)))
-    CalculixAdapter(timeout=120).run(
-        SolveJob(mesh, job.materials, job.sections, job.supports, job.loads), tmp_path
-    )
+    _edit_deck(monkeypatch, edit)
+    job = dataclasses.replace(job, mesh=mesh, point_stresses=True)
+    CalculixAdapter(timeout=120).run(job, tmp_path)
 
 
 @pytest.mark.parametrize(
     ("cards", "message"),
     [
-        ("", r"job\.dat"),  # no *EL PRINT: ccx writes an empty job.dat (finding 7)
-        ("*EL PRINT\nS\n*EL PRINT\nCOORD\n", r"job\.dat"),  # no set: a warning, empty job.dat
-        ("*EL PRINT, ELSET=EALL\nS\n", "global coordinates"),  # COORD block missing
-        ("*EL PRINT, ELSET=EALL\nCOORD\n", "stresses"),  # S block missing
-        ("*EL PRINT, ELSET=E_half\nS\n*EL PRINT, ELSET=E_half\nCOORD\n", "element"),
+        ("", r"job\.dat is missing or empty"),  # no *EL PRINT: an empty job.dat (finding 7)
+        ("*EL PRINT\nS\n", r"job\.dat is missing or empty"),  # no set: a warning, empty .dat
+        ("*EL PRINT, ELSET=EALL\nCOORD\n", "'stresses' block"),  # S block missing
+        ("*EL PRINT, ELSET=E_half\nS\n", r"no integration-point result for \d+ element"),
     ],
 )
 @pytest.mark.solver
@@ -455,3 +474,33 @@ def test_duplicate_dat_rows_are_a_solver_error(
     with pytest.raises(SolverError, match="duplicate") as info:
         _run_with_edited_deck(tmp_path, monkeypatch, define_again)
     assert info.value.log
+
+
+# --- Off by default -----------------------------------------------------------------------
+
+
+def _ccx_that_then_writes(tmp_path: Path, dat: str | None) -> str:
+    """A wrapper around the real ccx that replaces job.dat afterwards (None: deletes it)."""
+    ccx = shutil.which("ccx")
+    assert ccx is not None
+    after = "rm -f job.dat" if dat is None else f"printf '%s' '{dat}' > job.dat"
+    script = tmp_path / "ccx-wrapper.sh"
+    script.write_text(f'#!/bin/sh\n"{ccx}" "$@"\nstatus=$?\n{after}\nexit $status\n')
+    script.chmod(0o755)
+    return str(script)
+
+
+@pytest.mark.parametrize("dat", [None, "", "garbage 1 2 3\n stresses (elem, integ.pnt.,x"])
+@pytest.mark.solver
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell wrapper")
+def test_default_job_never_reads_job_dat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dat: str | None
+) -> None:
+    workdir = tmp_path / "run"
+    monkeypatch.setenv(CCX_ENV_VAR, _ccx_that_then_writes(tmp_path, dat))
+    result = CalculixAdapter(timeout=120).run(tension_job(), workdir)
+    assert result.point_stresses is None
+    assert "point_rule" not in result.metadata
+    deck = (workdir / "job.inp").read_text()
+    assert "*EL PRINT" not in deck and "EALL" not in deck
+    assert (workdir / "job.dat").exists() == (dat is not None)  # the wrapper really ran
