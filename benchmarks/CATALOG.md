@@ -71,9 +71,9 @@ primary source.
 | TS-07 | v0.1 | Thick-walled sphere, internal pressure (Lamé) | passing |
 | TS-08 | v0.1 | Circular plate, uniform pressure, clamped and simply supported | passing (A and B) |
 | TS-09 | v0.1 | Torsion of circular and square bars (Saint-Venant) | passing |
-| TS-10 | v0.1 | Thin ring under diametral compression (curved beam) | planned |
-| TS-11 | v0.1 | NAFEMS LE1 elliptic membrane | planned |
-| TS-12 | v0.1 | NAFEMS LE10 thick plate under pressure (3D) | planned |
+| TS-10 | v0.1 | Thin ring under diametral compression (curved beam) | awaiting reference |
+| TS-11 | v0.1 | NAFEMS LE1 elliptic membrane | passing |
+| TS-12 | v0.1 | NAFEMS LE10 thick plate under pressure (3D) | passing |
 | TO-01 | v0.5 | Orthotropic patch tests: 3 axial + 3 shear | awaiting reference |
 | TO-02 | v0.5 | Off-axis (rotated orientation) tension | planned |
 | TO-03 | v0.5 | Orthotropic plate with hole (Lekhnitskii) | planned |
@@ -100,7 +100,7 @@ primary source.
 | TT-04 | v3 | Steady radial conduction and thermal stress in a thick cylinder | planned |
 | TF-01 | v4 | Laminar pipe flow (Hagen-Poiseuille) | planned |
 
-Count: v0.1 12 (9 passing), v0.5 14 (1 awaiting reference), v1.x 3, v2 3, v3 4, v4 1. Total 37.
+Count: v0.1 12 (11 passing, 1 awaiting reference), v0.5 14 (1 awaiting reference), v1.x 3, v2 3, v3 4, v4 1. Total 37.
 
 ---
 
@@ -378,6 +378,9 @@ Count: v0.1 12 (9 passing), v0.5 14 (1 awaiting reference), v1.x 3, v2 3, v3 4, 
 - **Problem:** quarter plate between an inner ellipse (semi-axes 2 x 1 m) and an outer ellipse
   (3.25 x 2.75 m), thickness 0.1 m. Outward pressure 10 MPa on the outer edge; E = 210 GPa,
   nu = 0.3. Symmetry on both axes. In Tessera units: mm, with the sizes scaled.
+  Case: `benchmarks/cases/test_nafems_le1.py` (lengths x 1000, E = 210 000 MPa, 10 MPa
+  unchanged; half the thickness with a mid-plane roller u_z = 0, so D at mid-thickness is a
+  geometry vertex), reference file `nafems_le1.toml` (proposed, not yet approved).
 - **Quantity:** sigma_yy at D = (2, 0), the inner-ellipse end on the x axis. Target
   **92.7 MPa** (`verified`: COMSOL, Cast3M and Abaqus benchmark pages, which say the value is
   analytical). The outer-ellipse semi-axes are `unverified`: they match the wall widths 1.25 /
@@ -390,6 +393,15 @@ Count: v0.1 12 (9 passing), v0.5 14 (1 awaiting reference), v1.x 3, v2 3, v3 4, 
 - **Features:** pressure on a curved edge face, rollers, plane-stress-like thin solid (mesh at
   least 2 elements through the thickness), local refinement at D.
 - **Tolerance:** 2 % (published fine-mesh quadratic results: Abaqus CPS8 92.81 MPa, +0.12 %).
+- **Measured** (CalculiX 2.21, global mesh size; Tessera has no local refinement yet): the
+  mid-thickness value converges from below to about 92.8 MPa (+0.1 %). Gate mesh 50 mm.
+
+  | size [mm] | nodes | sigma_yy(D) vs 92.7 | runtime |
+  |---|---|---|---|
+  | 100 | 9 231 | -0.76 % | ~2.4 s |
+  | 70.71 | 17 247 | -0.24 % | ~5 s |
+  | 50 | 33 931 | -0.06 % | ~11 s |
+  | 25 | 174 389 | +0.09 % | ~139 s (not in the sweep) |
 
 ### TS-12 NAFEMS LE10, thick plate under pressure (true 3D)
 
@@ -427,9 +439,15 @@ nu12 = 0.35, nu13 = nu23 = 0.30 (check positive definiteness in the case).
 
 ### TO-01 Orthotropic patch tests (3 axial + 3 shear)
 
-- **Problem:** unit cube with a distorted mesh. (a) Uniaxial traction along 1, 2 and 3 in turn,
-  with rollers on the three opposite faces. (b) Pure shear in planes 12, 13 and 23, imposed as a
-  linear displacement field on all boundary nodes (displacement patch test).
+- **Problem:** cube with a distorted (unstructured) mesh. (a) Uniaxial traction along 1, 2 and 3
+  in turn, with rollers on the three opposite faces, printed upright (build Z) and on its side
+  (build along x, so the material axes are permuted). (b) Simple shear in planes 12, 13 and 23:
+  one face fixed, shear forces on the opposite face and balancing forces on the two side faces,
+  so the exact field is linear (u = gamma y e_x for 12).
+- **Method change (proposed in ADR-009, pending maintainer approval):** (b) replaces the
+  displacement patch test (a linear displacement prescribed on all boundary nodes), which needs
+  prescribed non-zero displacements that Tessera does not have; the simple-shear form is still
+  exact. The three "side" cases are added to (a) to check the print orientation.
 - **Quantity:** strains eps = S sigma with the orthotropic compliance S (axial: eps_ii =
   sigma/E_i, eps_jj = -nu_ij sigma/E_i; shear: gamma_ij = tau/G_ij). Also check that the
   reciprocity nu_ij/E_i = nu_ji/E_j holds in the material conversion.
@@ -438,8 +456,10 @@ nu12 = 0.35, nu13 = nu23 = 0.30 (check positive definiteness in the case).
   (1999), ch. 2 (both locations `unverified`).
 - **Licence:** formula only.
 - **Equivalents:** none recorded.
-- **Features:** orthotropic material, material orientation, prescribed non-zero displacements.
-- **Tolerance:** 1e-6 relative (v0.5 gate: "orthotropic patch tests exact").
+- **Features:** orthotropic material, material orientation from the print setup.
+- **Tolerance:** 1e-6 relative (v0.5 gate: "orthotropic patch tests exact"). ADR-009 proposes
+  gating at the TS-03 frd precision floor (2e-5 stress, 1e-5 displacement) until integration-point
+  output (ADR-008) lands; the closed form itself is checked to 1e-9.
 
 ### TO-02 Off-axis tension (rotated material orientation)
 

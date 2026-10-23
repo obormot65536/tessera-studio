@@ -654,6 +654,22 @@ clamped end; at 2.5 mm, four elements, the same peak is `mesh-dependent`. If a t
 carries the load and has only one or two elements across it, refine before you trust a
 `settled` there.
 
+### If the solve takes too long
+
+Tessera stops the solver if one solve takes longer than 30 minutes (1800 s), so a solve that
+hangs cannot block you forever. It also stops the programs the solver started, unless one of
+them detached itself from the solver. Closing the terminal, or stopping Tessera with Ctrl+C,
+stops the solver too; if Tessera is killed outright (for example from the task manager), check
+that no `ccx` process is left running. To allow more or less time, give the limit in seconds:
+
+```
+tessera solve beam.tessera.json --timeout 3600
+```
+
+With `--check-mesh` each of the two solves gets this long, so the whole command can take up to
+twice as long, plus the meshing. The message says which of the two solves was stopped. A part that needs more than 30 minutes usually has a mesh
+finer than it needs; try a larger `--mesh-size` first (Step 7).
+
 ### What to change in the print
 
 Tessera can tell you where the stress is high, but it does not yet know your printed material.
@@ -672,7 +688,7 @@ These suggestions are general design advice; Tessera does not check them.
 |---|---|
 | 0 | The command finished |
 | 1 | Something in the project or the command is wrong. The message says what |
-| 2 | The solver failed. The message says why; check `ccx` is installed |
+| 2 | The solver failed or took longer than `--timeout`. The message says why; check `ccx` is installed |
 
 ## Editing the JSON directly
 
@@ -761,3 +777,5 @@ Any field name that Tessera does not know causes an error. This catches typing m
 | `... is not a valid project file` | Check the JSON: a misspelt field name, a missing comma or a missing required field |
 | `[Errno 2] No such file or directory: ...` | The project file you named does not exist |
 | `solver failed: CalculiX executable 'ccx' not found on PATH ...` | Install CalculiX 2.21 or newer, or set `TESSERA_CCX` |
+| `solver failed: CalculiX did not finish within 1800 s and was stopped; give it longer with --timeout SECONDS` | Use a larger `--mesh-size`, or allow more time with `--timeout` (see "If the solve takes too long") |
+| `the solver timeout must be a positive number of seconds, got 0` | Give `--timeout` a number of seconds greater than 0 |

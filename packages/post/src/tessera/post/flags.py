@@ -1,4 +1,4 @@
-"""Flag nodes whose stress keeps changing as the mesh is refined (ADR-007).
+"""Flag nodes (or any points) whose stress keeps changing as the mesh is refined (ADR-007).
 
 In linear elasticity the stress has no finite value at the edges of a face support that holds
 two or three directions, along a line support (ADR-006) and at sharp inside (re-entrant) edges.
@@ -164,28 +164,48 @@ def sharp_inside_edge_nodes(mesh: Mesh, angle: float = INSIDE_EDGE_ANGLE) -> NDA
     return np.unique(edge_nodes).astype(np.int64)
 
 
-def flag_nodes(job: SolveJob) -> NodeFlags:
-    """Flag nodes within d = 2 h of a singular support or a sharp inside edge (ADR-007).
+def _flag_sources(job: SolveJob) -> dict[StressFlag, NDArray[np.float64]]:
+    """The (K, 3) points each reason is measured from: the nodes of its singular supports (all
+    supports with the same id together) and of the sharp inside edges. A reason without any
+    point is left out."""
+    mesh = job.mesh
+    sources: dict[StressFlag, NDArray[np.float64]] = {}
+    for support in job.supports:
+        if not support_is_singular(support):
+            continue
+        flag = StressFlag(FlagKind.SUPPORT, support=support.node_set.removeprefix(_SUPPORT_PREFIX))
+        points = mesh.nodes[mesh.node_sets[support.node_set]]
+        if flag in sources:
+            points = np.vstack([sources[flag], points])
+        if points.shape[0]:
+            sources[flag] = points
+    edge = mesh.nodes[sharp_inside_edge_nodes(mesh)]
+    if edge.shape[0]:
+        sources[StressFlag(FlagKind.SHARP_INSIDE_EDGE)] = edge
+    return sources
 
+
+def flag_points(job: SolveJob, points: NDArray[np.float64]) -> NodeFlags:
+    """Flag the (P, 3) ``points`` (mm) within d = 2 h of a singular support or a sharp inside
+    edge (ADR-007), e.g. integration points as ``point_stresses.points.reshape(-1, 3)``.
+
+    The result's masks and ``n_nodes`` count points, not mesh nodes; h and d are the mesh's.
     A support is flagged when ``support_is_singular`` says so; its flag names the support's id
     (its node set name without the ``support:`` prefix). Distances are measured to the nodes of
     the support or edge; along an edge they are at most h / 2 apart, which shortens the band
     by a negligible amount.
     """
-    mesh = job.mesh
-    h = median_edge_length(mesh)
+    h = median_edge_length(job.mesh)
     d = FLAG_DISTANCE_FACTOR * h
     masks: dict[StressFlag, NDArray[np.bool_]] = {}
-    for support in job.supports:
-        if not support_is_singular(support):
-            continue
-        flag = StressFlag(FlagKind.SUPPORT, support=support.node_set.removeprefix(_SUPPORT_PREFIX))
-        mask = _within(mesh.nodes, mesh.nodes[mesh.node_sets[support.node_set]], d)
-        if flag in masks:
-            mask |= masks[flag]
+    for flag, sources in _flag_sources(job).items():
+        mask = _within(points, sources, d)
         if mask.any():
             masks[flag] = mask
-    edge = _within(mesh.nodes, mesh.nodes[sharp_inside_edge_nodes(mesh)], d)
-    if edge.any():
-        masks[StressFlag(FlagKind.SHARP_INSIDE_EDGE)] = edge
-    return NodeFlags(masks=masks, n_nodes=mesh.n_nodes, distance=d, edge_length=h)
+    return NodeFlags(masks=masks, n_nodes=int(points.shape[0]), distance=d, edge_length=h)
+
+
+def flag_nodes(job: SolveJob) -> NodeFlags:
+    """Flag mesh nodes within d = 2 h of a singular support or a sharp inside edge (ADR-007):
+    ``flag_points`` at the mesh nodes."""
+    return flag_points(job, job.mesh.nodes)
