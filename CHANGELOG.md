@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Orthotropic material types (ADR-009, model only): `OrthotropicMaterial` (engineering
+  constants, major Poisson ratios, validated to a positive definite compliance), `Material`,
+  `MaterialFrame` and `Section.orientation` in `tessera.model`, and
+  `tessera.model.elasticity` (`orthotropic_compliance`, `check_orthotropic`, `rotate_stress`).
+  `SolveJob.materials` now takes either kind. Nothing uses them yet: projects cannot define an
+  orthotropic material, and the CalculiX adapter refuses one with `NotImplementedError`.
 - API (ADR-008): `SolveJob(point_stresses=True)` asks for each element's own stresses at its
   integration points, returned in `SolveResult.point_stresses` (`PointStresses`). Opt-in;
   no reported number changes.

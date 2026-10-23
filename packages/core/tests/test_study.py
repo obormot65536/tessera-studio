@@ -15,6 +15,7 @@ from tessera.model import (
     FaceSet,
     ForceLoad,
     InputError,
+    IsotropicMaterial,
     PartInstance,
     SolveJob,
     SolveResult,
@@ -100,7 +101,9 @@ def test_solve_builds_the_expected_job(bracket_step: Path, tmp_path: Path) -> No
     job = fake.job
     assert job is not None
     assert [s.element_set for s in job.sections] == ["part:b"]
-    assert job.materials[0].youngs_modulus == 210_000.0
+    material = job.materials[0]
+    assert isinstance(material, IsotropicMaterial)
+    assert material.youngs_modulus == 210_000.0
     support_nodes = job.mesh.node_sets["support:wall"]
     assert np.allclose(job.mesh.nodes[support_nodes, 0], 0.0)
     total = sum(load.forces.sum(axis=0) for load in job.loads)
