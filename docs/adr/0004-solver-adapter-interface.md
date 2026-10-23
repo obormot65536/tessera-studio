@@ -63,14 +63,29 @@ seam: it is exactly what a benchmark or a bug report needs to reproduce a run.
 
 ## Action items
 
-1. [ ] Add `Mesh`, `SolveJob`, `SolveResult`, `SolverAdapter`, `SolverError` to `tessera.model`.
-2. [ ] Implement `CalculixAdapter` (static, isotropic) with a patch test.
+1. [x] Add `Mesh`, `SolveJob`, `SolveResult`, `SolverAdapter`, `SolverError` to `tessera.model`.
+2. [x] Implement `CalculixAdapter` (static, isotropic) with a patch test.
 3. [ ] Extend additively in v0.5: orientations, orthotropic materials, ties, contact, couplings.
 4. [ ] Registry by analysis kind once a second adapter exists (v0.1 core uses CalculiX
        directly but checks `capabilities()`).
-5. [ ] Default solver timeout before the GUI/MCP server can start solves (a hung contact solve
-       must not block them forever).
+5. [x] Default solver timeout before the GUI/MCP server can start solves (a hung contact solve
+       must not block them forever). Done: `tessera.core.solve` gives the built-in solver
+       `SOLVE_TIMEOUT` = 1800 s per solver run, overridable with `solve(timeout=...)` and
+       `tessera solve --timeout SECONDS`. The limit is per run, so `check_mesh` (two solves) can
+       take up to twice as long; meshing is not counted. On a timeout the adapter kills ccx
+       and the processes it started (its own process group on POSIX, `taskkill /F /T` on
+       Windows) and raises `SolverTimeoutError`, a `SolverError`; with `check_mesh` the
+       message names the coarse or fine solve. An exception while waiting (Ctrl+C, a cancel)
+       kills them the same way and re-raises that exception. On POSIX, SIGTERM or SIGHUP to
+       a main thread that is waiting kills them before the signal takes effect, and on Linux
+       `PR_SET_PDEATHSIG` kills the direct ccx process if Tessera dies in any way. Not
+       covered: a process that leaves the group itself (`setsid`), and SIGTERM, SIGHUP or
+       SIGKILL on macOS while a non-main thread waits (or SIGKILL at all on macOS/Windows).
+       1800 s leaves room for a large fine mesh of the two-mesh check on a slow laptop, where
+       killing a solve that would have finished costs more than waiting for a rare hang; the
+       GUI should still offer a cancel button.
 6. [ ] High-order mesh quality: enable gmsh high-order optimization or report inverted curved
        elements clearly before CalculiX rejects them with a Jacobian error.
 7. [ ] Recover stresses at integration points for failure criteria: CalculiX's nodal frd
-       stresses carry about 1e-5 relative extrapolation bias.
+       stresses carry about 1e-5 relative extrapolation bias. Proposed in ADR-008
+       (`0008-integration-point-stresses.md`).

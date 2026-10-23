@@ -137,3 +137,20 @@ def test_solve_job_takes_mixed_materials() -> None:
     ortho = OrthotropicMaterial("to", **TO)
     job = SolveJob(mesh=mesh, materials=(iso, ortho), sections=())
     assert job.materials == (iso, ortho)
+
+
+def test_from_axes_near_parallel_gives_a_frame_or_says_parallel() -> None:
+    # One Gram-Schmidt pass loses orthogonality as the angle shrinks; the frame must still be
+    # orthonormal, or the error must name the real cause.
+    rng = np.random.default_rng(0)
+    for _ in range(500):
+        a = rng.normal(size=3) * 10.0 ** rng.uniform(-3, 3)
+        b = rng.uniform(-2, 2) * a + rng.normal(size=3) * np.linalg.norm(a) * 10.0 ** rng.uniform(
+            -9, -5
+        )
+        try:
+            frame = MaterialFrame.from_axes(tuple(a), tuple(b))
+        except ValueError as error:
+            assert "parallel" in str(error)
+        else:
+            assert abs(np.dot(frame.axis_1, frame.axis_2)) <= 1e-9
