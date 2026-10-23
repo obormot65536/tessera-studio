@@ -82,6 +82,14 @@ class SolverError(RuntimeError):
         self.log = log
 
 
+class SolverTimeoutError(SolverError):
+    """The solver did not finish within ``timeout`` seconds and was stopped (ADR-004)."""
+
+    def __init__(self, message: str, timeout: float, log: str = "") -> None:
+        super().__init__(message, log)
+        self.timeout = timeout
+
+
 class SolverAdapter(Protocol):
     name: str
 
