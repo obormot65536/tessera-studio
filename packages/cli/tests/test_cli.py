@@ -1,11 +1,12 @@
 import dataclasses
+import re
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
 from tessera.cli.app import app
-from tessera.model import StudyResult
+from tessera.model import SolverError, SolverTimeoutError, StudyResult
 
 runner = CliRunner()
 
@@ -267,7 +268,12 @@ def _solve_output(monkeypatch: pytest.MonkeyPatch, result: StudyResult, *args: s
 
     asked: list[bool] = []
 
-    def fake_solve(_project: object, workdir: Path | None = None, check_mesh: bool = False):
+    def fake_solve(
+        _project: object,
+        workdir: Path | None = None,
+        check_mesh: bool = False,
+        timeout: float | None = None,
+    ):
         asked.append(check_mesh)
         return result
 
@@ -527,3 +533,54 @@ def test_a_spot_the_check_could_not_refine_keeps_its_flag_warning(
     unflagged = _checked(_solved((), clear=True), peak=143.0, faces={}, peak_refinement=0.95)
     lines = _solve_output(monkeypatch, unflagged, "--check-mesh")
     assert lines[5] == "  not judged: the finer mesh is only 0.95 times the element size here"
+
+
+def test_solve_passes_the_timeout_to_core(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import tessera.cli.app as cli
+
+    asked: list[float | None] = []
+
+    def fake_solve(_project: object, workdir: Path | None = None, **kwargs: object):
+        asked.append(kwargs.get("timeout"))  # type: ignore[arg-type]
+        raise SolverError("stop here")
+
+    monkeypatch.setattr(cli, "load_project", lambda _path: None)
+    monkeypatch.setattr(cli, "solve", fake_solve)
+    runner.invoke(app, ["solve", "p.tessera.json", "--timeout", "90"])
+    runner.invoke(app, ["solve", "p.tessera.json"])
+    assert asked == [90.0, None]  # None: core's default (SOLVE_TIMEOUT)
+
+
+def test_a_solver_timeout_says_how_to_give_it_longer(monkeypatch: pytest.MonkeyPatch) -> None:
+    import tessera.cli.app as cli
+
+    def slow_solve(*_args: object, **_kwargs: object) -> None:
+        raise SolverTimeoutError("CalculiX did not finish within 90 s and was stopped", 90.0)
+
+    monkeypatch.setattr(cli, "load_project", lambda _path: None)
+    monkeypatch.setattr(cli, "solve", slow_solve)
+    result = runner.invoke(app, ["solve", "p.tessera.json", "--timeout", "90"])
+    assert result.exit_code == 2
+    assert result.output.strip() == (
+        "solver failed: CalculiX did not finish within 90 s and was stopped; "
+        "give it longer with --timeout SECONDS"
+    )
+
+
+def test_a_timeout_that_is_not_positive_is_a_clean_error(tmp_path: Path) -> None:
+    path = tmp_path / "empty.tessera.json"
+    runner.invoke(app, ["new", str(path)])
+    result = runner.invoke(app, ["solve", str(path), "--timeout", "0"])
+    assert result.exit_code == 1
+    assert "error: the solver timeout must be a positive number of seconds, got 0" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_solve_help_shows_the_default_timeout() -> None:
+    from tessera.core import SOLVE_TIMEOUT
+
+    result = runner.invoke(app, ["solve", "--help"])
+    # Rich styles the help on CI (GITHUB_ACTIONS forces colour), splitting words with escapes.
+    text = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "--timeout" in text
+    assert f"{SOLVE_TIMEOUT:g}" in text
