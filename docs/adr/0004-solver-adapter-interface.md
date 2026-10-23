@@ -87,4 +87,5 @@ seam: it is exactly what a benchmark or a bug report needs to reproduce a run.
 6. [ ] High-order mesh quality: enable gmsh high-order optimization or report inverted curved
        elements clearly before CalculiX rejects them with a Jacobian error.
 7. [ ] Recover stresses at integration points for failure criteria: CalculiX's nodal frd
-       stresses carry about 1e-5 relative extrapolation bias.
+       stresses carry about 1e-5 relative extrapolation bias. Proposed in ADR-008
+       (`0008-integration-point-stresses.md`).
