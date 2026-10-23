@@ -5,6 +5,8 @@
 - API (ADR-008): `SolveJob(point_stresses=True)` asks for each element's own stresses at its
   integration points, returned in `SolveResult.point_stresses` (`PointStresses`). Opt-in;
   no reported number changes.
+- `tessera.post` (ADR-008): `element_nodal_stresses`, `point_von_mises`, `flag_points`;
+  `von_mises` keeps the leading axes, so (M, Q, 6) gives (M, Q).
 - Solver timeout (ADR-004): a solve started through `tessera.core` now stops CalculiX after
   1800 s per solver run instead of waiting forever, together with the processes it started
   (except one that detaches itself with `setsid`). Ctrl+C, and in `tessera solve` on Linux
