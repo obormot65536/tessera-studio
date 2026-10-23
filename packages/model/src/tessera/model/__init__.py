@@ -42,6 +42,7 @@ from tessera.model.solver import (
     SolverAdapter,
     SolverError,
     SolveResult,
+    SolverTimeoutError,
 )
 
 __all__ = [
@@ -76,6 +77,7 @@ __all__ = [
     "SolveResult",
     "SolverAdapter",
     "SolverError",
+    "SolverTimeoutError",
     "SpotCheck",
     "StressFlag",
     "StressSpot",

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from tessera.core import (
     MESH_CHECK_REFINEMENT,
+    SOLVE_TIMEOUT,
     WALL_ELEMENTS_MIN,
     describe_edges,
     describe_faces,
@@ -168,6 +169,7 @@ def solve(
     adapter: SolverAdapter | None = None,
     *,
     check_mesh: bool = False,
+    timeout: float | None = None,
 ) -> StudyResult
 ```
 
@@ -180,6 +182,12 @@ Meshes the part, builds the static problem, runs the solver and summarises the r
   must support the `static` analysis.
 - `check_mesh`: also run the two-mesh check (see "Mesh check" below). The study is solved twice,
   so it takes 3 to 5 times as long. The coarse solve's files go to `workdir / "coarse"`.
+- `timeout`: seconds each solver run may take before CalculiX, and the processes it started,
+  are stopped and `SolverTimeoutError` is raised. `None` uses `SOLVE_TIMEOUT` (1800 s). The
+  limit applies to each solve on its own: with `check_mesh` the two solves may take up to
+  twice as long together. Meshing is not counted. It applies to the built-in solver only;
+  passing both `adapter` and `timeout` raises `ValueError` (set the limit on your adapter,
+  e.g. `CalculixAdapter(timeout=...)`).
 
 v0.1 solves exactly one part with no connections and no placement (identity transform). The
 study must have at least one support. The part must have a `material_id` from the built-in
@@ -197,11 +205,16 @@ Raises:
   - the study has no supports;
   - gravity is set but the material has no density;
   - the geometry is unsupported, or cannot be meshed;
-  - the solver adapter cannot run the analysis.
+  - the solver adapter cannot run the analysis;
+  - `timeout` is not a positive, finite number of seconds.
 - `FileNotFoundError`: the part's geometry file does not exist. The message names the part.
-- `SolverError` (from `tessera.model`): the CalculiX executable cannot be found or started, the
-  run timed out, CalculiX reported an error, or it produced no usable results. `SolverError.log`
-  holds the solver output.
+- `SolverError` (from `tessera.model`): the CalculiX executable cannot be found or started,
+  CalculiX reported an error, or it produced no usable results. `SolverError.log` holds the
+  solver output.
+- `SolverTimeoutError` (from `tessera.model`, a subclass of `SolverError`): a solver run took
+  longer than `timeout` and was stopped. `SolverTimeoutError.timeout` is the limit in seconds;
+  `log` holds what the solver wrote before it was stopped. With `check_mesh` the message ends
+  with the solve that was stopped, e.g. `(in the coarse solve of the mesh check)`.
 
 Returns a `StudyResult`: the largest displacement, the raw peak von Mises stress, the peak away
 from supports and sharp inside edges, and the peak on each face (see "Peak stress" below). With
@@ -593,6 +606,7 @@ supports whose peak stress is mesh-dependent.
 |---|---|---|
 | `InputError` | `tessera.model` | A problem in what the user asked for (a subclass of `ValueError`). Its message is safe to show as-is. |
 | `SolverError` | `tessera.model` | The solver failed. Has a `log` attribute. Subclass of `RuntimeError`. |
+| `SolverTimeoutError` | `tessera.model` | The solver took longer than its timeout and was stopped. Has `timeout` (s) and `log`. Subclass of `SolverError`. |
 
 Clients show `InputError` and `SolverError` messages to the user. `FileNotFoundError` and
 `NotImplementedError` are also raised by `tessera.core` for the cases listed above. Any other
