@@ -63,6 +63,49 @@ class SolveJob:
     supports: tuple[FixedSupport, ...] = ()
     loads: tuple[NodalLoads, ...] = ()
     analysis: AnalysisKind = AnalysisKind.STATIC
+    point_stresses: bool = field(default=False, kw_only=True)
+    """Ask the solver for integration-point stresses (``SolveResult.point_stresses``, ADR-008);
+    costs about 0.6 kB per element in .dat plus parse time."""
+
+
+@dataclass(frozen=True)
+class PointStresses:
+    """Stresses at the integration points of every element, as the solver computed them (ADR-008).
+
+    Row ``j`` belongs to mesh element ``j`` (0-based) and holds that element's own Q points:
+    the values are not extrapolated and not averaged with neighbouring elements, so each element
+    keeps the stress of its own material. The point rule and its order are the solver's; it is
+    named by ``SolveResult.metadata["point_rule"]`` (``"tet4"`` for C3D10: four points, point k
+    nearest corner node k). An entry the solver did not report is NaN.
+
+    Integration points lie inside the element, so a maximum over them is biased low at surfaces.
+    Reported peaks stay nodal; do not replace them with integration-point maxima (ADR-008,
+    decision 4).
+    """
+
+    points: NDArray[np.float64]
+    """(M, Q, 3) physical coordinates of the points in mm."""
+    stresses: NDArray[np.float64]
+    """(M, Q, 6) stresses in MPa, neutral order xx, yy, zz, xy, yz, zx."""
+
+    def __post_init__(self) -> None:
+        p, s = self.points.shape, self.stresses.shape
+        if len(p) != 3 or p[2] != 3:
+            raise ValueError(f"points must have shape (M, Q, 3), got {p}")
+        if len(s) != 3 or s[2] != 6:
+            raise ValueError(f"stresses must have shape (M, Q, 6), got {s}")
+        if p[:2] != s[:2]:
+            raise ValueError(f"points shape {p} and stresses shape {s} disagree on (M, Q)")
+
+    @property
+    def n_elements(self) -> int:
+        """M, the number of elements."""
+        return int(self.points.shape[0])
+
+    @property
+    def n_points(self) -> int:
+        """Q, the number of integration points per element."""
+        return int(self.points.shape[1])
 
 
 @dataclass(frozen=True)
@@ -74,6 +117,11 @@ class SolveResult:
     solver: str
     log: str = ""
     metadata: dict[str, str] = field(default_factory=dict)
+    """Solver details as text. ``point_rule`` names the integration rule of ``point_stresses``
+    (e.g. ``"tet4"``) when they are present."""
+    point_stresses: PointStresses | None = None
+    """Integration-point stresses (ADR-008); ``None`` when the solver does not provide them.
+    Code that needs them (failure criteria) must refuse, not fall back to nodal ``stresses``."""
 
 
 class SolverError(RuntimeError):

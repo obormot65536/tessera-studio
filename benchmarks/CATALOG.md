@@ -72,8 +72,8 @@ primary source.
 | TS-08 | v0.1 | Circular plate, uniform pressure, clamped and simply supported | passing (A and B) |
 | TS-09 | v0.1 | Torsion of circular and square bars (Saint-Venant) | passing |
 | TS-10 | v0.1 | Thin ring under diametral compression (curved beam) | awaiting reference |
-| TS-11 | v0.1 | NAFEMS LE1 elliptic membrane | awaiting reference |
-| TS-12 | v0.1 | NAFEMS LE10 thick plate under pressure (3D) | planned |
+| TS-11 | v0.1 | NAFEMS LE1 elliptic membrane | passing |
+| TS-12 | v0.1 | NAFEMS LE10 thick plate under pressure (3D) | passing |
 | TO-01 | v0.5 | Orthotropic patch tests: 3 axial + 3 shear | planned |
 | TO-02 | v0.5 | Off-axis (rotated orientation) tension | planned |
 | TO-03 | v0.5 | Orthotropic plate with hole (Lekhnitskii) | planned |
@@ -100,7 +100,7 @@ primary source.
 | TT-04 | v3 | Steady radial conduction and thermal stress in a thick cylinder | planned |
 | TF-01 | v4 | Laminar pipe flow (Hagen-Poiseuille) | planned |
 
-Count: v0.1 12 (9 passing, 2 awaiting reference), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
+Count: v0.1 12 (11 passing, 1 awaiting reference), v0.5 14, v1.x 3, v2 3, v3 4, v4 1. Total 37.
 
 ---
 
@@ -373,7 +373,7 @@ Count: v0.1 12 (9 passing, 2 awaiting reference), v0.5 14, v1.x 3, v2 3, v3 4, v
 - **Features:** rollers, point/small-face force, curved-beam bending.
 - **Tolerance:** 3 % (curvature and shear corrections at R/h = 10 are about 1 %).
 
-### TS-11 NAFEMS LE1, elliptic membrane (awaiting reference)
+### TS-11 NAFEMS LE1, elliptic membrane
 
 - **Problem:** quarter plate between an inner ellipse (semi-axes 2 x 1 m) and an outer ellipse
   (3.25 x 2.75 m), thickness 0.1 m. Outward pressure 10 MPa on the outer edge; E = 210 GPa,
