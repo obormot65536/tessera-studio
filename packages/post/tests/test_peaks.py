@@ -22,7 +22,7 @@ from tessera.model import (
     SolveResult,
     StressFlag,
 )
-from tessera.post import flag_nodes, summarize
+from tessera.post import flag_nodes, flag_points, summarize
 
 Mapping = Callable[[NDArray[np.float64]], NDArray[np.float64]]
 ROOT = StressFlag(FlagKind.SUPPORT, support="root")
@@ -345,3 +345,61 @@ def test_face_without_any_result_is_left_out(bar: Mesh) -> None:
 def test_no_result_at_all_is_an_error(bar: Mesh) -> None:
     with pytest.raises(ValueError, match="no node"):
         summarize(job(bar), uniaxial(np.full(bar.n_nodes, np.nan)))
+
+
+# --- Flags at any point (ADR-008) ----------------------------------------------------------
+
+
+def flag_cases(bar: Mesh) -> list[SolveJob]:
+    """Jobs covering every source of flags: supports (merged, line, unflagged) and edges."""
+    x = bar.nodes[:, 0]
+    two = with_sets(bar, support_root=np.isclose(x, 0.0), support_tip=np.isclose(x, 10.0))
+    l_mesh = l_block()
+    l_based = with_sets(l_mesh, support_root=np.isclose(l_mesh.nodes[:, 2], 0.0))
+    return [
+        job(bar),
+        job(bar, FixedSupport(node_set="support:root")),
+        job(bar, FixedSupport(node_set="support:root", dofs=(1,))),
+        job(bar, FixedSupport(node_set="support:root", dofs=(3,), line=True)),
+        job(two, FixedSupport(node_set="support:root"), FixedSupport(node_set="support:tip")),
+        job(
+            two,
+            FixedSupport(node_set="support:root", dofs=(1, 2)),
+            FixedSupport(node_set="support:root", dofs=(3,), line=True),
+        ),
+        job(l_based, FixedSupport(node_set="support:root")),
+    ]
+
+
+def test_flag_points_at_the_nodes_is_flag_nodes(bar: Mesh) -> None:
+    # flag_nodes is flag_points at the mesh nodes: same masks, in the same order.
+    for case in flag_cases(bar):
+        nodes = flag_nodes(case)
+        points = flag_points(case, case.mesh.nodes)
+        assert list(points.masks) == list(nodes.masks)
+        for flag, mask in nodes.masks.items():
+            np.testing.assert_array_equal(points.masks[flag], mask)
+        assert (points.n_nodes, points.distance, points.edge_length) == (
+            nodes.n_nodes,
+            nodes.distance,
+            nodes.edge_length,
+        )
+
+
+def test_flag_points_flags_points_within_d_of_a_support(bar: Mesh) -> None:
+    case = job(bar, FixedSupport(node_set="support:root"))
+    d = flag_nodes(case).distance
+    # On the line y = z = 1 the nearest support node is (0, 1, 1), at distance x.
+    x = np.array([0.3, d - 1e-6, d + 1e-6, 7.0])
+    points = np.column_stack([x, np.ones(4), np.ones(4)])
+    flags = flag_points(case, points)
+    assert flags.n_nodes == 4
+    assert list(flags.masks) == [ROOT]
+    np.testing.assert_array_equal(flags.flagged, [True, True, False, False])
+    assert flags.at(0) == (ROOT,)
+
+
+def test_flag_points_with_no_points(bar: Mesh) -> None:
+    flags = flag_points(job(bar, FixedSupport(node_set="support:root")), np.zeros((0, 3)))
+    assert flags.n_nodes == 0
+    assert flags.masks == {}

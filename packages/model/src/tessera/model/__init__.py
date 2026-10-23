@@ -42,11 +42,13 @@ from tessera.model.solver import (
     MaterialFrame,
     NodalLoads,
     OrthotropicMaterial,
+    PointStresses,
     Section,
     SolveJob,
     SolverAdapter,
     SolverError,
     SolveResult,
+    SolverTimeoutError,
 )
 
 __all__ = [
@@ -79,6 +81,7 @@ __all__ = [
     "OrthotropicDefinition",
     "OrthotropicMaterial",
     "PartInstance",
+    "PointStresses",
     "PressureLoad",
     "PrintSetup",
     "Project",
@@ -87,6 +90,7 @@ __all__ = [
     "SolveResult",
     "SolverAdapter",
     "SolverError",
+    "SolverTimeoutError",
     "SpotCheck",
     "StressFlag",
     "StressSpot",
