@@ -1,0 +1,5 @@
+# Approved by the maintainer for TS-11.
+description = "NAFEMS LE1 elliptic membrane, quarter model in mm (lengths x1000 from the metre statement): region between the ellipses (x/2000)^2 + (y/1000)^2 = 1 and (x/3250)^2 + (y/2750)^2 = 1, thickness 100 mm modelled as 0 <= z <= 50 with the mid-plane as symmetry plane; steel-generic (E = 210000 MPa, nu = 0.30); outward pressure 10 MPa (Tessera pressure -10) on the outer elliptic face; rollers u_x = 0 on x = 0, u_y = 0 on y = 0, u_z = 0 on z = 0; C3D10, global mesh size 50 mm; sigma_yy at the mesh node at D = (2000, 0, 0), mid-thickness"
+source = "NAFEMS, The Standard NAFEMS Benchmarks, TNSB Rev. 3, October 1990 (NAFEMS R0015), test LE1: sigma_yy(D) = 92.7 MPa, as reproduced in the Abaqus Benchmarks Guide (LE1), Altair OS-V 0010 and the COMSOL and Cast3M elliptic membrane pages (target verified via page excerpts; outer semi-axes 3.25 x 2.75 m unverified, see CATALOG.md TS-11)"
+reference_sigma_yy_mpa = 92.7
+rel_tolerance = 0.02
