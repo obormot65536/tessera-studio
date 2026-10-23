@@ -14,6 +14,23 @@
   `tessera.model.elasticity` (`orthotropic_compliance`, `check_orthotropic`, `rotate_stress`).
   `SolveJob.materials` now takes either kind. Nothing uses them yet: projects cannot define an
   orthotropic material, and the CalculiX adapter refuses one with `NotImplementedError`.
+- API (ADR-008): `SolveJob(point_stresses=True)` asks for each element's own stresses at its
+  integration points, returned in `SolveResult.point_stresses` (`PointStresses`). Opt-in;
+  no reported number changes.
+- CalculiX fills it from `job.dat` when asked; a missing, empty or incomplete `job.dat` is
+  then a `SolverError`.
+- `tessera.post` (ADR-008): `element_nodal_stresses`, `point_von_mises`, `flag_points`;
+  `von_mises` keeps the leading axes, so (M, Q, 6) gives (M, Q).
+- Solver timeout (ADR-004): a solve started through `tessera.core` now stops CalculiX after
+  1800 s per solver run instead of waiting forever, together with the processes it started
+  (except one that detaches itself with `setsid`). Ctrl+C, and in `tessera solve` on Linux
+  and macOS closing the terminal or SIGTERM, also stop it; if Tessera itself is killed, only
+  Linux stops ccx. `tessera solve --timeout SECONDS` and `solve(project, timeout=...)` change the limit; with
+  `--check-mesh` each of the two solves gets the full limit, and the message names the one
+  that was stopped. A timeout is a `SolverTimeoutError` (a `SolverError`, in
+  `tessera.model`) and exit code 2 with `solver failed: CalculiX did not finish within ... s
+  and was stopped`. `tessera.core.SOLVE_TIMEOUT` holds the default. `CalculixAdapter` itself
+  still defaults to no limit, and refuses a timeout that is not a positive number.
 - Two-mesh check (ADR-007): `tessera solve --check-mesh` solves the study again with every
   element about 1/√2 as long and marks each printed number `settled` (changed by 5 % or less),
   `mesh-dependent`, or `not judged` where the second mesh did not get finer (its elements there
