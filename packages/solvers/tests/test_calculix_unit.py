@@ -1,5 +1,6 @@
 """CalculiX adapter unit tests that do not need the ccx executable."""
 
+import dataclasses
 from pathlib import Path
 
 import numpy as np
@@ -13,13 +14,25 @@ from tessera.model.solver import (
     IsotropicMaterial,
     NodalLoads,
     OrthotropicMaterial,
+    PointStresses,
     Section,
     SolveJob,
     SolverAdapter,
     SolverError,
 )
 from tessera.solvers import CalculixAdapter, calculix
-from tessera.solvers.calculix import CCX_ENV_VAR, deck_names, parse_frd, write_deck
+from tessera.solvers.calculix import (
+    CCX_ENV_VAR,
+    DatBlock,
+    DatResults,
+    deck_names,
+    parse_dat,
+    parse_frd,
+    point_stresses,
+    read_point_stresses,
+    rule_points,
+    write_deck,
+)
 
 # Unit right-angle tet10: corners, then midsides on (0,1) (1,2) (2,0) (0,3) (1,3) (2,3).
 TET_NODES = np.array(
@@ -88,6 +101,30 @@ def test_deck_contents() -> None:
     assert lines[c + 3] == "*NODE FILE"
     assert lines[lines.index("*NODE FILE") + 1] == "U"
     assert lines[lines.index("*EL FILE") + 1] == "S"
+    # Point stresses are opt-in (ADR-008): by default nothing goes to job.dat.
+    assert lines[lines.index("*EL FILE") :] == ["*EL FILE", "S", "*END STEP"]
+    assert "*EL PRINT" not in deck
+    assert "EALL" not in deck
+
+
+def test_point_stresses_add_only_the_print_request_to_the_deck() -> None:
+    # With point_stresses the deck defines EALL on *ELEMENT and prints S for it; nothing else
+    # changes, and COORD is not asked for (the points are computed from the mesh).
+    job = tiny_job()
+    default = write_deck(job)
+    deck = write_deck(dataclasses.replace(job, point_stresses=True))
+    lines = deck.splitlines()
+    assert "*ELEMENT, TYPE=C3D10, ELSET=EALL" in lines
+    assert lines[lines.index("*EL FILE") :] == [
+        "*EL FILE",
+        "S",
+        "*EL PRINT, ELSET=EALL",
+        "S",
+        "*END STEP",
+    ]
+    assert "COORD" not in deck
+    undone = deck.replace(", ELSET=EALL\n", "\n", 1).replace("*EL PRINT, ELSET=EALL\nS\n", "")
+    assert undone == default
 
 
 def test_neutral_names_are_mapped_to_safe_unique_names() -> None:
@@ -247,3 +284,318 @@ def test_element_nodes_without_results_are_a_solver_error() -> None:
 def test_number_format_is_pinned() -> None:
     assert calculix._num(0.5) == "5.000000000000e-01"
     assert calculix._num(-8.526512829121204e-17) == "-8.526512829121e-17"
+
+
+def test_user_set_named_eall_does_not_extend_the_print_set() -> None:
+    # ccx appends to a set defined twice, which would print every element of it twice (ADR-008
+    # finding 8). User sets are always prefixed, so EALL is defined once, on *ELEMENT.
+    job = tiny_job()
+    one = np.array([0], dtype=np.int64)
+    mesh = Mesh(job.mesh.nodes, job.mesh.elements, {"part": one, "EALL": one, "eall": one})
+    deck = write_deck(SolveJob(mesh, job.materials, job.sections, point_stresses=True))
+    lines = deck.splitlines()
+    defines = [line for line in lines if not line.startswith("**") and "ELSET=" in line.upper()]
+    defined = [line.upper().split("ELSET=")[1].split(",")[0] for line in defines]
+    assert defined.count("EALL") == 2  # *ELEMENT and the *EL PRINT card
+    assert "*ELEMENT, TYPE=C3D10, ELSET=EALL" in lines
+    assert not any(line.upper().startswith("*ELSET, ELSET=EALL") for line in lines)
+    assert "*ELSET, ELSET=E_EALL" in lines
+
+
+# A ccx 2.21 job.dat in its exact layout (element I10, 1X, point I3, values 1X,E13.6): one step,
+# two increments; the second holds distinct values in every column. Elements 1 and 3 only.
+DAT_SNIPPET: str = """\
+
+                        S T E P       1
+
+
+                                INCREMENT     1
+
+
+ stresses (elem, integ.pnt.,sxx,syy,szz,sxy,sxz,syz) for set EALL and time  0.5000000E+00
+
+         1   1  9.000000E+00  9.000000E+00  9.000000E+00  9.000000E+00  9.000000E+00  9.000000E+00
+         1   2  9.000000E+00  9.000000E+00  9.000000E+00  9.000000E+00  9.000000E+00  9.000000E+00
+         1   3  9.000000E+00  9.000000E+00  9.000000E+00  9.000000E+00  9.000000E+00  9.000000E+00
+         1   4  9.000000E+00  9.000000E+00  9.000000E+00  9.000000E+00  9.000000E+00  9.000000E+00
+         3   1  9.000000E+00  9.000000E+00  9.000000E+00  9.000000E+00  9.000000E+00  9.000000E+00
+         3   2  9.000000E+00  9.000000E+00  9.000000E+00  9.000000E+00  9.000000E+00  9.000000E+00
+         3   3  9.000000E+00  9.000000E+00  9.000000E+00  9.000000E+00  9.000000E+00  9.000000E+00
+         3   4  9.000000E+00  9.000000E+00  9.000000E+00  9.000000E+00  9.000000E+00  9.000000E+00
+
+ global coordinates (elem, integ.pnt.,x,y,z) for set EALL and time  0.5000000E+00
+
+         1   1  9.000000E+00  9.000000E+00  9.000000E+00
+         1   2  9.000000E+00  9.000000E+00  9.000000E+00
+         1   3  9.000000E+00  9.000000E+00  9.000000E+00
+         1   4  9.000000E+00  9.000000E+00  9.000000E+00
+         3   1  9.000000E+00  9.000000E+00  9.000000E+00
+         3   2  9.000000E+00  9.000000E+00  9.000000E+00
+         3   3  9.000000E+00  9.000000E+00  9.000000E+00
+         3   4  9.000000E+00  9.000000E+00  9.000000E+00
+
+
+                                INCREMENT     2
+
+
+ stresses (elem, integ.pnt.,sxx,syy,szz,sxy,sxz,syz) for set EALL and time  0.1000000E+01
+
+         1   1  1.110000E+00  1.120000E+00  1.130000E+00  1.140000E+00  1.150000E+00  1.160000E+00
+         1   2  1.210000E+00  1.220000E+00  1.230000E+00  1.240000E+00  1.250000E+00  1.260000E+00
+         1   3  1.310000E+00  1.320000E+00  1.330000E+00  1.340000E+00  1.350000E+00  1.360000E+00
+         1   4  1.410000E+00  1.420000E+00  1.430000E+00  1.440000E+00  1.450000E+00  1.460000E+00
+         3   1 -2.110000E+01 -2.120000E+01 -2.130000E+01 -2.140000E+01 -2.150000E+01 -2.160000E+01
+         3   2 -2.210000E+01 -2.220000E+01 -2.230000E+01 -2.240000E+01 -2.250000E+01 -2.260000E+01
+         3   3 -2.310000E+01 -2.320000E+01 -2.330000E+01 -2.340000E+01 -2.350000E+01 -2.360000E+01
+         3   4 -2.410000E+01 -2.420000E+01 -2.430000E+01 -2.440000E+01 -2.450000E+01 -2.460000E+01
+
+ global coordinates (elem, integ.pnt.,x,y,z) for set EALL and time  0.1000000E+01
+
+         1   1  1.110000E+02  1.120000E+02  1.130000E+02
+         1   2  1.210000E+02  1.220000E+02  1.230000E+02
+         1   3  1.310000E+02  1.320000E+02  1.330000E+02
+         1   4  1.410000E+02  1.420000E+02  1.430000E+02
+         3   1  3.110000E+02  3.120000E+02  3.130000E+02
+         3   2  3.210000E+02  3.220000E+02  3.230000E+02
+         3   3  3.310000E+02  3.320000E+02  3.330000E+02
+         3   4  3.410000E+02  3.420000E+02  3.430000E+02
+"""
+
+# Element 1, point 2 of the last increment, in .dat order sxx syy szz sxy sxz syz.
+DAT_E1_P2 = [1.21, 1.22, 1.23, 1.24, 1.25, 1.26]
+
+
+def test_parse_dat_keeps_the_last_increment_in_neutral_order() -> None:
+    dat = parse_dat(DAT_SNIPPET)
+    assert set(dat.blocks) == {"stresses", "global coordinates"}
+    stress = dat.blocks["stresses"]
+    np.testing.assert_array_equal(stress.elements, [1, 3])
+    assert stress.values.shape == (2, 4, 6)
+    # .dat prints sxz before syz; the neutral order is xx yy zz xy yz zx (columns 0 1 2 3 5 4).
+    s = DAT_E1_P2
+    np.testing.assert_array_equal(stress.values[0, 1], [s[0], s[1], s[2], s[3], s[5], s[4]])
+    np.testing.assert_array_equal(stress.values[1, 3], [-24.1, -24.2, -24.3, -24.4, -24.6, -24.5])
+    coord = dat.blocks["global coordinates"]
+    np.testing.assert_array_equal(coord.elements, [1, 3])
+    assert coord.values.shape == (2, 4, 3)
+    np.testing.assert_array_equal(coord.values[1, 2], [331.0, 332.0, 333.0])
+    assert not (stress.values == 9.0).any()  # the first increment is gone
+
+
+def test_parse_dat_of_an_empty_file_has_no_blocks() -> None:
+    assert parse_dat("").blocks == {}
+    assert parse_dat("\n                        S T E P       1\n").blocks == {}
+
+
+def test_parse_dat_rows_may_come_in_any_order() -> None:
+    head, rows = DAT_SNIPPET.rsplit("\n\n", 1)
+    shuffled = "\n".join(reversed(rows.splitlines()))
+    coord = parse_dat(f"{head}\n\n{shuffled}\n").blocks["global coordinates"]
+    np.testing.assert_array_equal(coord.elements, [1, 3])
+    np.testing.assert_array_equal(coord.values[0, 0], [111.0, 112.0, 113.0])
+
+
+def _last_coord_rows() -> tuple[str, list[str]]:
+    head, rows = DAT_SNIPPET.rsplit("\n\n", 1)
+    return head, rows.splitlines()
+
+
+def test_parse_dat_rejects_duplicate_rows() -> None:
+    # A set defined twice makes ccx print its elements twice, without a warning (finding 8).
+    head, rows = _last_coord_rows()
+    text = "\n".join([head, "", *rows, *rows[:4]])
+    with pytest.raises(SolverError, match="duplicate"):
+        parse_dat(text)
+
+
+def test_parse_dat_rejects_a_missing_point() -> None:
+    head, rows = _last_coord_rows()
+    text = "\n".join([head, "", *rows[:-1]])  # element 3 lacks point 4
+    with pytest.raises(SolverError, match="points"):
+        parse_dat(text)
+
+
+def test_parse_dat_rejects_a_point_number_out_of_order() -> None:
+    head, rows = _last_coord_rows()
+    rows[-1] = rows[-1].replace("         3   4", "         3   5")  # points 1, 2, 3, 5
+    with pytest.raises(SolverError, match="points"):
+        parse_dat("\n".join([head, "", *rows]))
+
+
+def test_parse_dat_pins_the_stress_column_order() -> None:
+    # The xz/yz reorder is only right for the order ccx 2.21 prints; another order is refused.
+    text = DAT_SNIPPET.replace("sxy,sxz,syz", "sxy,syz,sxz")
+    with pytest.raises(SolverError, match="columns"):
+        parse_dat(text)
+
+
+def test_parse_dat_rejects_a_short_row() -> None:
+    head, rows = _last_coord_rows()
+    rows[0] = rows[0][:-14]  # one value missing
+    with pytest.raises(SolverError, match="malformed"):
+        parse_dat("\n".join([head, "", *rows]))
+
+
+def test_parse_dat_rejects_point_numbers_below_one() -> None:
+    head, rows = _last_coord_rows()
+    for bad in ("   0", "  -1"):
+        changed = [*rows]
+        changed[0] = changed[0][:10] + bad + changed[0][14:]  # element 1: points 0, 2, 3, 4
+        with pytest.raises(SolverError, match=r"point number -?[01]; point numbers start at 1"):
+            parse_dat("\n".join([head, "", *changed]))
+
+
+def test_parse_dat_reads_bytes_and_crlf_lines() -> None:
+    windows = DAT_SNIPPET.replace("\n", "\r\n").encode()
+    stress = parse_dat(windows).blocks["stresses"]
+    s = DAT_E1_P2
+    np.testing.assert_array_equal(stress.values[0, 1], [s[0], s[1], s[2], s[3], s[5], s[4]])
+
+
+@pytest.mark.parametrize("word", ["inf", "Infinity", "-Infinity", "NaN"])
+def test_parse_dat_keeps_non_finite_values_for_the_completeness_check(word: str) -> None:
+    text = DAT_SNIPPET.replace("-2.410000E+01", word, 1)
+    values = parse_dat(text).blocks["stresses"].values
+    assert not np.isfinite(values[1, 3, 0])
+
+
+def three_tets(offset: float = 0.0) -> Mesh:
+    """Three copies of the unit tet10 (enough elements for ccx ids 1 to 3)."""
+    return Mesh(
+        nodes=TET_NODES + offset,
+        elements=np.tile(np.arange(10, dtype=np.int64), (3, 1)),
+    )
+
+
+# C3D10 4-point rule: point k has barycentric coordinate B at corner k and A at the other three.
+RULE_A = (5.0 - np.sqrt(5.0)) / 20.0
+RULE_B = (5.0 + 3.0 * np.sqrt(5.0)) / 20.0
+
+
+def test_rule_points_of_a_straight_tet() -> None:
+    a, b = RULE_A, RULE_B
+    expected = [[a, a, a], [b, a, a], [a, b, a], [a, a, b]]  # ccx's COORD for this tet
+    points = rule_points(three_tets())
+    assert points.shape == (3, 4, 3)
+    np.testing.assert_allclose(points[0], expected, rtol=0, atol=1e-15)
+    np.testing.assert_allclose(
+        points[0],
+        [
+            [0.1381966] * 3,
+            [0.5854102, 0.1381966, 0.1381966],
+            [0.1381966, 0.5854102, 0.1381966],
+            [0.1381966, 0.1381966, 0.5854102],
+        ],
+        atol=5e-8,
+    )
+
+
+def test_rule_points_keep_full_precision_far_from_the_origin() -> None:
+    # COORD prints 7 significant digits of the absolute position (0.5 um at 1000 mm); the
+    # points computed from the mesh do not lose that.
+    near, far = rule_points(three_tets()), rule_points(three_tets(offset=1000.0))
+    np.testing.assert_allclose(far - 1000.0, near, rtol=0, atol=1e-12)
+
+
+def test_point_stresses_are_in_mesh_order_with_nan_for_missing_elements() -> None:
+    mesh = three_tets()
+    ps = point_stresses(parse_dat(DAT_SNIPPET), mesh)
+    assert isinstance(ps, PointStresses)
+    assert ps.stresses.shape == (3, 4, 6)
+    s = DAT_E1_P2
+    np.testing.assert_array_equal(ps.stresses[0, 1], [s[0], s[1], s[2], s[3], s[5], s[4]])
+    np.testing.assert_array_equal(ps.stresses[2, 0], [-21.1, -21.2, -21.3, -21.4, -21.6, -21.5])
+    assert np.isnan(ps.stresses[1]).all()  # ccx element 2 was not printed
+    # The coordinates come from the mesh, not from a COORD block.
+    np.testing.assert_array_equal(ps.points, rule_points(mesh))
+
+
+def test_point_stresses_need_only_the_stress_block() -> None:
+    dat = parse_dat(DAT_SNIPPET)
+    without_coord = DatResults({"stresses": dat.blocks["stresses"]})
+    assert point_stresses(without_coord, three_tets()).n_points == 4
+    without_stress = DatResults({"global coordinates": dat.blocks["global coordinates"]})
+    with pytest.raises(SolverError, match="'stresses' block"):
+        point_stresses(without_stress, three_tets())
+
+
+def test_point_stresses_check_the_point_rule() -> None:
+    block = DatBlock(elements=np.array([1]), values=np.zeros((1, 10, 6)))
+    with pytest.raises(
+        SolverError, match=r"10 integration points per element; C3D10 \(tet4\) has 4"
+    ):
+        point_stresses(DatResults({"stresses": block}), three_tets())
+
+
+def test_point_stresses_reject_unknown_elements() -> None:
+    two = Mesh(TET_NODES, np.tile(np.arange(10, dtype=np.int64), (2, 1)))
+    with pytest.raises(SolverError, match=r"element ids outside 1\.\.2"):
+        point_stresses(parse_dat(DAT_SNIPPET), two)  # ccx element 3 does not exist
+
+
+@pytest.mark.parametrize("content", [None, ""])
+def test_missing_or_empty_dat_is_a_solver_error(tmp_path: Path, content: str | None) -> None:
+    # ccx writes an empty job.dat and exits 0 when *EL PRINT is missing or names no set.
+    path = tmp_path / "job.dat"
+    if content is not None:
+        path.write_text(content)
+    with pytest.raises(SolverError, match=r"job\.dat is missing or empty") as info:
+        read_point_stresses(path, three_tets(), log="ccx log")
+    assert info.value.log == "ccx log"
+
+
+def test_read_point_stresses_reads_the_file(tmp_path: Path) -> None:
+    path = tmp_path / "job.dat"
+    path.write_text(DAT_SNIPPET)
+    ps = read_point_stresses(path, three_tets())
+    np.testing.assert_array_equal(ps.stresses[2, 3], [-24.1, -24.2, -24.3, -24.4, -24.6, -24.5])
+
+
+def test_dat_parse_errors_carry_the_log(tmp_path: Path) -> None:
+    path = tmp_path / "job.dat"
+    head, rows = _last_coord_rows()
+    path.write_text("\n".join([head, "", *rows, *rows[:4]]))
+    with pytest.raises(SolverError, match="duplicate") as info:
+        read_point_stresses(path, three_tets(), log="ccx log")
+    assert info.value.log == "ccx log"
+
+
+def test_elements_without_point_results_are_a_solver_error() -> None:
+    mesh = tiny_job().mesh
+    disp = np.zeros((mesh.n_nodes, 3))
+    stress = np.zeros((mesh.n_nodes, 6))
+    ps = PointStresses(np.zeros((1, 4, 3)), np.zeros((1, 4, 6)))
+    calculix.check_results_complete(mesh, disp, stress, ps)  # complete: no error
+    for bad in (np.nan, np.inf, -np.inf):
+        broken = PointStresses(ps.points, ps.stresses.copy())
+        broken.stresses[0, 2, 5] = bad
+        with pytest.raises(SolverError, match=r"no integration-point result for 1 element\(s\)"):
+            calculix.check_results_complete(mesh, disp, stress, broken, "ccx log")
+    with pytest.raises(SolverError, match=r"for 0 element\(s\); the mesh has 1 element\(s\)"):
+        calculix.check_results_complete(
+            mesh, disp, stress, PointStresses(np.zeros((0, 4, 3)), np.zeros((0, 4, 6)))
+        )
+
+
+@pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf])
+def test_non_finite_nodal_results_are_a_solver_error(bad: float) -> None:
+    mesh = tiny_job().mesh
+    disp = np.zeros((mesh.n_nodes, 3))
+    stress = np.zeros((mesh.n_nodes, 6))
+    stress[4, 2] = bad
+    with pytest.raises(SolverError, match=r"no result for 1 mesh node\(s\)") as info:
+        calculix.check_results_complete(mesh, disp, stress, log="ccx log")
+    assert info.value.log == "ccx log"
+
+
+def test_infinity_in_job_dat_is_caught_by_the_completeness_check(tmp_path: Path) -> None:
+    path = tmp_path / "job.dat"
+    path.write_text(DAT_SNIPPET.replace("-2.410000E+01", "Infinity", 1))
+    mesh = three_tets()
+    ps = read_point_stresses(path, mesh)
+    disp, stress = np.zeros((mesh.n_nodes, 3)), np.zeros((mesh.n_nodes, 6))
+    ps.stresses[1] = 0.0  # fill the element ccx did not print, so only the infinity is left
+    with pytest.raises(
+        SolverError, match=r"no integration-point result for 1 element\(s\), e\.g\. element 2"
+    ):
+        calculix.check_results_complete(mesh, disp, stress, ps)

@@ -486,7 +486,8 @@ so `solve`, `describe_faces` and `save_project` check the whole project again an
 | `StressFlag` | `kind: FlagKind`, `support: str \| None` | Why a node is flagged. `support` is the support's id for `FlagKind.SUPPORT`. `str()` gives `near support 'root'` or `near a sharp inside edge`. |
 | `FlagKind` | `"support"`, `"sharp-inside-edge"` | |
 | `NodeFlags` | `masks: dict[StressFlag, (N,) bool]`, `n_nodes: int`, `distance: float` (mm), `edge_length: float` (mm) | One mask per reason that flags at least one node. `flagged` is the (N,) union; `at(node)` lists the reasons for one node. `edge_length` is h, `distance` is d = 2 h. |
-| `SolveResult` | `displacements: (N, 3)` mm, `stresses: (N, 6)` MPa in the order xx, yy, zz, xy, yz, zx, `solver: str`, `log: str`, `metadata: dict[str, str]` | Per node, 0-based. Nodes that no element uses are NaN. |
+| `SolveResult` | `displacements: (N, 3)` mm, `stresses: (N, 6)` MPa in the order xx, yy, zz, xy, yz, zx, `solver: str`, `log: str`, `metadata: dict[str, str]`, `point_stresses: PointStresses \| None` | Per node, 0-based. Nodes that no element uses are NaN. `point_stresses` is `None` unless the `SolveJob` asked for them (`point_stresses=True`, keyword-only, off by default: it costs about 0.6 kB per element in the solver's `.dat` file plus parse time) and the solver provides them (CalculiX does, rule `tet4`); when present, `metadata["point_rule"]` names their integration rule (e.g. `tet4`). |
+| `PointStresses` | `points: (M, Q, 3)` mm, `stresses: (M, Q, 6)` MPa in the order xx, yy, zz, xy, yz, zx | Each element's own stresses at its Q integration points (ADR-008), not extrapolated or averaged; row j is element j. `n_elements` and `n_points` properties. Missing entries are NaN. Points lie inside the element, so their maximum reads low at surfaces: every reported peak stays nodal. |
 | `Mesh` | `nodes: (N, 3)` mm, `elements: (M, 10)` quadratic tetrahedra (C3D10 order), `element_sets`, `node_sets`, `surfaces` | `n_nodes` and `n_elements` properties. |
 | `EdgeInfo` | `faces: (int, int)`, `kind: str`, `length: float` (mm), `start: (x, y, z) \| None`, `end: (x, y, z) \| None`, `point: (x, y, z)`, `curves: int` | `kind` is the CAD curve type (`"Line"`, `"Circle"`, ..., `"Mixed"` when the curves differ) for STEP, and for STL `"Line"` when every curve is straight, otherwise `"Curved"`. `start` and `end` are `None` for a closed edge or several separate curves. `point` lies on the edge (the middle of a single straight edge). |
 | `FaceInfo` | `index: int`, `kind: str`, `area: float` (mm²), `centroid: (x, y, z)` (mm), `normal: (x, y, z) \| None` | `kind` is the CAD surface type (`"Plane"`, `"Cylinder"`, ...) for STEP, and `"Plane"` or `"Curved"` for STL. `normal` is `None` for curved faces. |
@@ -523,6 +524,27 @@ The fields:
 
 Nodes that no element uses have no result (NaN) and are skipped. Peaks under point-like loads
 and at the edges of loaded faces are not flagged yet.
+
+#### Integration-point stresses
+
+`SolveResult.point_stresses` (ADR-008) holds each element's own stresses at its integration
+points. `tessera.post` works with them without knowing the solver:
+
+- `element_nodal_stresses(mesh, point_stresses)`: (M, 10, 6) stresses at each element's ten
+  nodes, from the affine field through that element's points in physical coordinates. Not
+  averaged: a node shared by two elements has a value in each. Exact for a linear stress field.
+  From CalculiX's printed stresses (7 significant digits) it is exact to within about
+  1.4e-6 of the element's largest stress. Raises `ValueError` if the points do not match the
+  mesh or there are fewer than four per element. An element with a NaN or infinite entry gets
+  NaN; so does an element whose points lie in one plane, and a `DegenerateElementsWarning`
+  (its `elements` attribute) lists those.
+- `point_von_mises(point_stresses)`: (M, Q) von Mises stress at every point. `von_mises` itself
+  takes any (..., 6) array and returns (...).
+- `flag_points(job, points)`: the flags of ADR-007 at any (P, 3) points, e.g.
+  `point_stresses.points.reshape(-1, 3)`; `flag_nodes(job)` is `flag_points` at the mesh nodes.
+
+None of the reported numbers use them: peaks, flags and the mesh check stay nodal. Integration
+points lie inside the elements, so a maximum over them reads low at a surface.
 
 #### Mesh check
 

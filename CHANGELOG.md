@@ -8,6 +8,13 @@
   `tessera.model.elasticity` (`orthotropic_compliance`, `check_orthotropic`, `rotate_stress`).
   `SolveJob.materials` now takes either kind. Nothing uses them yet: projects cannot define an
   orthotropic material, and the CalculiX adapter refuses one with `NotImplementedError`.
+- API (ADR-008): `SolveJob(point_stresses=True)` asks for each element's own stresses at its
+  integration points, returned in `SolveResult.point_stresses` (`PointStresses`). Opt-in;
+  no reported number changes.
+- CalculiX fills it from `job.dat` when asked; a missing, empty or incomplete `job.dat` is
+  then a `SolverError`.
+- `tessera.post` (ADR-008): `element_nodal_stresses`, `point_von_mises`, `flag_points`;
+  `von_mises` keeps the leading axes, so (M, Q, 6) gives (M, Q).
 - Solver timeout (ADR-004): a solve started through `tessera.core` now stops CalculiX after
   1800 s per solver run instead of waiting forever, together with the processes it started
   (except one that detaches itself with `setsid`). Ctrl+C, and in `tessera solve` on Linux
