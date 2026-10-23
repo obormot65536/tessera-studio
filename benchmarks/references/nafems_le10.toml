@@ -1,0 +1,5 @@
+# Approved by the maintainer for TS-12.
+description = "NAFEMS LE10 thick plate: quarter of the LE1 elliptic planform (inner ellipse 2000 x 1000 mm, outer 3250 x 2750 mm), thickness 600 mm (-300 <= z <= 300), steel-generic (E = 210000 MPa, nu = 0.30), pressure 1 MPa on the upper face z = +300; u_y = 0 on the y = 0 cut (DCD'C'), u_x = 0 on the x = 0 cut (ABA'B'), u_x = u_y = 0 on the outer curved face (BCB'C'), u_z = 0 only on the mid-plane line EE' of the outer face (ADR-006 edge support on the edge created by splitting the side faces at z = 0); C3D10, global mesh size 120 mm; nodal sigma_yy at D = (2000, 0, 300)"
+source = "NAFEMS, The Standard NAFEMS Benchmarks, TNSB Rev. 3 (1990, R0015), test LE10: sigma_yy(D, top) = -5.38 MPa. Verified per CATALOG.md TS-12 via web excerpts of the Abaqus Benchmarks Guide LE10, Altair OS-V 0060 and FeenoX LE10 (book not opened); outer-ellipse semi-axes unverified (from TS-11)"
+reference_sigma_yy_d_mpa = -5.38
+rel_tolerance = 0.02
