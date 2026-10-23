@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- API (ADR-008): `SolveJob(point_stresses=True)` asks for each element's own stresses at its
+  integration points, returned in `SolveResult.point_stresses` (`PointStresses`). Opt-in;
+  no reported number changes.
 - Solver timeout (ADR-004): a solve started through `tessera.core` now stops CalculiX after
   1800 s per solver run instead of waiting forever, together with the processes it started
   (except one that detaches itself with `setsid`). Ctrl+C, and in `tessera solve` on Linux
