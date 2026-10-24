@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Project files are now schema 6 (ADR-009 D3): `Project.materials` holds materials defined in
+  the project (`IsotropicDefinition`, `OrthotropicDefinition`, discriminated on `kind`, ids
+  unique, orthotropic constants checked with `check_orthotropic`), and `PrintSetup` gains
+  `raster_angle` (degrees, default 0). Schema 5 files open unchanged; older Tessera versions
+  refuse schema 6 files. Nothing reads these fields yet; solving with them comes later.
 - Thin-wall guard for the two-mesh check (ADR-007 Amendment 2): a marked peak that changed by
   5 % or less is no longer called `settled` when the coarse mesh had fewer than 5 elements across
   the wall there, too few to show the stress rise, or when the wall could not be measured; it
