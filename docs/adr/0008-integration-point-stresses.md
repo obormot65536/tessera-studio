@@ -227,8 +227,8 @@ surfaces.
 
 ## Action items
 
-1. [ ] Maintainer accepts this ADR (including the verified `.dat` findings above).
-2. [ ] Tests first (solver tests marked `@pytest.mark.solver`):
+1. [x] Maintainer accepts this ADR (including the verified `.dat` findings above).
+2. [x] Tests first (solver tests marked `@pytest.mark.solver`):
    - model shape validation;
    - deck contents;
    - a `parse_dat` snippet test with distinct columns, two increments and a duplicate-row
@@ -240,11 +240,13 @@ surfaces.
      maximum over integration points lies below the surface peak;
    - COORD against the rule on a distorted, curved tet10;
    - post: affine-reproduction oracle, no averaging, `von_mises` shape, `flag_points` regression.
-3. [ ] `model`: `PointStresses`, `SolveResult.point_stresses`, `point_rule` metadata.
-4. [ ] `solvers`: deck output, `parse_dat`, `.dat` checks in `run()`.
-5. [ ] `post`: `points.py`, `von_mises` fix, `flag_points`. When items 3-5 have landed, tick
+3. [x] `model`: `PointStresses`, `SolveResult.point_stresses`, `point_rule` metadata.
+4. [x] `solvers`: deck output, `parse_dat`, `.dat` checks in `run()`.
+5. [x] `post`: `points.py`, `von_mises` fix, `flag_points`. When items 3-5 have landed, tick
        ADR-004 action item 7.
 6. [ ] Benchmark gate: no existing reference changes. Propose
    `benchmarks/references/patch_test_points.toml` (TS-03 at integration points, 1e-6) in the PR;
    the maintainer creates it. Measure `.dat` size and run time on a 1e6-element part.
+   Done except the measurement: the reference was approved at 1e-6 (points) and 1.5e-6
+   (element-nodal, the E13.6 floor times the tet4 fit weight); existing references unchanged.
 7. [ ] Failure-criteria ADR (v0.5) built on `element_nodal_stresses`.

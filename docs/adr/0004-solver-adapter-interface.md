@@ -86,6 +86,9 @@ seam: it is exactly what a benchmark or a bug report needs to reproduce a run.
        GUI should still offer a cancel button.
 6. [ ] High-order mesh quality: enable gmsh high-order optimization or report inverted curved
        elements clearly before CalculiX rejects them with a Jacobian error.
-7. [ ] Recover stresses at integration points for failure criteria: CalculiX's nodal frd
-       stresses carry about 1e-5 relative extrapolation bias. Proposed in ADR-008
-       (`0008-integration-point-stresses.md`).
+7. [x] Recover stresses at integration points for failure criteria: CalculiX's nodal frd
+       stresses carry about 1e-5 relative extrapolation bias. Done per ADR-008
+       (`0008-integration-point-stresses.md`): `SolveJob(point_stresses=True)` fills
+       `SolveResult.point_stresses`, and `tessera.post.element_nodal_stresses` gives unaveraged
+       per-element nodal values. The `patch_test_points` benchmark holds them to 1e-6 (points)
+       and 1.5e-6 (element-nodal).
