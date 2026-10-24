@@ -442,12 +442,13 @@ max displacement: 1.52177 mm
 von Mises stress away from supports and sharp inside edges: 116.508 MPa at (5.684, 5.092, 0) mm, face 5
 max von Mises stress: 120.398 MPa at (1.83, 8.17, 10) mm, face 6
   near support 'root' (within 5.39 mm): the stress there may keep rising as the mesh is refined; compare two mesh sizes (--check-mesh) before trusting either value
+  thin wall: 1.41 elements across the 3.66 mm wall here; use --mesh-size 0.63 or less before --check-mesh, or the comparison cannot see the rise
 max von Mises stress by face (5 of 6):
-  face 6: 120.398 MPa at (1.83, 8.17, 10) mm, near support 'root'
-  face 5: 119.969 MPa at (1.83, 8.17, 0) mm, near support 'root'
-  face 3: 117.341 MPa at (1.25, 0, 0) mm, near support 'root'
-  face 4: 117.324 MPa at (1.25, 10, 10) mm, near support 'root'
-  face 1: 114.319 MPa at (0, 0, 0) mm, near support 'root'
+  face 6: 120.398 MPa at (1.83, 8.17, 10) mm, near support 'root', thin wall (1.41 elements across)
+  face 5: 119.969 MPa at (1.83, 8.17, 0) mm, near support 'root', thin wall (1.41 elements across)
+  face 3: 117.341 MPa at (1.25, 0, 0) mm, near support 'root', thin wall (3.93 elements across)
+  face 4: 117.324 MPa at (1.25, 10, 10) mm, near support 'root', thin wall (3.93 elements across)
+  face 1: 114.319 MPa at (0, 0, 0) mm, near support 'root', thin wall (3.86 elements across)
 solver files: run-2.5
 ```
 
@@ -473,8 +474,23 @@ How to read it:
 - **max von Mises stress (MPa)**: the largest equivalent stress at any node, with its location
   and face (`inside the part` if it is not on a face). When it is in a marked place, the next
   line says which, and that the value depends on the mesh size.
+- **thin wall**: shown under a marked peak when the part there is less than 5 elements thick.
+  Below that, the two-mesh check cannot judge a marked peak: see "Let Tessera compare two
+  meshes" below. The line gives a mesh size that should put 5 elements across: 0.9 times your
+  mesh size times the elements across, divided by 5 (elements come out a little longer than
+  `--mesh-size`, hence the 0.9).
+  The wall is the width of the largest ball that fits inside the part and touches its surface
+  at the peak. On a plate that is the plate's thickness. Close to another face it is less, as
+  the ball touches that face too: the peak here is 1.83 mm from the side face y = 10, so the
+  wall there is 3.66 mm. The faces of the support that marks the peak do not count, because the
+  part continues into the fixture: the peak is also 1.83 mm from the clamped end, which does
+  not make the wall thinner. A support never doubles the wall, not even a symmetry plane:
+  Tessera cannot tell it from a table the part rests on. The advice is for this mesh's peak;
+  on a finer mesh the peak may move (here to the clamped corner, on the full 10 mm depth).
 - **max von Mises stress by face**: the highest stress on each face, highest first, so you can
-  see where the part is loaded. Five faces are shown; the Python API has them all.
+  see where the part is loaded. Five faces are shown; the Python API has them all. A marked
+  face peak on a wall less than 5 elements thick says `thin wall` and how many elements there
+  are.
 - **solver files**: the folder with the solver input (`job.inp`) and results (`job.frd`).
   Keep it when you report a problem.
 
@@ -539,9 +555,9 @@ tessera solve beam.tessera.json --workdir run-1.25
 
 ### Let Tessera compare two meshes
 
-`--check-mesh` solves the study twice: once at your mesh size, then with every element about
-1/√2 as long, including the small ones gmsh puts at small holes and short edges (2 to 3 times
-as many nodes). It takes 3 to 5 times as long as one solve. Every number it prints comes from
+`--check-mesh` solves the study twice: once at your mesh size (the coarse mesh), then with
+every element about 1/√2 as long, including the small ones gmsh puts at small holes and short
+edges (2 to 3 times as many nodes). It takes 3 to 5 times as long as one solve. Every number it prints comes from
 the finer mesh, and each one says how much it changed between the two:
 
 ```
@@ -571,8 +587,14 @@ solver files: run-2.5
   finer mesh, or read it as described in "The stress away from supports and sharp inside edges
   can read low" above.
 - **not judged**: the finer mesh did not get finer enough where this number is (its elements
-  there are more than 0.85 times their size on the first mesh), so the check says nothing about
+  there are more than 0.85 times their size on the coarse mesh), so the check says nothing about
   it. Any mark on it still applies.
+- **not judged (thin wall)**: a marked number changed by 5 % or less, but the coarse mesh had
+  fewer than 5 elements across the wall there, too few to show the stress rise at a support or
+  sharp inside edge. The line gives the change, the elements across and a mesh size to try. If
+  the wall could not be measured (an STL whose surface is not closed), it says so and the
+  number is not judged either. Its mark still applies. Only marked numbers get this; see the
+  next paragraph.
 - A measured verdict replaces the marks: a marked peak that settled can be used, and an
   unmarked one that did not settle cannot (but see the next paragraph).
 - Each number is compared with the same kind of number on the other mesh: the largest stress
@@ -584,12 +606,34 @@ solver files: run-2.5
 - The element edge is measured on the mesh, so it can differ a little from `--mesh-size`.
 - The coarse solve's files go to the `coarse` folder inside `--workdir`.
 
-**A very coarse mesh can hide a problem.** The check sees how much a number moves, and on a
-mesh too coarse to show the stress rise at a clamp, the peak there barely moves. The example
-beam at 5 mm, two elements through its 10 mm depth, reads `settled, changed 1.12 %` at the
-clamped end; at 2.5 mm, four elements, the same peak is `mesh-dependent`. If a thin wall
-carries the load and has only one or two elements across it, refine before you trust a
-`settled` there.
+**A wall too thin for the mesh is not judged.** The check sees how much a number moves, and on
+a mesh too coarse to show the stress rise at a clamp, the peak there barely moves. So a marked
+number is judged only where the coarse mesh had at least 5 elements across the wall. The
+example beam at 5 mm has two elements through its 10 mm depth:
+
+```
+tessera study beam.tessera.json --mesh-size 5
+tessera solve beam.tessera.json --workdir run-5 --check-mesh
+```
+
+The lines for the largest stress:
+
+```
+max von Mises stress: 123.339 MPa at (3.27, 5, 0) mm, face 5
+  near support 'root' (within 7.02 mm): the stress there may keep rising as the mesh is refined; not judged: changed 1.12 % between the meshes, but the coarse mesh had only 2.11 elements across the 10 mm wall here (at least 5 needed); try --mesh-size 1.8 or less
+```
+
+Without this guard the peak would read settled; at 2.5 mm the same peak is
+`mesh-dependent`, and it keeps rising at every finer mesh. A number that moved by more than 5 %
+is `mesh-dependent` however thin the wall, because the check did see it move. Unmarked numbers
+are judged on any wall: a smooth stress, such as at a hole or in the middle of a bent beam, is
+well represented by one or two elements across. At 5 elements across, a wall of 1.2 to 2 mm,
+common in prints, needs elements of 0.25 to 0.4 mm near the marked place, and the solve can
+take minutes. Go back to 2.5 mm before you continue:
+
+```
+tessera study beam.tessera.json --mesh-size 2.5
+```
 
 ### If the solve takes too long
 

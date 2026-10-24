@@ -8,6 +8,17 @@
   stress is but is not a strength check for a layer-wise part. Peaks, flags and mesh-check
   verdicts are unchanged. Projects cannot define an orthotropic material yet, so no solve shows
   the note until the wiring lands.
+- Thin-wall guard for the two-mesh check (ADR-007 Amendment 2): a marked peak that changed by
+  5 % or less is no longer called `settled` when the coarse mesh had fewer than 5 elements across
+  the wall there, too few to show the stress rise, or when the wall could not be measured; it
+  reads `not judged` with the elements across and a mesh size that gives 5. The wall is the
+  width of the largest ball inside the part touching the surface at the peak, never doubled
+  across a support; at a peak marked by a face support, that support's faces are left out, as
+  the part continues into the fixture. Without `--check-mesh`, a marked peak on such a wall gets a `thin wall` line
+  with the same advice, and marked face peaks say `thin wall`. Unmarked numbers are judged as
+  before. API: `StressSpot.wall` (`WallSpan`), `Verdict.THIN_WALL`, `SpotCheck.elements_across`,
+  `MeshCheck.wall_elements_min`; `WALL_ELEMENTS_MIN`, `outer_surface`, `wall_span`,
+  `samples_on` and `node_edge_length` in `tessera.post`, `WALL_ELEMENTS_MIN` in `tessera.core`.
 - Orthotropic material types (ADR-009, model only): `OrthotropicMaterial` (engineering
   constants, major Poisson ratios, validated to a positive definite compliance), `Material`,
   `MaterialFrame` and `Section.orientation` in `tessera.model`, and
