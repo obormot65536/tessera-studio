@@ -1,0 +1,5 @@
+# Approved by the maintainer for the ADR-008 point-stress benchmark (PR #42).
+description = "ADR-008 point stresses through ccx with SolveJob.point_stresses: the TS-03 cube (steel-generic, 10 mm, rollers on x = 0, y = 0, z = 0, 10 MPa traction on x = 10, unstructured C3D10, h = 3.0) and pure bending of a 10 x 4 x 2 mm block 1000 mm from the origin (sigma_xx = 2 MPa/mm (z - z_mid), consistent face loads, 3-2-1 support); max |stress - exact| / peak at every integration point and at every element's ten nodes (element_nodal_stresses)"
+source = "Exact fields that C3D10 reproduces (patch test, Irons; pure bending, linear stress). Floor: job.dat prints E13.6 (5e-7 per value); the tet4 fit weights a corner node by at most 2.854, so 1.43e-6 for element-nodal values"
+rel_tolerance_point_stress = 1e-6
+rel_tolerance_element_nodal_stress = 1.5e-6
