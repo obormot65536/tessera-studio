@@ -1,0 +1,43 @@
+# Approved by the maintainer for TO-01 (ADR-009 PR-7, PR #43).
+description = "Cube 10 x 10 x 10 mm, project orthotropic material with the catalog TO constants (E1 3000, E2 2400, E3 1800, G12 1000, G13 700, G23 650 MPa, nu12 0.35, nu13 = nu23 0.30; made up, not user-trusted data), material frame from the print setup, unstructured C3D10 mesh. Axial A1-A3 (build Z) and A1-side to A3-side (build (1, 0, 0)): rollers on x = 0, y = 0, z = 0, 10 MPa (ForceLoad 1000 N) on the opposite face. Shear S12, S13, S23 (build Z): simple shear, one face fixed in all dofs, 1000 N face forces as in ADR-009. Checked at every node: the loaded stress component, the five others, and u against the exact linear field"
+source = "Exact homogeneous states of the orthotropic compliance eps = S sigma: Lekhnitskii, Theory of Elasticity of an Anisotropic Body, ch. 1; Jones, Mechanics of Composite Materials, 2nd ed. (1999), ch. 2 (locations unverified). Patch test (Irons); MacNeal & Harder, Finite Elements in Analysis and Design 1 (1985) 3-20 (unverified)"
+stress_mpa = 10.0
+rel_tolerance_stress = 2e-5
+abs_tolerance_other_stress_mpa = 1e-6
+rel_tolerance_displacement = 1e-5
+
+[cases.A1]
+strain = [0.003333333333333333, -0.0011666666666666665, -0.001]
+end_displacement_mm = 0.03333333333333333
+
+[cases.A2]
+strain = [-0.0011666666666666665, 0.004166666666666667, -0.00125]
+end_displacement_mm = 0.041666666666666664
+
+[cases.A3]
+strain = [-0.001, -0.00125, 0.005555555555555556]
+end_displacement_mm = 0.05555555555555556
+
+[cases."A1-side"]
+strain = [0.005555555555555556, -0.00125, -0.001]
+end_displacement_mm = 0.05555555555555556
+
+[cases."A2-side"]
+strain = [-0.00125, 0.004166666666666667, -0.0011666666666666665]
+end_displacement_mm = 0.041666666666666664
+
+[cases."A3-side"]
+strain = [-0.001, -0.0011666666666666665, 0.003333333333333333]
+end_displacement_mm = 0.03333333333333333
+
+[cases.S12]
+shear_strain = 0.01
+end_displacement_mm = 0.1
+
+[cases.S13]
+shear_strain = 0.014285714285714285
+end_displacement_mm = 0.14285714285714285
+
+[cases.S23]
+shear_strain = 0.015384615384615385
+end_displacement_mm = 0.15384615384615385
