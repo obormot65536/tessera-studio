@@ -16,10 +16,11 @@ Read this first. It saves you from setting up a study that Tessera cannot run.
 - **Linear static analysis only.** The model assumes small displacements and a material that
   springs back when unloaded. It does not model buckling, large bending, plastic yield,
   contact, heat, vibration or time.
-- **Isotropic materials only, from a short library.** Two materials exist: `steel-generic` and
-  `aluminium-6061-t6`. There is no printed plastic (PLA, PETG, ABS, nylon) yet. So a result
-  describes a part with the properties of metal. It does not yet show how a print behaves
-  across its layers.
+- **A short material library, and your own values.** Two library materials exist:
+  `steel-generic` and `aluminium-6061-t6`. There is no printed plastic (PLA, PETG, ABS, nylon)
+  in the library yet. You can define your own material in the project, including a layer-wise
+  (orthotropic) one from your own coupon tests; see "Your own printed material" in Step 3.
+  There is no command for that yet: use the Python API or edit the JSON.
 - **Displacement and von Mises stress come out.** The largest displacement, and the largest
   von Mises stress with where it is: away from supports and sharp inside edges, anywhere, and
   on each face. Tessera does not compare them with a limit, does not compute a safety factor
@@ -104,6 +105,68 @@ known ids.
 
 If your part is a printed plastic, these values are not right for it. Use the closest library
 entry only to get a rough idea, and do not treat the numbers as a print result.
+
+### Your own printed material
+
+A print is stiffer along its rasters than across them, and stiffer within a layer than across
+layers. Tessera models this as an orthotropic material with three axes:
+
+- axis 1: along the rasters (the extrusion direction);
+- axis 2: across the rasters, in the layer;
+- axis 3: the build direction, across the layers.
+
+It needs nine numbers in MPa: `e1`, `e2`, `e3` (Young's moduli), `g12`, `g13`, `g23` (shear
+moduli) and `nu12`, `nu13`, `nu23` (Poisson's ratios: `nu12` is the contraction along axis 2
+when you pull along axis 1). Tessera does not supply these numbers: they come from your own
+coupon tests or a paper you trust, and Tessera only checks that they are physically possible.
+
+The part also needs a **print setup**, so Tessera knows which way the layers run:
+
+- `build_direction`: the direction, in the part's CAD coordinates, that points up on the printer.
+  `[0, 0, 1]` means the part is printed as modelled; `[1, 0, 0]` means it lies on its side with
+  its +x end up.
+- `raster_angle`: the raster direction in degrees, turned counter-clockwise about the build
+  direction (0 by default).
+
+A part with an orthotropic material and no print setup is refused when you solve, rather than
+guessing the orientation. There is no command for this yet. With the Python API:
+
+```python
+from pathlib import Path
+
+from tessera.core import edit, load_project, save_project
+from tessera.model import OrthotropicDefinition
+
+path = Path("beam.tessera.json")
+project = load_project(path)
+edit.add_material(
+    project,
+    OrthotropicDefinition(
+        id="my-pla",
+        e1=3000.0,
+        e2=2400.0,
+        e3=1800.0,
+        nu12=0.35,
+        nu13=0.30,
+        nu23=0.30,
+        g12=1000.0,
+        g13=700.0,
+        g23=650.0,
+        density=1.24e-9,
+    ),
+)
+edit.set_material(project, "beam", "my-pla")
+edit.set_print_setup(project, "beam", "fdm", build_direction=(0.0, 0.0, 1.0), raster_angle=0.0)
+save_project(project, path)
+```
+
+(These numbers are made up for the example, not real PLA data.) In the JSON, the material goes
+in a top-level `"materials"` list with `"kind": "orthotropic"`, and the part gets
+`"print_setup": {"process": "fdm", "build_direction": [0, 0, 1], "raster_angle": 0}`. Use an id
+that is not a library id: `add_material` refuses one (see `docs/user/project-files.md`).
+
+The solve then prints a note: von Mises stress still shows where the stress is, but it is not a
+strength check for a printed part.
 
 ## Step 4: Find the face numbers
 
@@ -753,6 +816,8 @@ Any field name that Tessera does not know causes an error. This catches typing m
 | `the study needs at least one support` | Add a support (Step 5) |
 | `v0.1 solves a single part; assemblies arrive in v0.5` | Keep one part in the project |
 | `part 'beam' has no material` | Set the material (Step 3); it is needed to solve |
+| `part 'beam' uses orthotropic material 'my-pla' and needs a print setup (build direction)` | Give the part a print setup (Step 3, "Your own printed material") |
+| `'steel-generic' is a built-in material; choose another id` | Give your own material a different id |
 | `... is not a valid project file` | Check the JSON: a misspelt field name, a missing comma or a missing required field |
 | `[Errno 2] No such file or directory: ...` | The project file you named does not exist |
 | `solver failed: CalculiX executable 'ccx' not found on PATH ...` | Install CalculiX 2.21 or newer, or set `TESSERA_CCX` |

@@ -7,23 +7,26 @@ Clients build their editing commands on these.
 """
 
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 import tessera.geometry as geometry
 import tessera.materials as materials
+import tessera.printsetup as printsetup
 from tessera.core._checks import part_named, validated
 from tessera.model import (
     EdgeSet,
     FaceSet,
     ForceLoad,
     InputError,
+    MaterialDefinition,
     MomentLoad,
     PartInstance,
     PressureLoad,
+    PrintSetup,
     Project,
     Study,
     Support,
@@ -33,14 +36,13 @@ Vec3 = tuple[float, float, float]
 
 
 def material_ids() -> list[str]:
-    """Ids of the built-in materials, for ``material_id``."""
+    """Ids of the built-in materials, for ``material_id``. Project ones are in ``materials``."""
     return materials.material_ids()
 
 
-def _check_material(material_id: str) -> None:
-    if material_id not in materials.material_ids():
-        known = ", ".join(materials.material_ids())
-        raise InputError(f"unknown material {material_id!r}; known: {known}")
+def _check_material(project: Project, material_id: str) -> None:
+    """The id names a project material or a built-in one (``get_material`` raises if not)."""
+    materials.get_material(material_id, project.materials)
 
 
 def _all_ids(project: Project) -> set[str]:
@@ -125,7 +127,7 @@ def _check_gravity_densities(project: Project) -> None:
     for part in project.assembly.parts:
         if part.material_id is None:
             continue  # solving refuses a part without a material anyway
-        if materials.get_isotropic(part.material_id).density is None:
+        if materials.get_material(part.material_id, project.materials).density is None:
             raise InputError(
                 f"part {part.id!r}: material {part.material_id!r} has no density, "
                 "which gravity needs; choose another material or turn gravity off"
@@ -159,7 +161,7 @@ def add_part(
     if suffix not in (*geometry.STEP_SUFFIXES, *geometry.STL_SUFFIXES):
         raise InputError(f"{geometry_path.name!r} is not a STEP or STL file")
     if material_id is not None:
-        _check_material(material_id)
+        _check_material(project, material_id)
     taken = _all_ids(project)
     if part_id is None:
         stem = re.sub(r"[^A-Za-z0-9_-]+", "-", geometry_path.stem).strip("-") or "part"
@@ -179,13 +181,68 @@ def add_part(
 
 
 def set_material(project: Project, part_id: str, material_id: str) -> None:
-    _check_material(material_id)
+    """Give the part a built-in material or one defined in the project (``add_material``)."""
+    _check_material(project, material_id)
     part_named(project, part_id)
 
     def change(p: Project) -> None:
         part_named(p, part_id).material_id = material_id
 
     _commit(project, change)
+
+
+_DEFINITION: TypeAdapter[MaterialDefinition] = TypeAdapter(MaterialDefinition)
+
+
+def add_material(
+    project: Project, definition: MaterialDefinition | Mapping[str, Any]
+) -> MaterialDefinition:
+    """Define a material in the project (ADR-009 D3), for ``set_material``.
+
+    ``definition`` is an ``IsotropicDefinition``, an ``OrthotropicDefinition``, or their fields
+    as a mapping with ``kind``. It is checked again here (orthotropic constants with
+    ``check_orthotropic``). The id may not be a built-in material's or one already defined.
+    """
+    fields = definition if isinstance(definition, Mapping) else definition.model_dump()
+    try:
+        material = _DEFINITION.validate_python(fields)
+    except ValidationError as exc:
+        raise InputError(f"invalid material definition:\n{exc}") from None
+    if material.id in materials.material_ids():
+        raise InputError(f"{material.id!r} is a built-in material; choose another id")
+    if any(m.id == material.id for m in project.materials):
+        raise InputError(f"material {material.id!r} is already defined in this project")
+    _commit(project, lambda p: p.materials.append(material.model_copy()))
+    return project.materials[-1]
+
+
+def set_print_setup(
+    project: Project,
+    part_id: str,
+    process: Literal["fdm", "resin"],
+    build_direction: Vec3 = (0.0, 0.0, 1.0),
+    raster_angle: float = 0.0,
+) -> PrintSetup:
+    """How the part is printed (ADR-009 D2).
+
+    ``build_direction`` is the part-coordinate vector pointing up on the printer (material axis
+    3); ``raster_angle`` turns the rasters about it, in degrees counter-clockwise looking down
+    it. An orthotropic part needs one to be solved; an isotropic part ignores it.
+    """
+    part_named(project, part_id)
+    setup = _build(
+        PrintSetup, process=process, build_direction=build_direction, raster_angle=raster_angle
+    )
+    try:
+        printsetup.material_frame(setup.build_direction, setup.raster_angle)
+    except ValueError as exc:
+        raise InputError(f"part {part_id!r}: {exc}") from None
+
+    def change(p: Project) -> None:
+        part_named(p, part_id).print_setup = setup.model_copy()
+
+    _commit(project, change)
+    return setup
 
 
 def add_support(

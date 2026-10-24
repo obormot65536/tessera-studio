@@ -682,6 +682,7 @@ dependencies = [
     { name = "tessera-model" },
     { name = "tessera-physics" },
     { name = "tessera-post" },
+    { name = "tessera-printsetup" },
     { name = "tessera-solvers" },
 ]
 
@@ -694,6 +695,7 @@ requires-dist = [
     { name = "tessera-model", editable = "packages/model" },
     { name = "tessera-physics", editable = "packages/physics" },
     { name = "tessera-post", editable = "packages/post" },
+    { name = "tessera-printsetup", editable = "packages/printsetup" },
     { name = "tessera-solvers", editable = "packages/solvers" },
 ]
 

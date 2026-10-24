@@ -1,5 +1,6 @@
 """build_static_job on a hand-built one-element mesh."""
 
+import dataclasses
 from pathlib import Path
 
 import numpy as np
@@ -12,8 +13,11 @@ from tessera.model import (
     ForceLoad,
     InputError,
     IsotropicMaterial,
+    MaterialFrame,
     Mesh,
+    OrthotropicMaterial,
     PartInstance,
+    Section,
     Study,
     Support,
 )
@@ -93,3 +97,43 @@ def test_a_line_support_on_another_part_is_refused() -> None:
     line = Support(id="line", edges=EdgeSet(part_id="other", edges=((1, 2),)))
     with pytest.raises(InputError, match="part 'other'"):
         build_static_job(Study(supports=[line]), _PART, _EDGE_MESH, _STEEL)
+
+
+# ADR-009 PR-6: an orthotropic material with a frame, and its density under gravity.
+_TO = OrthotropicMaterial(
+    name="to",
+    e1=3000.0,
+    e2=2400.0,
+    e3=1800.0,
+    nu12=0.35,
+    nu13=0.30,
+    nu23=0.30,
+    g12=1000.0,
+    g13=700.0,
+    g23=650.0,
+    density=1.2e-9,
+)
+_SIDE = MaterialFrame((0.0, 0.0, -1.0), (0.0, 1.0, 0.0))  # printed with build direction +x
+
+
+def test_an_orthotropic_material_gets_its_frame_on_the_section() -> None:
+    job = build_static_job(_study("p", "p"), _PART, _MESH, _TO, frame=_SIDE)
+    assert job.materials == (_TO,)
+    assert job.sections == (Section(element_set="part:p", material="to", orientation=_SIDE),)
+
+
+def test_without_a_frame_the_section_uses_the_part_axes() -> None:
+    job = build_static_job(_study("p", "p"), _PART, _MESH, _STEEL)
+    assert job.sections[0].orientation is None
+
+
+def test_gravity_uses_the_orthotropic_density() -> None:
+    study = _study("p", "p")
+    study.loads.clear()
+    study.gravity = (0.0, 0.0, -9810.0)
+    job = build_static_job(study, _PART, _MESH, _TO, frame=_SIDE)
+    weight = 1.2e-9 * (1.0 / 6.0) * -9810.0  # density x volume of the unit tet x g
+    assert job.loads[0].forces.sum(axis=0) == pytest.approx([0.0, 0.0, weight])
+    no_density = dataclasses.replace(_TO, density=None)
+    with pytest.raises(InputError, match="'to' has no density"):
+        build_static_job(study, _PART, _MESH, no_density, frame=_SIDE)

@@ -7,15 +7,18 @@ import pytest
 
 import tessera.geometry as geometry
 import tessera.materials.library as material_library
-from tessera.core import edit, new_project
+from tessera.core import edit, load_project, new_project, save_project
 from tessera.model import (
     EdgeInfo,
     FaceInfo,
     ForceLoad,
     InputError,
+    IsotropicDefinition,
     IsotropicMaterial,
     MomentLoad,
+    OrthotropicDefinition,
     PressureLoad,
+    PrintSetup,
     Project,
 )
 
@@ -228,3 +231,92 @@ def test_a_material_without_density_is_refused_while_gravity_is_on(
     assert [p.material_id for p in project.assembly.parts] == ["steel-generic"]
     edit.set_gravity(project, None)
     edit.set_material(project, "box", no_density)  # fine without gravity
+
+
+# ADR-009 D3: materials defined in the project, and the print setup.
+_TO = {
+    "e1": 3000.0,
+    "e2": 2400.0,
+    "e3": 1800.0,
+    "nu12": 0.35,
+    "nu13": 0.30,
+    "nu23": 0.30,
+    "g12": 1000.0,
+    "g13": 700.0,
+    "g23": 650.0,
+}
+
+
+def test_add_material_refuses_built_in_and_duplicate_ids(project: Project) -> None:
+    steel = IsotropicDefinition(id="steel-generic", youngs_modulus=1.0, poisson_ratio=0.3)
+    with pytest.raises(InputError, match="'steel-generic' is a built-in material"):
+        edit.add_material(project, steel)
+    added = edit.add_material(
+        project, OrthotropicDefinition.model_validate({"id": "pla-xyz", **_TO})
+    )
+    assert project.materials == [added]
+    again = {"kind": "isotropic", "id": "pla-xyz", "youngs_modulus": 3e3, "poisson_ratio": 0.35}
+    with pytest.raises(InputError, match="'pla-xyz' is already defined"):
+        edit.add_material(project, again)
+    assert [m.id for m in project.materials] == ["pla-xyz"]
+
+
+def test_add_material_takes_plain_fields(project: Project) -> None:
+    added = edit.add_material(project, {"kind": "orthotropic", "id": "pla-xyz", **_TO})
+    assert added == OrthotropicDefinition.model_validate({"id": "pla-xyz", **_TO})
+
+
+def test_an_invalid_definition_is_an_input_error(project: Project) -> None:
+    with pytest.raises(InputError, match="'bad'"):
+        edit.add_material(project, {"kind": "orthotropic", "id": "bad", **_TO, "nu12": 1.2})
+    edited = OrthotropicDefinition.model_validate({"id": "bad", **_TO})
+    edited.nu12 = 1.2  # pydantic does not validate assignment
+    with pytest.raises(InputError, match="'bad'"):
+        edit.add_material(project, edited)
+    assert project.materials == []
+
+
+def test_set_material_accepts_a_project_material(project: Project, box_step: Path) -> None:
+    edit.add_material(project, OrthotropicDefinition.model_validate({"id": "pla-xyz", **_TO}))
+    edit.set_material(project, "box", "pla-xyz")
+    assert project.assembly.parts[0].material_id == "pla-xyz"
+    second = edit.add_part(project, box_step, material_id="pla-xyz")
+    assert second.material_id == "pla-xyz"
+    with pytest.raises(InputError, match=r"unknown material 'pla-abc'.*pla-xyz"):
+        edit.set_material(project, "box", "pla-abc")
+
+
+def test_gravity_reads_the_density_of_a_project_material(project: Project) -> None:
+    edit.add_material(project, OrthotropicDefinition.model_validate({"id": "pla-xyz", **_TO}))
+    edit.add_material(
+        project,
+        OrthotropicDefinition.model_validate({"id": "pla-heavy", "density": 1.24e-9, **_TO}),
+    )
+    edit.set_material(project, "box", "pla-xyz")
+    with pytest.raises(InputError, match=r"'pla-xyz' has no density"):
+        edit.set_gravity(project, (0.0, 0.0, -9810.0))
+    edit.set_material(project, "box", "pla-heavy")
+    edit.set_gravity(project, (0.0, 0.0, -9810.0))
+    assert project.study.gravity == (0.0, 0.0, -9810.0)
+
+
+def test_set_print_setup_round_trips_through_save_and_load(
+    project: Project, tmp_path: Path
+) -> None:
+    edit.set_print_setup(project, "box", "fdm", (1.0, 0.0, 0.0), 45.0)
+    expected = PrintSetup(process="fdm", build_direction=(1.0, 0.0, 0.0), raster_angle=45.0)
+    assert project.assembly.parts[0].print_setup == expected
+    save_project(project, tmp_path / "p.json")
+    assert load_project(tmp_path / "p.json").assembly.parts[0].print_setup == expected
+
+
+def test_set_print_setup_checks_its_input(project: Project) -> None:
+    with pytest.raises(InputError, match="no part 'ghost'"):
+        edit.set_print_setup(project, "ghost", "fdm", (0.0, 0.0, 1.0), 0.0)
+    with pytest.raises(InputError, match="build direction"):
+        edit.set_print_setup(project, "box", "fdm", (0.0, 0.0, 0.0), 0.0)
+    with pytest.raises(InputError, match="PrintSetup"):
+        edit.set_print_setup(project, "box", "sls", (0.0, 0.0, 1.0), 0.0)  # type: ignore[arg-type]
+    with pytest.raises(InputError):
+        edit.set_print_setup(project, "box", "fdm", (0.0, 0.0, 1.0), float("nan"))
+    assert project.assembly.parts[0].print_setup is None

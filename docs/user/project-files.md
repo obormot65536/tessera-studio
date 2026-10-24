@@ -151,15 +151,18 @@ Tessera refuses a file whose constants cannot describe a real material (a stiffn
 less, or Poisson ratios so large that stretching would release energy), and says which
 material is wrong.
 
-The examples above are made-up values, not data for real PLA or PETG. Solving with project
-materials is not available yet; the file format comes first.
+The examples above are made-up values, not data for real PLA or PETG. A part names a project
+material by its id in `material_id`, as it would a library one. If a project material and a
+library material share an id, the project's is used. A part with an orthotropic material needs
+a print setup (below) to be solved.
 
 ### Print setup
 
 A part's `print_setup` records how it is printed: `process` (`"fdm"` or `"resin"`),
 `build_direction` (the part's direction that points up on the printer, default `[0, 0, 1]`)
 and, from schema 6, `raster_angle`: the angle of the printed lines in degrees, counter-clockwise
-when looking down the build direction (default `0`).
+when looking down the build direction (default `0`). The solve uses `build_direction` and
+`raster_angle` to turn an orthotropic material's axes; an isotropic part ignores them.
 
 Saving replaces the old file in one step. If a save fails, the previous file is kept.
 

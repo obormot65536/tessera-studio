@@ -1,6 +1,7 @@
 """core.solve wiring, tested with a fake solver so it runs without CalculiX."""
 
 import math
+import re
 from pathlib import Path
 
 import gmsh
@@ -15,13 +16,18 @@ from tessera.model import (
     FaceSet,
     ForceLoad,
     InputError,
+    IsotropicDefinition,
     IsotropicMaterial,
+    OrthotropicDefinition,
+    OrthotropicMaterial,
     PartInstance,
+    PrintSetup,
     SolveJob,
     SolveResult,
     Support,
     Verdict,
 )
+from tessera.printsetup import material_frame
 
 
 @pytest.fixture(scope="module")
@@ -193,19 +199,87 @@ def test_gravity_weighs_the_whole_part(bracket_step: Path) -> None:
     assert total[2] == pytest.approx(expected, rel=1e-4)
 
 
-def test_gravity_needs_a_material_density(
-    bracket_step: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import tessera.materials as materials
-    from tessera.model import IsotropicMaterial
-
-    weightless = IsotropicMaterial(name="weightless", youngs_modulus=1000.0, poisson_ratio=0.3)
-    monkeypatch.setattr(materials, "get_isotropic", lambda _id: weightless)
+def test_gravity_needs_a_material_density(bracket_step: Path) -> None:
     root, tip = _root_and_tip(bracket_step)
     project = _project(bracket_step, root, tip)
+    project.materials.append(
+        IsotropicDefinition(id="weightless", youngs_modulus=1000.0, poisson_ratio=0.3)
+    )
+    project.assembly.parts[0].material_id = "weightless"
     project.study.gravity = (0.0, 0.0, -9810.0)
-    with pytest.raises(InputError, match="no density"):
+    with pytest.raises(InputError, match="'weightless' has no density"):
         solve(project, adapter=FakeSolver())
+
+
+# ADR-009 PR-6: project materials, orthotropic parts and their print setup.
+_TO = {
+    "e1": 3000.0,
+    "e2": 2400.0,
+    "e3": 1800.0,
+    "nu12": 0.35,
+    "nu13": 0.30,
+    "nu23": 0.30,
+    "g12": 1000.0,
+    "g13": 700.0,
+    "g23": 650.0,
+}
+
+
+def _orthotropic_project(step: Path, print_setup: PrintSetup | None):
+    root, tip = _root_and_tip(step)
+    project = _project(step, root, tip)
+    project.materials.append(OrthotropicDefinition.model_validate({"id": "pla-xyz", **_TO}))
+    project.assembly.parts[0].material_id = "pla-xyz"
+    project.assembly.parts[0].print_setup = print_setup
+    return project
+
+
+def test_an_orthotropic_part_needs_a_print_setup(bracket_step: Path) -> None:
+    project = _orthotropic_project(bracket_step, None)
+    message = (
+        "part 'b' uses orthotropic material 'pla-xyz' and needs a print setup (build direction)"
+    )
+    with pytest.raises(InputError, match=re.escape(message)):
+        solve(project, adapter=FakeSolver())
+
+
+def test_an_orthotropic_part_is_solved_in_its_print_frame(bracket_step: Path) -> None:
+    setup = PrintSetup(process="fdm", build_direction=(1.0, 0.0, 0.0), raster_angle=30.0)
+    job = _job(_orthotropic_project(bracket_step, setup))
+    assert job.materials == (OrthotropicMaterial(name="pla-xyz", **_TO),)
+    (section,) = job.sections
+    assert section.material == "pla-xyz"
+    assert section.orientation == material_frame((1.0, 0.0, 0.0), 30.0)
+
+
+def test_a_zero_build_direction_is_an_input_error(bracket_step: Path) -> None:
+    setup = PrintSetup(process="fdm", build_direction=(0.0, 0.0, 0.0))
+    with pytest.raises(InputError, match="build direction"):
+        solve(_orthotropic_project(bracket_step, setup), adapter=FakeSolver())
+
+
+def test_an_isotropic_part_ignores_its_print_setup(bracket_step: Path) -> None:
+    root, tip = _root_and_tip(bracket_step)
+    project = _project(bracket_step, root, tip)
+    project.assembly.parts[0].print_setup = PrintSetup(
+        process="fdm", build_direction=(1.0, 0.0, 0.0)
+    )
+    (section,) = _job(project).sections
+    assert section.orientation is None
+
+
+def test_a_project_material_wins_over_the_library(bracket_step: Path) -> None:
+    root, tip = _root_and_tip(bracket_step)
+    project = _project(bracket_step, root, tip)
+    # Built from a file: edit.add_material refuses a built-in id, but a file keeps its meaning
+    # if a later library adds the same id (ADR-009 D3).
+    project.materials.append(
+        IsotropicDefinition(id="steel-generic", youngs_modulus=190_000.0, poisson_ratio=0.3)
+    )
+    (material,) = _job(project).materials
+    assert material == IsotropicMaterial(
+        name="steel-generic", youngs_modulus=190_000.0, poisson_ratio=0.3
+    )
 
 
 def test_moment_load_twists_the_tip_face_without_a_net_force(bracket_step: Path) -> None:
