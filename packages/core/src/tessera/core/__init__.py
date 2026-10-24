@@ -9,10 +9,12 @@ from tessera.core.study import (
     describe_faces,
     solve,
 )
+from tessera.post import WALL_ELEMENTS_MIN
 
 __all__ = [
     "MESH_CHECK_REFINEMENT",
     "SOLVE_TIMEOUT",
+    "WALL_ELEMENTS_MIN",
     "describe_edges",
     "describe_faces",
     "edit",

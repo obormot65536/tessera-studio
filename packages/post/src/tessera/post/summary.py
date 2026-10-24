@@ -6,14 +6,18 @@ import numpy as np
 from numpy.typing import NDArray
 
 from tessera.model import (
+    FlagKind,
     Mesh,
     OrthotropicMaterial,
     SolveJob,
     SolveResult,
+    StressFlag,
     StressSpot,
     StudyResult,
+    WallSpan,
 )
-from tessera.post.flags import flag_nodes
+from tessera.post.flags import SUPPORT_PREFIX, flag_nodes
+from tessera.post.wall import OuterSurface, outer_surface, samples_on, wall_span
 
 _FACE_PREFIX = "face:"
 
@@ -59,19 +63,47 @@ def summarize(job: SolveJob, solution: SolveResult, workdir: Path | None = None)
     for index in reversed(faces):
         lowest_face[faces[index]] = index
 
-    def spot(node: int, face: int | None) -> StressSpot:
+    surface: OuterSurface | None = None
+    walls: dict[int, WallSpan | None] = {}
+
+    def held_faces(node_flags: tuple[StressFlag, ...]) -> NDArray[np.int64]:
+        """Nodes of the face supports that flag a node: the part continues into the fixture
+        there, so the wall is measured as if they were not surface (line supports hold no
+        face)."""
+        ids = {f.support for f in node_flags if f.kind is FlagKind.SUPPORT}
+        sets = [
+            mesh.node_sets[s.node_set]
+            for s in job.supports
+            if not s.line and s.node_set.removeprefix(SUPPORT_PREFIX) in ids
+        ]
+        return np.concatenate(sets) if sets else np.zeros(0, dtype=np.int64)
+
+    def wall(node: int) -> WallSpan | None:
+        """The wall at a node, measured once (ADR-007 Amendment 2)."""
+        nonlocal surface
+        if node not in walls:
+            surface = surface or outer_surface(mesh)
+            held = held_faces(flags.at(node))
+            ignore = samples_on(surface, held) if held.size else None
+            walls[node] = wall_span(surface, node, ignore)
+        return walls[node]
+
+    def spot(node: int, face: int | None, measure: bool = False) -> StressSpot:
+        """``measure``: give the wall even if the node is not flagged."""
         x, y, z = (float(c) for c in mesh.nodes[node])
+        node_flags = flags.at(node)
         return StressSpot(
             value=float(stress[node]),
             node=node,
             location=(x, y, z),
             face=face,
-            flags=flags.at(node),
+            flags=node_flags,
+            wall=wall(node) if measure or node_flags else None,
         )
 
     def on_lowest_face(node: int) -> StressSpot:
         face = int(lowest_face[node])
-        return spot(node, face if face >= 0 else None)
+        return spot(node, face if face >= 0 else None, measure=True)
 
     all_nodes = np.arange(mesh.n_nodes)
     peak = _peak(stress, all_nodes)

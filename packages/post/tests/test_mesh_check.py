@@ -1,15 +1,28 @@
 """Two-mesh check (ADR-007): each reported number compared between a coarse and a fine solve."""
 
+import dataclasses
 import itertools
 import math
 
 import numpy as np
 import pytest
 
-from tessera.model import Mesh, NodeFlags, SolveResult, StressSpot, StudyResult, Verdict
+from tessera.model import (
+    FlagKind,
+    Mesh,
+    MeshCheck,
+    NodeFlags,
+    SolveResult,
+    StressFlag,
+    StressSpot,
+    StudyResult,
+    Verdict,
+    WallSpan,
+)
 from tessera.post import (
     MESH_CHECK_REFINEMENT_LIMIT,
     MESH_CHECK_THRESHOLD,
+    WALL_ELEMENTS_MIN,
     compare_meshes,
     local_edge_length,
     spot_check,
@@ -47,12 +60,20 @@ def _result(
     peak: float,
     clear: float | None,
     faces: dict[int, float],
+    flagged: bool = False,
+    wall: float | None = None,
 ) -> StudyResult:
+    """Every spot at ``SPOT``; the raw peak and the face peaks flagged if asked, and every spot
+    on a wall ``wall`` mm thick if given (the clear peak is never flagged)."""
     mesh = _cube(cells)
     n_nodes = mesh.n_nodes
+    span = None if wall is None else WallSpan(wall, wall * cells / 2, (0.0, 0.0, -1.0))
+    flags = (StressFlag(FlagKind.SUPPORT, support="root"),) if flagged else ()
 
-    def spot(value: float, face: int | None) -> StressSpot:
-        return StressSpot(value=value, node=0, location=SPOT, face=face)
+    def spot(value: float, face: int | None, flagged: bool = True) -> StressSpot:
+        return StressSpot(
+            value=value, node=0, location=SPOT, face=face, flags=flags if flagged else (), wall=span
+        )
 
     return StudyResult(
         mesh=mesh,
@@ -60,7 +81,7 @@ def _result(
         max_displacement=displacement,
         max_von_mises=peak,
         peak_von_mises=spot(peak, None),
-        clear_peak_von_mises=None if clear is None else spot(clear, None),
+        clear_peak_von_mises=None if clear is None else spot(clear, None, flagged=False),
         face_peaks=tuple(spot(v, f) for f, v in sorted(faces.items(), key=lambda kv: -kv[1])),
         node_flags=NodeFlags(
             masks={}, n_nodes=n_nodes, distance=4.0 / cells, edge_length=2.0 / cells
@@ -154,3 +175,90 @@ def test_a_custom_threshold_is_used_and_reported() -> None:
     check = compare_meshes(coarse, fine, threshold=0.02)
     assert check.threshold == 0.02
     assert check.peak_von_mises.verdict is Verdict.MESH_DEPENDENT
+
+
+# --- Thin walls (ADR-007 Amendment 2) ----------------------------------------------------
+
+
+def test_the_approved_wall_minimum() -> None:
+    assert WALL_ELEMENTS_MIN == 5.0
+
+
+@pytest.mark.parametrize(
+    ("coarse", "refinement", "across", "guard", "verdict"),
+    [
+        (99.0, 0.7, 2.0, True, Verdict.THIN_WALL),  # settled-looking, but too few elements
+        (99.0, 0.7, 4.99, True, Verdict.THIN_WALL),
+        (99.0, 0.7, 5.0, True, Verdict.SETTLED),  # exactly the minimum is enough
+        (99.0, 0.7, 2.0, False, Verdict.SETTLED),  # not guarded: unflagged spots
+        (99.0, 0.7, None, True, Verdict.THIN_WALL),  # no wall measured: fail closed
+        (99.0, 0.7, None, False, Verdict.SETTLED),
+        (80.0, 0.7, 2.0, True, Verdict.MESH_DEPENDENT),  # a measured failure needs no guard
+        (99.0, 0.9, 2.0, True, Verdict.NOT_REFINED),  # no refinement comes first
+    ],
+)
+def test_thin_wall_guard_in_spot_check(
+    coarse: float, refinement: float, across: float | None, guard: bool, verdict: Verdict
+) -> None:
+    check = spot_check(coarse, 100.0, refinement, elements_across=across, guard_thin_wall=guard)
+    assert check.verdict is verdict
+    assert check.elements_across == across
+
+
+def test_spot_check_without_a_wall_is_unchanged() -> None:
+    check = spot_check(99.0, 100.0, 0.7)
+    assert (check.verdict, check.elements_across) == (Verdict.SETTLED, None)
+
+
+def test_compare_meshes_guards_flagged_spots_on_thin_walls() -> None:
+    # A 3 mm wall: about two coarse elements across (Kuhn cubes of 1 mm, median edge ~1.4 mm).
+    coarse = _result(2, 1.0, peak=99.0, clear=80.0, faces={1: 99.0, 2: 60.0}, flagged=True)
+    fine = _result(
+        4, 1.0, peak=100.0, clear=80.5, faces={1: 100.0, 2: 61.0}, flagged=True, wall=3.0
+    )
+    check = compare_meshes(coarse, fine)
+    across = 3.0 / local_edge_length(coarse.mesh, SPOT)
+    assert across < WALL_ELEMENTS_MIN
+    assert check.wall_elements_min == WALL_ELEMENTS_MIN
+    assert check.peak_von_mises.verdict is Verdict.THIN_WALL
+    assert check.peak_von_mises.elements_across == pytest.approx(across)
+    assert check.face_peaks[1].verdict is Verdict.THIN_WALL
+    assert check.face_peaks[2].verdict is Verdict.THIN_WALL
+    # The clear peak is not flagged, so it is never guarded.
+    assert check.clear_peak_von_mises is not None
+    assert check.clear_peak_von_mises.verdict is Verdict.SETTLED
+    assert check.clear_peak_von_mises.elements_across == pytest.approx(across)
+    assert check.max_displacement.elements_across is None
+
+
+def test_compare_meshes_judges_flagged_spots_on_walls_thick_enough() -> None:
+    coarse = _result(2, 1.0, peak=99.0, clear=None, faces={}, flagged=True)
+    fine = _result(4, 1.0, peak=100.0, clear=None, faces={}, flagged=True, wall=8.0)
+    assert compare_meshes(coarse, fine).peak_von_mises.verdict is Verdict.SETTLED
+    # A custom minimum is used and reported.
+    check = compare_meshes(coarse, fine, wall_elements_min=7.0)
+    assert check.wall_elements_min == 7.0
+    assert check.peak_von_mises.verdict is Verdict.THIN_WALL
+
+
+def test_compare_meshes_does_not_guard_unflagged_spots() -> None:
+    coarse = _result(2, 1.0, peak=99.0, clear=None, faces={})
+    unflagged = _result(4, 1.0, peak=100.0, clear=None, faces={}, wall=1.0)
+    assert compare_meshes(coarse, unflagged).peak_von_mises.verdict is Verdict.SETTLED
+    unmeasured = _result(4, 1.0, peak=100.0, clear=None, faces={})
+    check = compare_meshes(coarse, unmeasured).peak_von_mises
+    assert (check.verdict, check.elements_across) == (Verdict.SETTLED, None)
+
+
+def test_compare_meshes_fails_closed_where_no_wall_was_measured() -> None:
+    # A flagged spot whose wall could not be measured (an open surface) is not judged.
+    coarse = _result(2, 1.0, peak=99.0, clear=None, faces={})
+    no_wall = _result(4, 1.0, peak=100.0, clear=None, faces={}, flagged=True)
+    check = compare_meshes(coarse, no_wall).peak_von_mises
+    assert (check.verdict, check.elements_across) == (Verdict.THIN_WALL, None)
+
+
+def test_the_model_default_is_the_approved_minimum() -> None:
+    # tessera.model cannot import tessera.post: this ties the two copies of 5 together.
+    fields = {f.name: f for f in dataclasses.fields(MeshCheck)}
+    assert fields["wall_elements_min"].default == WALL_ELEMENTS_MIN

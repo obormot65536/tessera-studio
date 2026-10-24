@@ -204,6 +204,13 @@ def _solve_clamped_plate(
     Returns (mid-surface centre deflection, top/bottom mean centre deflection, number of nodes),
     deflections positive in the load direction (-z).
     """
+    return _centre_deflections(_solve_disc(step_path, mesh_size, workdir))
+
+
+def _solve_disc(
+    step_path: Path, mesh_size: float, workdir: Path, *, check_mesh: bool = False
+) -> Any:
+    """Run the quarter disc through the public API; return the ``StudyResult``."""
     from tessera.core import describe_faces, new_project, solve
     from tessera.model import FaceSet, PartInstance, PressureLoad, Support
 
@@ -230,8 +237,11 @@ def _solve_clamped_plate(
     p.study.mesh_size = mesh_size
 
     workdir.mkdir(parents=True, exist_ok=True)
-    result = solve(p, workdir=workdir)
+    return solve(p, workdir=workdir, check_mesh=check_mesh)
 
+
+def _centre_deflections(result: Any) -> tuple[float, float, int]:
+    """(mid-surface, top/bottom mean centre deflection, number of nodes) of a solved disc."""
     nodes = result.mesh.nodes
     u = result.solution.displacements
     tol = 1e-6 * RADIUS
@@ -367,3 +377,42 @@ def test_clamped_plate_mesh_convergence(
         # Error must not grow under refinement, unless it already sits well inside the gate.
         assert fine <= coarse + CONVERGENCE_SLACK or fine < tolerance / 4
     assert errors[-1] < tolerance
+
+
+THIN_WALL_MESH_SIZE = THICKNESS / 3  # mm: about 3 elements across the 2 mm plate
+
+
+def test_clamped_plate_check_mesh_does_not_settle_the_clamp_on_a_thin_wall(
+    disc_step: Path, tmp_path: Path
+) -> None:
+    """ADR-007 Amendment 2 (action item 11): at 2/3 mm the clamped rim's face peaks on the cut
+    planes barely move (measured +4.1 % and +3.9 %, 3.0 coarse elements across the 2 mm plate)
+    but keep rising at finer meshes (mesh-dependent from 0.47 mm). With fewer than 5 elements
+    across, the guard reports them as not judged (thin-wall), never settled. The peaks sit
+    0.23 mm from the clamped rim, which is left out of the wall (the part continues into the
+    fixture), so the wall is the 2 mm thickness. Measured: 37 s for both solves."""
+    from tessera.model import Verdict
+
+    result = _solve_disc(disc_step, THIN_WALL_MESH_SIZE, tmp_path, check_mesh=True)
+    check = result.mesh_check
+    assert check is not None
+    judged = {Verdict.SETTLED, Verdict.MESH_DEPENDENT, Verdict.THIN_WALL}
+    flagged = [s for s in result.face_peaks if s.flagged and s.face in check.face_peaks]
+    assert flagged, "the clamp flags the face peaks at the rim"
+    thin = []
+    for spot in flagged:
+        verdict = check.face_peaks[spot.face]
+        assert spot.wall is not None and spot.wall.thickness <= THICKNESS * (1 + 1e-6)
+        if spot.face == 4:
+            assert spot.wall.thickness == pytest.approx(THICKNESS, rel=0.01)
+        assert verdict.verdict is not Verdict.SETTLED or (
+            verdict.elements_across is not None
+            and verdict.elements_across >= check.wall_elements_min
+        )
+        assert verdict.verdict in judged | {Verdict.NOT_REFINED}
+        if verdict.verdict is Verdict.THIN_WALL:
+            assert verdict.change <= check.threshold
+            thin.append(spot.face)
+    assert thin, "a clamp peak that barely moved on this thin wall reads thin-wall"
+    # Face 4, the y = 0 cut plane: its peak at the rim read settled (+4.1 %) without the guard.
+    assert check.face_peaks[4].verdict is Verdict.THIN_WALL
