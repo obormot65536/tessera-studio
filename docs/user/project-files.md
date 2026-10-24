@@ -109,9 +109,10 @@ tessera pack bracket/project.json bracket-edited.tessera
 
 ## What a project file records
 
-Every file stores a `schema_version` number. The current number is **5** (5 added line
-supports). It is the version of the file layout, not of Tessera. Tessera saves every file in
-the current version.
+Every file stores a `schema_version` number. The current number is **6** (5 added line
+supports; 6 added materials defined in the project and the raster angle of a print setup). It
+is the version of the file layout, not of Tessera. Tessera saves every file in the current
+version.
 
 - **Older files open.** A project saved by an earlier version of Tessera still loads. Saving it
   again writes the current version.
@@ -119,11 +120,46 @@ the current version.
   Tessera stops with a message such as:
 
   ```
-  error: bracket.tessera uses project schema 6; this version of Tessera reads up to 5
+  error: bracket.tessera uses project schema 7; this version of Tessera reads up to 6
   ```
 
   Update Tessera to open the file. Do not edit the number to make it open; the file may use
   fields this version does not know.
+
+### Materials defined in the project
+
+From schema 6, a project can hold its own materials in a top-level `materials` list, for
+example the stiffness you measured on your own printed test pieces. Each entry has a `kind`
+and an `id` that is unique within the project. Stiffness values are in MPa and density in
+t/mm³ (1.24 g/cm³ is `1.24e-9`); `density` is optional.
+
+```json
+"materials": [
+  {"kind": "isotropic", "id": "my-petg", "youngs_modulus": 2100.0, "poisson_ratio": 0.38},
+  {"kind": "orthotropic", "id": "my-pla",
+   "e1": 3000.0, "e2": 2400.0, "e3": 1800.0,
+   "nu12": 0.35, "nu13": 0.30, "nu23": 0.30,
+   "g12": 1000.0, "g13": 700.0, "g23": 650.0, "density": 1.24e-9}
+]
+```
+
+An orthotropic material is stiffer in some directions than others, as a printed part is. Its
+axes follow the print: 1 along the printed lines (the raster), 2 across the lines within a
+layer, 3 up through the layers (the build direction). `nu12`, `nu13` and `nu23` are the major
+Poisson ratios: `nu12` is how much the part shrinks along axis 2 when stretched along axis 1.
+Tessera refuses a file whose constants cannot describe a real material (a stiffness of zero or
+less, or Poisson ratios so large that stretching would release energy), and says which
+material is wrong.
+
+The examples above are made-up values, not data for real PLA or PETG. Solving with project
+materials is not available yet; the file format comes first.
+
+### Print setup
+
+A part's `print_setup` records how it is printed: `process` (`"fdm"` or `"resin"`),
+`build_direction` (the part's direction that points up on the printer, default `[0, 0, 1]`)
+and, from schema 6, `raster_angle`: the angle of the printed lines in degrees, counter-clockwise
+when looking down the build direction (default `0`).
 
 Saving replaces the old file in one step. If a save fails, the previous file is kept.
 

@@ -8,6 +8,11 @@
   stress is but is not a strength check for a layer-wise part. Peaks, flags and mesh-check
   verdicts are unchanged. Projects cannot define an orthotropic material yet, so no solve shows
   the note until the wiring lands.
+- Project files are now schema 6 (ADR-009 D3): `Project.materials` holds materials defined in
+  the project (`IsotropicDefinition`, `OrthotropicDefinition`, discriminated on `kind`, ids
+  unique, orthotropic constants checked with `check_orthotropic`), and `PrintSetup` gains
+  `raster_angle` (degrees, default 0). Schema 5 files open unchanged; older Tessera versions
+  refuse schema 6 files. Nothing reads these fields yet; solving with them comes later.
 - Thin-wall guard for the two-mesh check (ADR-007 Amendment 2): a marked peak that changed by
   5 % or less is no longer called `settled` when the coarse mesh had fewer than 5 elements across
   the wall there, too few to show the stress rise, or when the wall could not be measured; it
@@ -24,7 +29,12 @@
   `MaterialFrame` and `Section.orientation` in `tessera.model`, and
   `tessera.model.elasticity` (`orthotropic_compliance`, `check_orthotropic`, `rotate_stress`).
   `SolveJob.materials` now takes either kind. Nothing uses them yet: projects cannot define an
-  orthotropic material, and the CalculiX adapter refuses one with `NotImplementedError`.
+  orthotropic material yet.
+- CalculiX deck for orthotropic materials (ADR-009): `write_deck` writes an
+  `OrthotropicMaterial` as `*ELASTIC, TYPE=ENGINEERING CONSTANTS` and a section's
+  `MaterialFrame` as `*ORIENTATION, SYSTEM=RECTANGULAR` with `ORIENTATION=` on its
+  `*SOLID SECTION` (names in `DeckNames.orientations` and `ccx_name.orientation.<elset>`
+  metadata). Results stay in global axes. Decks without orientations are unchanged.
 - API (ADR-008): `SolveJob(point_stresses=True)` asks for each element's own stresses at its
   integration points, returned in `SolveResult.point_stresses` (`PointStresses`). Opt-in;
   no reported number changes.
