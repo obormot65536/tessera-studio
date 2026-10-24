@@ -8,6 +8,10 @@
   stress is but is not a strength check for a layer-wise part. Peaks, flags and mesh-check
   verdicts are unchanged. Projects cannot define an orthotropic material yet, so no solve shows
   the note until the wiring lands.
+- Material frame from a print setup (ADR-009 D2):
+  `tessera.printsetup.material_frame(build_direction, raster_angle=0.0)` gives the `MaterialFrame` of a part printed with that direction up (axis 3)
+  and rasters turned by `raster_angle` degrees about it (axis 1 starts at printer X carried by
+  the smallest tilt; upside down uses a half turn about X). Nothing calls it yet.
 - Project files are now schema 6 (ADR-009 D3): `Project.materials` holds materials defined in
   the project (`IsotropicDefinition`, `OrthotropicDefinition`, discriminated on `kind`, ids
   unique, orthotropic constants checked with `check_orthotropic`), and `PrintSetup` gains
