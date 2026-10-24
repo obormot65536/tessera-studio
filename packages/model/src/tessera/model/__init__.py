@@ -30,6 +30,7 @@ from tessera.model.results import (
     StressSpot,
     StudyResult,
     Verdict,
+    WallSpan,
 )
 from tessera.model.solver import (
     AnalysisKind,
@@ -94,4 +95,5 @@ __all__ = [
     "Transform",
     "TriangleSurface",
     "Verdict",
+    "WallSpan",
 ]

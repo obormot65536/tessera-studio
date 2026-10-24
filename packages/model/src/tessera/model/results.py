@@ -66,6 +66,19 @@ class NodeFlags:
 
 
 @dataclass(frozen=True)
+class WallSpan:
+    """How thick the part is at a node, and in elements (ADR-007 Amendment 2)."""
+
+    thickness: float
+    """Diameter of the largest ball inside the part that touches the surface at the node, mm:
+    the smallest over the faces meeting there. Never doubled across a support."""
+    elements: float
+    """``thickness`` / the local median corner edge length of this mesh at the node."""
+    direction: Vec3
+    """Unit direction from the node to the centre of that ball (the face's inward normal)."""
+
+
+@dataclass(frozen=True)
 class StressSpot:
     """A stress value at one node, with where it is and whether it is flagged."""
 
@@ -79,6 +92,9 @@ class StressSpot:
     """Geometry face the node lies on (the lowest number on an edge between faces), or
     ``None`` inside the part."""
     flags: tuple[StressFlag, ...] = ()
+    wall: WallSpan | None = None
+    """The wall at the node (for a node inside the part, at the nearest surface node); ``None``
+    where it was not measured or could not be (an open surface)."""
 
     @property
     def flagged(self) -> bool:
@@ -94,6 +110,10 @@ class Verdict(StrEnum):
     """It changed by more than the threshold: do not compare it with a strength."""
     NOT_REFINED = "not-refined"
     """The fine mesh was not fine enough there to judge it: no verdict, the flags still apply."""
+    THIN_WALL = "thin-wall"
+    """A flagged spot that changed by at most the threshold, but the coarse mesh had fewer than
+    ``MeshCheck.wall_elements_min`` elements across the wall there, too few to show the rise,
+    or the wall could not be measured: no verdict, the flags still apply (ADR-007 Amendment 2)."""
 
 
 @dataclass(frozen=True)
@@ -108,6 +128,10 @@ class SpotCheck:
     refinement: float
     """How much finer the fine mesh is there: local element edge length, fine / coarse."""
     verdict: Verdict
+    elements_across: float | None = field(default=None, kw_only=True)
+    """Elements of the coarse mesh across the wall at the spot: the fine spot's wall thickness
+    / the coarse local edge length; ``None`` if no wall was measured there (a flagged spot that
+    changed within the threshold is then ``thin-wall``: the guard fails closed)."""
 
 
 @dataclass(frozen=True)
@@ -133,6 +157,9 @@ class MeshCheck:
     """``None`` if either mesh has no clear peak."""
     face_peaks: dict[int, SpotCheck]
     """By geometry face, for faces with a peak on both meshes."""
+    wall_elements_min: float = field(default=5.0, kw_only=True)
+    """Fewest coarse elements across the wall at which a flagged spot is judged settled; the
+    default is ``tessera.post.WALL_ELEMENTS_MIN`` (a post test keeps them equal)."""
 
 
 @dataclass(frozen=True)
