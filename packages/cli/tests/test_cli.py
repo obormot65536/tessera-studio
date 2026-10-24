@@ -263,8 +263,12 @@ def _solved(
     )
 
 
-def _solve_output(monkeypatch: pytest.MonkeyPatch, result: StudyResult, *args: str) -> list[str]:
+def _solve_output(
+    monkeypatch: pytest.MonkeyPatch, result: StudyResult, *args: str, mesh_size: float | None = 2.5
+) -> list[str]:
+    """What ``tessera solve`` prints for ``result``, from a project at ``mesh_size``."""
     import tessera.cli.app as cli
+    from tessera.core import new_project
 
     asked: list[bool] = []
 
@@ -277,7 +281,9 @@ def _solve_output(monkeypatch: pytest.MonkeyPatch, result: StudyResult, *args: s
         asked.append(check_mesh)
         return result
 
-    monkeypatch.setattr(cli, "load_project", lambda _path: None)
+    project = new_project("p")
+    project.study.mesh_size = mesh_size
+    monkeypatch.setattr(cli, "load_project", lambda _path: project)
     monkeypatch.setattr(cli, "solve", fake_solve)
     out = runner.invoke(app, ["solve", "p.tessera.json", *args])
     assert out.exit_code == 0, out.output
@@ -501,6 +507,158 @@ def test_a_spot_the_check_could_not_refine_keeps_its_flag_warning(
     unflagged = _checked(_solved((), clear=True), peak=143.0, faces={}, peak_refinement=0.95)
     lines = _solve_output(monkeypatch, unflagged, "--check-mesh")
     assert lines[5] == "  not judged: the finer mesh is only 0.95 times the element size here"
+
+
+# --- Thin walls (ADR-007 Amendment 2) ----------------------------------------------------
+
+
+def _on_wall(result: StudyResult, elements: float) -> StudyResult:
+    """``result`` with every reported spot on a 10 mm wall, ``elements`` elements across."""
+    from tessera.model import WallSpan
+
+    wall = WallSpan(thickness=10.0, elements=elements, direction=(0.0, 0.0, -1.0))
+    clear = result.clear_peak_von_mises
+    return dataclasses.replace(
+        result,
+        peak_von_mises=dataclasses.replace(result.peak_von_mises, wall=wall),
+        clear_peak_von_mises=None if clear is None else dataclasses.replace(clear, wall=wall),
+        face_peaks=tuple(dataclasses.replace(f, wall=wall) for f in result.face_peaks),
+    )
+
+
+def _thin_checked(
+    result: StudyResult, across: float | None, peak_refinement: float = 0.7
+) -> StudyResult:
+    """A two-mesh check in which the flagged raw peak and face 1 barely moved on a coarse mesh
+    with ``across`` elements across the wall; face 2 (unflagged) settled."""
+    from tessera.model import MeshCheck, SpotCheck
+    from tessera.post import spot_check
+
+    def guarded(coarse: float, fine: float, refinement: float = 0.7) -> SpotCheck:
+        return spot_check(coarse, fine, refinement, elements_across=across, guard_thin_wall=True)
+
+    return dataclasses.replace(
+        result,
+        mesh_check=MeshCheck(
+            coarse_edge_length=4.99,
+            fine_edge_length=3.54,
+            coarse_nodes=4,
+            threshold=0.05,
+            refinement_limit=0.85,
+            max_displacement=spot_check(1.52, result.max_displacement, 0.7),
+            peak_von_mises=guarded(142.0, result.max_von_mises, peak_refinement),
+            clear_peak_von_mises=None,
+            face_peaks={
+                1: guarded(149.0, 150.0, peak_refinement),
+                2: spot_check(139.0, 140.0, 0.7, elements_across=across),
+            },
+        ),
+    )
+
+
+def test_a_flagged_peak_on_a_thin_wall_is_not_judged(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The mesh size that puts 5 elements across, with a 10 % margin for element edges that come
+    # out longer than --mesh-size: 0.9 x 2.5 mm x 2.01 / 5 = 0.905, rounded down.
+    result = _thin_checked(_on_wall(_solved(("root",), clear=False), 2.7), across=2.01)
+    lines = _solve_output(monkeypatch, result, "--check-mesh")
+    assert lines[4] == "max von Mises stress: 143.79 MPa at (0, 5, 5) mm, face 1"
+    assert lines[5] == (
+        "  near support 'root' (within 5 mm): the stress there may keep rising as the mesh is"
+        " refined; not judged: changed 1.24 % between the meshes, but the coarse mesh had only"
+        " 2.01 elements across the 10 mm wall here (at least 5 needed); try --mesh-size 0.9 or less"
+    )
+    assert lines[7:9] == [
+        "  face 1: 150 MPa at (0, 0, 0) mm, near support 'root' (not judged: changed 0.67 %"
+        " between the meshes, but the coarse mesh had only 2.01 elements across the 10 mm wall"
+        " here (at least 5 needed); try --mesh-size 0.9 or less)",
+        "  face 2: 140 MPa at (1, 0, 0) mm (settled, changed 0.71 % between the meshes)",
+    ]
+    assert not any(line.startswith("  thin wall") for line in lines)
+
+
+def test_a_flagged_peak_whose_wall_could_not_be_measured_is_not_judged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _thin_checked(_solved(("root",), clear=False), across=None)
+    lines = _solve_output(monkeypatch, result, "--check-mesh")
+    assert lines[5] == (
+        "  near support 'root' (within 5 mm): the stress there may keep rising as the mesh is"
+        " refined; not judged: changed 1.24 % between the meshes, but the wall could not be"
+        " measured here"
+    )
+
+
+def test_a_flagged_peak_not_refined_on_a_thin_wall_still_gets_the_hint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _thin_checked(
+        _on_wall(_solved(("root",), clear=False), 2.7), across=2.01, peak_refinement=0.95
+    )
+    lines = _solve_output(monkeypatch, result, "--check-mesh")
+    assert lines[5] == (
+        "  near support 'root' (within 5 mm): the stress there may keep rising as the mesh is"
+        " refined; not judged: the finer mesh is only 0.95 times the element size here"
+    )
+    assert lines[6] == (
+        "  thin wall: 2.01 elements across the 10 mm wall here on the coarse mesh; use"
+        " --mesh-size 0.9 or less before --check-mesh, or the comparison cannot see the rise"
+    )
+    assert lines[8] == (
+        "  face 1: 150 MPa at (0, 0, 0) mm, near support 'root', thin wall (2.01 elements"
+        " across) (not judged: the finer mesh is only 0.95 times the element size here)"
+    )
+
+
+def test_without_the_check_a_thin_wall_at_a_flagged_peak_gets_advice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 0.9 x 2.5 mm x 2.7 / 5 = 1.215: a mesh size that puts 5 elements across, rounded down.
+    lines = _solve_output(monkeypatch, _on_wall(_solved(("root",), clear=True), 2.7))
+    assert lines[4].startswith("  near support 'root' (within 5 mm): the stress there may keep")
+    assert lines[5] == (
+        "  thin wall: 2.7 elements across the 10 mm wall here; use --mesh-size 1.2 or less before"
+        " --check-mesh, or the comparison cannot see the rise"
+    )
+    assert lines[6] == "max von Mises stress by face (5 of 7):"
+    assert lines[7] == (
+        "  face 1: 150 MPa at (0, 0, 0) mm, near support 'root', thin wall (2.7 elements across)"
+    )
+    assert lines[8] == "  face 2: 140 MPa at (1, 0, 0) mm"  # not flagged: no advice
+
+
+def test_the_advised_mesh_size_is_below_the_current_one_just_under_the_minimum(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # At --mesh-size 2 a 10 mm wall has 4.83 elements across (the median edge is longer than
+    # the mesh size): wall / 5 = 2 would not refine at all; 0.9 x 2 x 4.83 / 5 = 1.74 does.
+    lines = _solve_output(
+        monkeypatch, _on_wall(_solved(("root",), clear=True), 4.83), mesh_size=2.0
+    )
+    assert lines[5] == (
+        "  thin wall: 4.83 elements across the 10 mm wall here; use --mesh-size 1.7 or less"
+        " before --check-mesh, or the comparison cannot see the rise"
+    )
+
+
+def test_with_an_automatic_mesh_size_the_advice_scales_the_element_edge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 0.9 x median element edge 2.5 mm (node_flags.edge_length) x 2.7 / 5 = 1.215.
+    lines = _solve_output(
+        monkeypatch, _on_wall(_solved(("root",), clear=True), 2.7), mesh_size=None
+    )
+    assert "use --mesh-size 1.2 or less before --check-mesh" in lines[5]
+
+
+@pytest.mark.parametrize(
+    ("flags", "elements"),
+    [(("root",), 5.0), (("root",), 6.2), ((), 2.7)],
+)
+def test_no_thin_wall_advice_on_thick_walls_or_unflagged_peaks(
+    monkeypatch: pytest.MonkeyPatch, flags: tuple[str, ...], elements: float
+) -> None:
+    lines = _solve_output(monkeypatch, _on_wall(_solved(flags, clear=True), elements))
+    assert not any("thin wall" in line for line in lines)
 
 
 def test_solve_passes_the_timeout_to_core(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
