@@ -10,6 +10,19 @@ connectivity is already in C3D10 order, so it is written unchanged (plus one).
 Precision: the ASCII ``.frd`` file stores results as ``E12.5``, i.e. six significant digits.
 Results read back from it carry a relative rounding error of up to 5e-6.
 
+Orthotropic materials (ADR-009 D2): ``*ELASTIC, TYPE=ENGINEERING CONSTANTS`` with E1 E2 E3 nu12
+nu13 nu23 G12 G13 on one line and G23 on the next (major Poisson ratios, as in the model), and
+one ``*ORIENTATION, SYSTEM=RECTANGULAR`` (a = material axis 1, b = material axis 2, in part
+coordinates) per section with a ``MaterialFrame``, referenced by ``ORIENTATION=`` on its
+``*SOLID SECTION``. Verified on ccx 2.21 (``test_calculix_orthotropic.py``):
+
+1. ``.frd`` stresses (and displacements) are in GLOBAL axes with an ``*ORIENTATION`` active: a
+   cube with material axis 1 along global -z, pulled along z, returns SZZ = 9.99990 and the other
+   components below 1e-12 at every node; local axes would put sigma_11 in the SXX slot.
+2. The card order ``*MATERIAL``, ``*ORIENTATION``, ``*SOLID SECTION`` is accepted. ccx 2.21 also
+   gives identical results with ``*ORIENTATION`` before ``*MATERIAL`` or after the
+   ``*SOLID SECTION`` that names it; the order written here is the one the ADR specifies.
+
 Integration points (ADR-008), only when ``SolveJob.point_stresses`` asks for them:
 ``*EL PRINT`` writes every element's stresses at its integration points to ``job.dat``
 (``E13.6``, seven significant digits). These are ccx's own values, not extrapolated or averaged.
@@ -117,6 +130,8 @@ class DeckNames:
     element_sets: dict[str, str]
     node_sets: dict[str, str]
     materials: dict[str, str]
+    orientations: dict[str, str] = field(default_factory=dict[str, str])
+    """Element set of a section with a ``MaterialFrame`` → its ``*ORIENTATION`` name."""
 
     def as_metadata(self) -> dict[str, str]:
         return {
@@ -125,17 +140,21 @@ class DeckNames:
                 ("elset", self.element_sets),
                 ("nset", self.node_sets),
                 ("material", self.materials),
+                ("orientation", self.orientations),
             )
             for neutral, ccx in table.items()
         }
 
 
 def deck_names(job: SolveJob) -> DeckNames:
-    """The CalculiX names ``write_deck`` uses for ``job``'s sets and materials."""
+    """The CalculiX names ``write_deck`` uses for ``job``'s sets, materials and orientations."""
     return DeckNames(
         element_sets=_safe_names(job.mesh.element_sets, "E_"),
         node_sets=_safe_names(job.mesh.node_sets, "N_"),
         materials=_safe_names((m.name for m in job.materials), "M_"),
+        orientations=_safe_names(
+            (s.element_set for s in job.sections if s.orientation is not None), "O_"
+        ),
     )
 
 
@@ -164,8 +183,10 @@ def write_deck(job: SolveJob) -> str:
     Neutral set and material names are mapped to CalculiX-safe names (see ``deck_names``);
     the mapping is written as comments at the top of the deck. Raises ``SolverError`` when the
     job cannot be expressed as a valid deck (duplicate material names, unknown sets or
-    materials, out-of-range indices, unsupported analysis), and ``NotImplementedError`` for an
-    ``OrthotropicMaterial`` (not written yet, ADR-009).
+    materials, out-of-range indices, unsupported analysis). An ``OrthotropicMaterial`` is written
+    as ``*ELASTIC, TYPE=ENGINEERING CONSTANTS`` (ADR-009 D2) and each
+    section with an orientation is written as ``*ORIENTATION`` plus ``ORIENTATION=`` on its
+    ``*SOLID SECTION``; a job without orientations gives the same deck as before ADR-009.
     """
     if job.analysis is not AnalysisKind.STATIC:
         raise SolverError(f"CalculiX adapter does not support analysis {job.analysis!r}")
@@ -179,11 +200,17 @@ def write_deck(job: SolveJob) -> str:
         _check_indices("Node set", name, np.asarray(nodes), n_nodes)
     names = deck_names(job)
     elsets, nsets, mats = names.element_sets, names.node_sets, names.materials
+    orients = names.orientations
 
     out: list[str] = ["** Tessera Studio: generated CalculiX deck"]
     out.extend(
         f"** {kind} {neutral!r} -> {ccx}"
-        for kind, table in (("ELSET", elsets), ("NSET", nsets), ("MATERIAL", mats))
+        for kind, table in (
+            ("ELSET", elsets),
+            ("NSET", nsets),
+            ("MATERIAL", mats),
+            ("ORIENTATION", orients),
+        )
         for neutral, ccx in table.items()
     )
     out.append("*NODE")
@@ -206,14 +233,16 @@ def write_deck(job: SolveJob) -> str:
         out.extend(_id_lines(int(n) + 1 for n in np.asarray(nodes).ravel()))
 
     for mat in job.materials:
-        if isinstance(mat, OrthotropicMaterial):
-            # ADR-009 PR-2 writes *ELASTIC, TYPE=ENGINEERING CONSTANTS and *ORIENTATION.
-            raise NotImplementedError(
-                f"CalculiX adapter cannot write orthotropic material {mat.name!r} yet"
-            )
         out.append(f"*MATERIAL, NAME={mats[mat.name]}")
-        out.append("*ELASTIC")
-        out.append(f"{_num(mat.youngs_modulus)}, {_num(mat.poisson_ratio)}")
+        if isinstance(mat, OrthotropicMaterial):
+            # ccx reads 8 constants per line: E1 E2 E3 nu12 nu13 nu23 G12 G13, then G23.
+            first = (mat.e1, mat.e2, mat.e3, mat.nu12, mat.nu13, mat.nu23, mat.g12, mat.g13)
+            out.append("*ELASTIC, TYPE=ENGINEERING CONSTANTS")
+            out.append(", ".join(_num(v) for v in first))
+            out.append(_num(mat.g23))
+        else:
+            out.append("*ELASTIC")
+            out.append(f"{_num(mat.youngs_modulus)}, {_num(mat.poisson_ratio)}")
         if mat.density is not None:
             out.append("*DENSITY")
             out.append(_num(mat.density))
@@ -225,9 +254,14 @@ def write_deck(job: SolveJob) -> str:
         if sec.material not in mats:
             raise SolverError(f"Section refers to unknown material {sec.material!r}")
         covered[np.asarray(mesh.element_sets[sec.element_set])] = True
-        out.append(
-            f"*SOLID SECTION, ELSET={elsets[sec.element_set]}, MATERIAL={mats[sec.material]}"
-        )
+        section = f"*SOLID SECTION, ELSET={elsets[sec.element_set]}, MATERIAL={mats[sec.material]}"
+        if sec.orientation is not None:
+            name = orients[sec.element_set]
+            a, b = sec.orientation.axis_1, sec.orientation.axis_2
+            out.append(f"*ORIENTATION, NAME={name}, SYSTEM=RECTANGULAR")
+            out.append(", ".join(_num(v) for v in (*a, *b)))
+            section += f", ORIENTATION={name}"
+        out.append(section)
     if not covered.all():
         raise SolverError(
             f"{int((~covered).sum())} element(s) are not assigned a section (material)"
