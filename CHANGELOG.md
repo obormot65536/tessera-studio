@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Orthotropic results are labelled (ADR-009 D4): `StudyResult.orthotropic` is true when any
+  material in the study is an `OrthotropicMaterial` (set by `tessera.post.summarize`), and
+  `tessera solve` then prints a note before the stress lines that von Mises shows where the
+  stress is but is not a strength check for a layer-wise part. Peaks, flags and mesh-check
+  verdicts are unchanged. Projects cannot define an orthotropic material yet, so no solve shows
+  the note until the wiring lands.
 - Material frame from a print setup (ADR-009 D2):
   `tessera.printsetup.material_frame(build_direction, raster_angle=0.0)` gives the `MaterialFrame` of a part printed with that direction up (axis 3)
   and rasters turned by `raster_angle` degrees about it (axis 1 starts at printer X carried by

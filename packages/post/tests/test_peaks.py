@@ -17,6 +17,7 @@ from tessera.model import (
     FlagKind,
     IsotropicMaterial,
     Mesh,
+    OrthotropicMaterial,
     Section,
     SolveJob,
     SolveResult,
@@ -345,6 +346,33 @@ def test_face_without_any_result_is_left_out(bar: Mesh) -> None:
 def test_no_result_at_all_is_an_error(bar: Mesh) -> None:
     with pytest.raises(ValueError, match="no node"):
         summarize(job(bar), uniaxial(np.full(bar.n_nodes, np.nan)))
+
+
+# --- Orthotropic flag (ADR-009 D4) --------------------------------------------------------
+
+
+def test_isotropic_result_is_not_marked_orthotropic(bar: Mesh) -> None:
+    result = summarize(job(bar), uniaxial(bar.nodes[:, 0]))
+    assert result.orthotropic is False
+
+
+def test_any_orthotropic_material_marks_the_result(bar: Mesh) -> None:
+    layered = OrthotropicMaterial(
+        name="layered",
+        e1=3000.0,
+        e2=2800.0,
+        e3=2000.0,
+        nu12=0.35,
+        nu13=0.3,
+        nu23=0.3,
+        g12=1100.0,
+        g13=800.0,
+        g23=800.0,
+    )
+    base = job(bar)
+    mixed = dataclasses.replace(base, materials=(*base.materials, layered))
+    result = summarize(mixed, uniaxial(bar.nodes[:, 0]))
+    assert result.orthotropic is True
 
 
 def test_summarize_measures_the_wall_where_the_guard_needs_it(bar: Mesh) -> None:

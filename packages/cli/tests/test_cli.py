@@ -339,6 +339,38 @@ def test_solve_without_flags_or_clear_nodes(monkeypatch: pytest.MonkeyPatch) -> 
     assert not any("by face" in line for line in lines)
 
 
+ORTHOTROPIC_NOTE = (
+    "note: this part uses an orthotropic (layer-wise) material; von Mises stress shows where the"
+    " stress is, but it is not a strength check: printed parts are weaker across layers."
+    " Layer-wise failure checks are planned for v0.5."
+)
+
+
+def test_solve_notes_an_orthotropic_part_before_the_stress_lines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    isotropic = _solved(("root",), clear=True)
+    plain = _solve_output(monkeypatch, isotropic)
+    assert ORTHOTROPIC_NOTE not in plain
+    assert not any("orthotropic" in line for line in plain)
+
+    lines = _solve_output(monkeypatch, dataclasses.replace(isotropic, orthotropic=True))
+    assert lines[:3] == [
+        "nodes: 10, elements: 1",
+        "max displacement: 1.52238 mm",
+        ORTHOTROPIC_NOTE,
+    ]
+    # Everything else is unchanged: the note is the only added line.
+    assert lines[3:] == plain[2:]
+
+    checked = _checked(isotropic, peak=120.0, faces={1: 120.0})
+    plain = _solve_output(monkeypatch, checked, "--check-mesh")
+    lines = _solve_output(
+        monkeypatch, dataclasses.replace(checked, orthotropic=True), "--check-mesh"
+    )
+    assert lines == [*plain[:3], ORTHOTROPIC_NOTE, *plain[3:]]
+
+
 def _listed_edges(path: str, *options: str) -> list[str]:
     return [line.split()[0] for line in _ok("edges", path, "bracket", *options).splitlines()]
 

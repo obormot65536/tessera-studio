@@ -8,6 +8,7 @@ from numpy.typing import NDArray
 from tessera.model import (
     FlagKind,
     Mesh,
+    OrthotropicMaterial,
     SolveJob,
     SolveResult,
     StressFlag,
@@ -126,4 +127,5 @@ def summarize(job: SolveJob, solution: SolveResult, workdir: Path | None = None)
         clear_peak_von_mises=None if clear is None else on_lowest_face(clear),
         face_peaks=tuple(face_peaks),
         node_flags=flags,
+        orthotropic=any(isinstance(m, OrthotropicMaterial) for m in job.materials),
     )

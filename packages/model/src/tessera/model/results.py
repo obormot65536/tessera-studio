@@ -182,6 +182,9 @@ class StudyResult:
     node_flags: NodeFlags = field(kw_only=True)
     mesh_check: MeshCheck | None = field(default=None, kw_only=True)
     """The two-mesh check, if it was asked for (``solve(..., check_mesh=True)``)."""
+    orthotropic: bool = field(default=False, kw_only=True)
+    """True if any material in the study is orthotropic (ADR-009 D4). Von Mises still shows where
+    the stress is, but it is not a strength check for such a part."""
 
     @property
     def displacement_magnitude(self) -> np.ndarray:
