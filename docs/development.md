@@ -20,11 +20,13 @@ with the code.
 
 ## CI
 
-- Fast tier (ruff, pyright, lint-imports, unit tests) on Ubuntu and Windows gates the solver
-  tier (CalculiX benchmarks, Linux).
-- macOS runs the fast tier only on PRs labelled `macos`. Add the label when a change touches
-  macOS-specific behaviour (paths, packaging, native libraries); the macOS run must then pass.
-  Other PRs and pushes to `main` skip it, because GitHub's macOS runners are often unavailable.
+- Fast tier (ruff, pyright, lint-imports, unit tests) on Ubuntu gates the solver tier
+  (CalculiX benchmarks, Linux).
+- Windows and macOS run the fast tier only on PRs labelled `windows` or `macos`. Add the label
+  when a change touches that platform's behaviour (paths, packaging, native libraries,
+  subprocess and signal handling); that run must then pass. Other PRs and pushes to `main` skip
+  them: their runners cost more Actions minutes than Linux, and GitHub's macOS runners are
+  often unavailable.
 
 ## Milestones
 

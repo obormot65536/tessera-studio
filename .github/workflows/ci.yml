@@ -8,17 +8,12 @@ on:
 
 jobs:
   fast:
-    name: Fast tier (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
+    name: Fast tier (ubuntu-latest)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libglu1-mesa libxcursor1 libxinerama1 libxft2
+      - run: sudo apt-get update && sudo apt-get install -y libglu1-mesa libxcursor1 libxinerama1 libxft2
       - run: uv sync
       - run: uv run ruff check .
       - run: uv run ruff format --check .
@@ -26,9 +21,24 @@ jobs:
       - run: uv run lint-imports
       - run: uv run pytest -m "not solver"
 
-  # macOS runners are scarce and slow to start, so the macOS job runs only on PRs labelled
-  # "macos" (changes to macOS-specific behaviour: paths, packaging, native libraries). There it
-  # must pass. It never gates the solver tier.
+  # Windows and macOS runners cost more minutes than Linux (macOS is also scarce and slow to
+  # start), so each runs only on PRs labelled "windows" or "macos": changes to that platform's
+  # behaviour (paths, packaging, native libraries, subprocess handling). There it must pass. It
+  # never gates the solver tier.
+  fast-windows:
+    name: Fast tier (windows-latest)
+    if: contains(github.event.pull_request.labels.*.name, 'windows')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pyright
+      - run: uv run lint-imports
+      - run: uv run pytest -m "not solver"
+
   fast-macos:
     name: Fast tier (macos-latest)
     if: contains(github.event.pull_request.labels.*.name, 'macos')
