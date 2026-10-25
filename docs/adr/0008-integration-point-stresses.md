@@ -214,13 +214,15 @@ surfaces.
 - Easier: v0.5 failure criteria get per-element tensors in each element's material; patch tests
   check stresses to 1e-6 instead of 1e-5; interface stresses are no longer averaged across materials.
 - Harder: a second results file to parse and validate; `.dat` format changes across ccx versions
-  are caught only by tests; disk use grows by about 624 bytes per element.
+  are caught only by tests; disk use grows by about 624 bytes per element (396 as built, S only;
+  measured in action item 6).
 - Risks:
   - xz/yz swap. Pinned by the rotated uniaxial test.
   - `.dat` drift across ccx versions. Pinned by the parser snippet test and the ccx tests.
   - COORD missing in some ccx version. Fallback: map the rule points through the mesh (finding 4
     gives the rule and order).
   - `.dat` size at 1e6 elements. Vectorize, measure; if needed, opt in with a `SolveJob` flag.
+    Measured: 402 MB and 8 s to read at 1e6 elements (action item 6).
   - A later "simplification" of peaks to integration-point maxima. Forbidden by Decision 4.
 - Revisit: under `NLGEOM` (v0.5 contact), check whether COORD gives the deformed or the reference
   position; this has not been tested.
@@ -244,9 +246,29 @@ surfaces.
 4. [x] `solvers`: deck output, `parse_dat`, `.dat` checks in `run()`.
 5. [x] `post`: `points.py`, `von_mises` fix, `flag_points`. When items 3-5 have landed, tick
        ADR-004 action item 7.
-6. [ ] Benchmark gate: no existing reference changes. Propose
+6. [x] Benchmark gate: no existing reference changes. Propose
    `benchmarks/references/patch_test_points.toml` (TS-03 at integration points, 1e-6) in the PR;
    the maintainer creates it. Measure `.dat` size and run time on a 1e6-element part.
-   Done except the measurement: the reference was approved at 1e-6 (points) and 1.5e-6
-   (element-nodal, the E13.6 floor times the tet4 fit weight); existing references unchanged.
+   Done: the reference was approved at 1e-6 (points) and 1.5e-6 (element-nodal, the E13.6
+   floor times the tet4 fit weight); existing references unchanged. Measured (2026-10-25,
+   CalculiX 2.21, 4 cores, 15 GB) on a clamped steel bar with an axial end force, a
+   structured C3D10 mesh (6 tetrahedra per cube) through `CalculixAdapter`'s own deck and
+   readers, each size run with `point_stresses` off and on:
+
+   | elements | solver | ccx off / on | `.dat` | `.dat` read | `.frd` | `.frd` read |
+   |---|---|---|---|---|---|---|
+   | 10,800 | SPOOLES | 5.5 / 5.0 s | 4.3 MB | 0.06 s | 5.1 MB | 0.12 s |
+   | 103,680 | SPOOLES | 249 / 251 s | 41 MB | 0.57 s | 46 MB | 1.2 s |
+   | 103,680 | iterative Cholesky | 57.5 / 57.9 s | 41 MB | 0.65 s | 46 MB | 1.3 s |
+   | 1,014,000 | iterative Cholesky | 970 / 991 s | 402 MB | 8.2 s | 433 MB | 19 s |
+
+   The adapter prints S only (the points come from the mesh, not COORD), so the `.dat` costs
+   **396 bytes per element** (4 rows of 99), not 624; it is slightly smaller than the `.frd`.
+   ccx time and memory do not change measurably (+2 % at 1e6, within run-to-run noise; ccx
+   peak 4.7 GB / 5.4 GB unchanged). Reading the `.dat` takes about half the time of reading the
+   `.frd` and does not raise Python's peak memory (2.9 GB at 1e6, set by the `.frd` read); the
+   arrays kept are 288 bytes per element (292 MB at 1e6). The 1e6 run used
+   `SOLVER=ITERATIVE CHOLESKY` because SPOOLES needs 4.7 GB already at 1e5 elements and would
+   not fit in 15 GB; the solver does not change what the `.dat` holds. Opt-in (decision 2)
+   stays as it is; nothing here argues for more.
 7. [ ] Failure-criteria ADR (v0.5) built on `element_nodal_stresses`.
