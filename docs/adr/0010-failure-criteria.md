@@ -1,6 +1,6 @@
 # ADR-010: Failure criteria and strength ratios (v0.5)
 
-**Status:** Proposed
+**Status:** Accepted (maintainer, 2026-10-25)
 **Deciders:** Maintainer
 
 ## Context
@@ -280,7 +280,7 @@ rollers, which are exact when the load is along a material axis.
 
 ## Action items
 
-1. [ ] Maintainer approves the items above.
+1. [x] Maintainer approves the items above (approvals 1-4; 5 comes with the TO-06 PR).
 2. [ ] PR-1 to PR-5.
 3. [ ] Curator issue for PLA/PETG strengths.
 4. [ ] ADR-009 D4: replace the orthotropic note with the strength lines once PR-4 lands.
