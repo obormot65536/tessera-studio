@@ -214,8 +214,10 @@ Unit tests (fail before the code):
   `strength` defaults to `None`; schema 7 round-trip and `test_schema_6_project_loads_unchanged`.
 - `post/tests/test_failure.py`: uniaxial stress along each material axis gives R = T_i/sigma or
   C_i/|sigma| exactly; pure shear gives S/tau; Tsai-Wu with isotropic strengths equals von Mises
-  for random states (to 1e-12); R scales as 1/k for stress k sigma only when b = 0, and solves the
-  quadratic otherwise; zero stress gives inf; brittle isotropic picks tension or compression;
+  for random states (to 1e-12); R(k sigma) = R(sigma) / k for every k > 0, linear terms
+  included (corrected in PR-2: the drafted "only when b = 0" was wrong), and R sigma lies on the
+  envelope; reversing the stress changes R when tension and compression strengths differ; zero
+  stress gives inf; brittle isotropic picks tension or compression;
   mode labels for each term; missing C_i fills in and is listed.
 - `post/tests/test_strength_result.py`: per-node minimum over elements (two elements, two frames
   meeting at a node); flagged lowest never becomes `clear_lowest`; `None` without point stresses;

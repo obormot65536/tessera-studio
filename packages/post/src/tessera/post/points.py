@@ -12,7 +12,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from tessera.model import Mesh, PointStresses
-from tessera.post.summary import von_mises
+from tessera.post.stress import von_mises
 
 _FLAT = 1e-8
 """Smallest to largest singular value of the (centred, scaled) fit matrix below which an

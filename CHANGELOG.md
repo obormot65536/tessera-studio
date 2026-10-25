@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Strength ratios in `tessera.post` (ADR-010 PR-2): `summarize` adds `StudyResult.strength` when
+  a material of the job has a strength and the solution has integration-point stresses. The
+  ratio R (how many times the loads could rise before first failure is predicted) comes from
+  each element's own stresses at its nodes in its material axes, the lowest over the elements
+  at each node: Tsai-Wu with F*_ij = -1/2 for orthotropic materials, yield / von Mises for
+  ductile isotropic ones, the maximum principal stress for brittle ones. It reports the lowest
+  ratio, the lowest away from flagged nodes, the lowest per face, a failure mode for each, the
+  criteria, the assumed compressive strengths and the materials left unchecked.
+  `compare_meshes` fills `MeshCheck.lowest_strength_ratio`. New: `tsai_wu_ratio`,
+  `isotropic_ratio`, `strength_ratio`, `failure_mode`, `criterion`, `TSAI_WU_INTERACTION`.
+  Solves do not ask for integration-point stresses yet (PR-3), so results are unchanged.
 - Project files are now schema 7 (ADR-010 D3): `IsotropicDefinition` and
   `OrthotropicDefinition` take an optional `strength` (`IsotropicStrengthDefinition`: `tensile`,
   `compressive`, `brittle`; `OrthotropicStrengthDefinition`: `t1`-`t3`, `s12`, `s13`, `s23`,
