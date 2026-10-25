@@ -11,29 +11,20 @@ from tessera.model import (
     OrthotropicMaterial,
     SolveJob,
     SolveResult,
+    StrengthResult,
+    StrengthSpot,
     StressFlag,
     StressSpot,
     StudyResult,
     WallSpan,
 )
+from tessera.post.failure import criterion, failure_mode, strength_ratio
 from tessera.post.flags import SUPPORT_PREFIX, flag_nodes
+from tessera.post.points import element_nodal_stresses
+from tessera.post.stress import von_mises
 from tessera.post.wall import OuterSurface, outer_surface, samples_on, wall_span
 
 _FACE_PREFIX = "face:"
-
-
-def von_mises(stresses: NDArray[np.float64]) -> NDArray[np.float64]:
-    """Von Mises stress from (..., 6) components xx, yy, zz, xy, yz, zx (MPa), shape (...).
-
-    (N, 6) nodal stresses give (N,); (M, Q, 6) integration-point stresses give (M, Q).
-    """
-    if stresses.shape[-1:] != (6,):
-        raise ValueError(f"stresses must have shape (..., 6), got {stresses.shape}")
-    sxx, syy, szz, sxy, syz, szx = (stresses[..., k] for k in range(6))
-    return np.sqrt(
-        0.5 * ((sxx - syy) ** 2 + (syy - szz) ** 2 + (szz - sxx) ** 2)
-        + 3.0 * (sxy**2 + syz**2 + szx**2)
-    )
 
 
 def _faces(mesh: Mesh) -> dict[int, NDArray[np.int64]]:
@@ -52,9 +43,21 @@ def _peak(values: NDArray[np.float64], candidates: NDArray[np.int64]) -> int | N
     return int(finite[np.argmax(values[finite])]) if finite.size else None
 
 
+def _lowest(values: NDArray[np.float64], candidates: NDArray[np.int64]) -> int | None:
+    """The candidate node with the smallest value, skipping NaN; ``None`` if there is none."""
+    finite = candidates[~np.isnan(values[candidates])]
+    return int(finite[np.argmin(values[finite])]) if finite.size else None
+
+
 def summarize(job: SolveJob, solution: SolveResult, workdir: Path | None = None) -> StudyResult:
     """Summarize a solution of ``job``. Nodes no element uses may have no result (NaN) and are
-    skipped."""
+    skipped.
+
+    When a material of the job has a strength and the solution has point stresses, the result
+    carries strength ratios (ADR-010): from each element's own stresses at its nodes
+    (``element_nodal_stresses``), in its material axes, the lowest over the elements at each
+    node. Without point stresses there is no strength result; averaged nodal stresses are never
+    used for it."""
     mesh = job.mesh
     stress = von_mises(solution.stresses)
     flags = flag_nodes(job)
@@ -117,6 +120,69 @@ def summarize(job: SolveJob, solution: SolveResult, workdir: Path | None = None)
     ]
     face_peaks.sort(key=lambda s: -s.value)
 
+    strength = None
+    materials = {m.name: m for m in job.materials}
+    checked = [sec for sec in job.sections if materials[sec.material].strength is not None]
+    if checked and solution.point_stresses is not None:
+        nodal = element_nodal_stresses(mesh, solution.point_stresses)
+        section_of = np.full(mesh.n_elements, -1, dtype=np.int64)
+        element_ratio = np.full(mesh.elements.shape, np.nan)
+        for index, sec in enumerate(checked):
+            elements = mesh.element_sets[sec.element_set]
+            section_of[elements] = index
+            values = strength_ratio(
+                nodal[elements].reshape(-1, 6), materials[sec.material], sec.orientation
+            )
+            element_ratio[elements] = values.reshape(len(elements), -1)
+        ratio = np.full(mesh.n_nodes, np.nan)
+        np.fmin.at(ratio, mesh.elements.ravel(), element_ratio.ravel())
+
+        def strength_spot(node: int, face: int | None, measure: bool = False) -> StrengthSpot:
+            """The spot at ``node``, from the element that gave its lowest ratio."""
+            at_node = (mesh.elements == node) & (element_ratio == ratio[node])
+            element, corner = np.argwhere(at_node)[0]
+            sec = checked[section_of[element]]
+            mode = failure_mode(nodal[element, corner], materials[sec.material], sec.orientation)
+            x, y, z = (float(c) for c in mesh.nodes[node])
+            node_flags = flags.at(node)
+            return StrengthSpot(
+                ratio=float(ratio[node]),
+                node=node,
+                element=int(element),
+                location=(x, y, z),
+                face=face,
+                mode=mode,
+                flags=node_flags,
+                wall=wall(node) if measure or node_flags else None,
+            )
+
+        def strength_on_lowest_face(node: int) -> StrengthSpot:
+            face = int(lowest_face[node])
+            return strength_spot(node, face if face >= 0 else None, measure=True)
+
+        lowest = _lowest(ratio, all_nodes)
+        if lowest is not None:
+            clear_lowest = _lowest(ratio, np.flatnonzero(~flags.flagged))
+            face_lowest = [
+                strength_spot(node, face)
+                for face, nodes in faces.items()
+                if (node := _lowest(ratio, nodes)) is not None
+            ]
+            face_lowest.sort(key=lambda s: s.ratio)
+            used = {materials[sec.material] for sec in checked}
+            strength = StrengthResult(
+                criteria={m.name: criterion(m) for m in sorted(used, key=lambda m: m.name)},
+                lowest=strength_on_lowest_face(lowest),
+                clear_lowest=(
+                    None if clear_lowest is None else strength_on_lowest_face(clear_lowest)
+                ),
+                face_lowest=tuple(face_lowest),
+                assumed={
+                    m.name: m.strength.assumed for m in used if m.strength and m.strength.assumed
+                },
+                unchecked=tuple(sorted({m.name for m in job.materials if m.strength is None})),
+            )
+
     return StudyResult(
         mesh=mesh,
         solution=solution,
@@ -128,4 +194,5 @@ def summarize(job: SolveJob, solution: SolveResult, workdir: Path | None = None)
         face_peaks=tuple(face_peaks),
         node_flags=flags,
         orthotropic=any(isinstance(m, OrthotropicMaterial) for m in job.materials),
+        strength=strength,
     )

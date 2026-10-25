@@ -5,7 +5,16 @@ import math
 import numpy as np
 from scipy.spatial import KDTree
 
-from tessera.model import TET10_EDGES, Mesh, MeshCheck, SpotCheck, StressSpot, StudyResult, Verdict
+from tessera.model import (
+    TET10_EDGES,
+    Mesh,
+    MeshCheck,
+    SpotCheck,
+    StrengthSpot,
+    StressSpot,
+    StudyResult,
+    Verdict,
+)
 
 MESH_CHECK_THRESHOLD = 0.05
 """Largest relative change between the two meshes that still counts as settled (ADR-007,
@@ -90,15 +99,16 @@ def compare_meshes(
 
     Elements across the wall are the fine spot's wall thickness over the coarse mesh's local
     edge length there. Only flagged spots are guarded against a thin wall (ADR-007 Amendment 2).
+    The lowest strength ratio (ADR-010 D5) is judged the same way, with the same threshold.
     """
 
-    def check(a: float, spot: StressSpot) -> SpotCheck:
+    def check(a: float, spot: StressSpot | StrengthSpot) -> SpotCheck:
         h_coarse = local_edge_length(coarse.mesh, spot.location)
         ratio = local_edge_length(fine.mesh, spot.location) / h_coarse
         across = None if spot.wall is None else spot.wall.thickness / h_coarse
         return spot_check(
             a,
-            spot.value,
+            spot.value if isinstance(spot, StressSpot) else spot.ratio,
             ratio,
             threshold,
             refinement_limit,
@@ -116,6 +126,11 @@ def compare_meshes(
         for spot in fine.face_peaks
         if spot.face is not None and spot.face in coarse_faces
     }
+    strength = None
+    if coarse.strength is not None and fine.strength is not None:
+        a, b = coarse.strength.lowest, fine.strength.lowest
+        if math.isfinite(a.ratio) and math.isfinite(b.ratio):  # inf: no stress, nothing to judge
+            strength = check(a.ratio, b)
     h_coarse, h_fine = coarse.node_flags.edge_length, fine.node_flags.edge_length
     return MeshCheck(
         coarse_edge_length=h_coarse,
@@ -133,5 +148,6 @@ def compare_meshes(
         peak_von_mises=check(coarse.max_von_mises, fine.peak_von_mises),
         clear_peak_von_mises=clear,
         face_peaks=faces,
+        lowest_strength_ratio=strength,
         wall_elements_min=wall_elements_min,
     )
