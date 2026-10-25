@@ -111,7 +111,7 @@ def test_line_supports_round_trip_through_a_project_file(project: Project, tmp_p
     path = tmp_path / "beam.tessera.json"
     save_project(project, path)
     stored = json.loads(path.read_text(encoding="utf-8"))
-    assert stored["schema_version"] == 6
+    assert stored["schema_version"] == 7
     line, face = stored["study"]["supports"]
     assert line["edges"]["edges"] == sorted([sorted(left), sorted(right)])
     assert "faces" not in line and "edges" not in face

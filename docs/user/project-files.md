@@ -109,8 +109,9 @@ tessera pack bracket/project.json bracket-edited.tessera
 
 ## What a project file records
 
-Every file stores a `schema_version` number. The current number is **6** (5 added line
-supports; 6 added materials defined in the project and the raster angle of a print setup). It
+Every file stores a `schema_version` number. The current number is **7** (5 added line
+supports; 6 added materials defined in the project and the raster angle of a print setup; 7
+added strengths to those materials). It
 is the version of the file layout, not of Tessera. Tessera saves every file in the current
 version.
 
@@ -120,7 +121,7 @@ version.
   Tessera stops with a message such as:
 
   ```
-  error: bracket.tessera uses project schema 7; this version of Tessera reads up to 6
+  error: bracket.tessera uses project schema 8; this version of Tessera reads up to 7
   ```
 
   Update Tessera to open the file. Do not edit the number to make it open; the file may use
@@ -150,6 +151,27 @@ Poisson ratios: `nu12` is how much the part shrinks along axis 2 when stretched 
 Tessera refuses a file whose constants cannot describe a real material (a stiffness of zero or
 less, or Poisson ratios so large that stretching would release energy), and says which
 material is wrong.
+
+From schema 7, a material can also carry a `strength` (MPa), measured on test pieces printed
+the same way. Strengths are optional and are not used by the solve yet; the strength check that
+uses them is planned (ADR-010).
+
+```json
+{"kind": "orthotropic", "id": "my-pla", "...": "stiffness as above",
+ "strength": {"t1": 40.0, "t2": 30.0, "t3": 15.0, "s12": 20.0, "s13": 12.0, "s23": 12.0,
+              "c1": 50.0}},
+{"kind": "isotropic", "id": "my-resin", "youngs_modulus": 2500.0, "poisson_ratio": 0.35,
+ "strength": {"tensile": 50.0, "compressive": 80.0, "brittle": true}}
+```
+
+- **Orthotropic:** `t1`, `t2`, `t3` are the tensile strengths along each axis (`t3` is how
+  hard the layers can be pulled apart), `s12` the shear strength within a layer and `s13`,
+  `s23` the shear strengths between layers. These six are required. `c1`, `c2`, `c3` are the
+  compressive strengths, as positive numbers; a missing one is taken equal to the tensile
+  strength on that axis, and Tessera will list every value it assumed this way.
+- **Isotropic:** `tensile` is the yield strength of a ductile material (a metal), or the
+  tensile strength of a brittle one (`"brittle": true`, such as a printing resin). Only a
+  brittle material takes a `compressive` strength; when it is missing, the tensile one is used.
 
 The examples above are made-up values, not data for real PLA or PETG. A part names a project
 material by its id in `material_id`, as it would a library one. If a project material and a

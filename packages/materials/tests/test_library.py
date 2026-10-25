@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 from tessera.materials import get_isotropic, get_material, material_ids
@@ -23,7 +25,7 @@ def test_unknown_material_lists_known_ids() -> None:
 
 
 # ADR-009 D1/D3: get_material resolves project definitions first, then the library.
-_TO = dict(
+_TO: dict[str, Any] = dict(
     e1=3000.0,
     e2=2400.0,
     e3=1800.0,

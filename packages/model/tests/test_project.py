@@ -252,7 +252,7 @@ def test_project_materials_round_trip_through_json() -> None:
     assert iso.density is None
     again = Project.model_validate_json(project.model_dump_json())
     assert again == project
-    assert again.model_dump(mode="json")["materials"][0] == _orthotropic()
+    assert again.model_dump(mode="json")["materials"][0] == {**_orthotropic(), "strength": None}
 
 
 def test_projects_have_no_materials_by_default() -> None:
@@ -333,7 +333,7 @@ def test_schema_5_project_loads_unchanged() -> None:
         "study": {"supports": supports},
     }
     project = Project.model_validate(data)
-    assert SCHEMA_VERSION == 6
+    assert SCHEMA_VERSION >= 6
     assert project.materials == []
     loaded = project.assembly.parts[0]
     assert loaded.material_id == "steel" and loaded.print_setup is not None

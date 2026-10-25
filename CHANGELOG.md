@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Project files are now schema 7 (ADR-010 D3): `IsotropicDefinition` and
+  `OrthotropicDefinition` take an optional `strength` (`IsotropicStrengthDefinition`: `tensile`,
+  `compressive`, `brittle`; `OrthotropicStrengthDefinition`: `t1`-`t3`, `s12`, `s13`, `s23`,
+  optional `c1`-`c3`; MPa, positive), and `IsotropicMaterial` / `OrthotropicMaterial` take
+  `strength=` (`IsotropicStrength`, `OrthotropicStrength`, keyword only; a strength of the other
+  kind is refused). A missing compressive strength is taken equal to the tensile one and named
+  in `assumed`; a ductile material refuses a compressive strength. The solver ignores strengths
+  (decks unchanged). Result types for the coming strength check: `FailureCriterion`,
+  `FailureMode`, `StrengthSpot`, `StrengthResult`, `StudyResult.strength` and
+  `MeshCheck.lowest_strength_ratio` (both `None` until it lands). Schema 6 files open unchanged;
+  older Tessera versions refuse schema 7 files.
 - Solve parts made of your own orthotropic (layer-wise) material (ADR-009): define a material
   in the project with `edit.add_material` (an `IsotropicDefinition` or
   `OrthotropicDefinition`, or its fields; an id that is built in or already defined is

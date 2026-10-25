@@ -23,11 +23,13 @@ from pydantic import (
 )
 
 from tessera.model.elasticity import check_orthotropic
+from tessera.model.strength import IsotropicStrength, OrthotropicStrength
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 """2: Support.dofs (directional supports). 3: PressureLoad, Study.gravity, load ``kind``.
 4: MomentLoad. 5: Support.edges (line supports, ADR-006).
-6: Project.materials, PrintSetup.raster_angle (ADR-009). Older files load unchanged."""
+6: Project.materials, PrintSetup.raster_angle (ADR-009).
+7: material ``strength`` (ADR-010). Older files load unchanged."""
 
 Vec3 = tuple[float, float, float]
 
@@ -57,6 +59,44 @@ _Density = Annotated[float, Field(gt=0.0)] | None
 """t/mm^3; ``None`` when unknown (gravity then refuses the material)."""
 
 
+_Strength = Annotated[float, Field(gt=0.0)]
+"""MPa; compressive strengths are positive magnitudes too."""
+
+
+class IsotropicStrengthDefinition(_Model):
+    """Strength of a project's isotropic material (ADR-010 D3); see ``IsotropicStrength``."""
+
+    tensile: _Strength
+    """Yield strength for a ductile material, tensile strength for a brittle one."""
+    compressive: _Strength | None = None
+    """Brittle materials only; when missing it is taken equal to ``tensile``."""
+    brittle: bool = False
+
+    def to_strength(self) -> IsotropicStrength:
+        return IsotropicStrength(self.tensile, compressive=self.compressive, brittle=self.brittle)
+
+
+class OrthotropicStrengthDefinition(_Model):
+    """Strengths of a project's orthotropic material on its material axes (ADR-010 D3).
+
+    ``t*`` tensile, ``c*`` compressive (each taken equal to the tensile one when missing),
+    ``s12`` in-layer shear, ``s13`` and ``s23`` interlayer shear; see ``OrthotropicStrength``.
+    """
+
+    t1: _Strength
+    t2: _Strength
+    t3: _Strength
+    s12: _Strength
+    s13: _Strength
+    s23: _Strength
+    c1: _Strength | None = None
+    c2: _Strength | None = None
+    c3: _Strength | None = None
+
+    def to_strength(self) -> OrthotropicStrength:
+        return OrthotropicStrength(**self.model_dump())
+
+
 class IsotropicDefinition(_Model):
     """A linear isotropic material defined in the project (ADR-009 D3). Moduli in MPa."""
 
@@ -65,6 +105,16 @@ class IsotropicDefinition(_Model):
     youngs_modulus: Annotated[float, Field(gt=0.0)]
     poisson_ratio: Annotated[float, Field(gt=-1.0, lt=0.5)]
     density: _Density = None
+    strength: IsotropicStrengthDefinition | None = None
+
+    @model_validator(mode="after")
+    def _check_strength(self) -> IsotropicDefinition:
+        if self.strength is not None:
+            try:
+                self.strength.to_strength()
+            except ValueError as exc:
+                raise ValueError(f"material {self.id!r}: {exc}") from None
+        return self
 
 
 class OrthotropicDefinition(_Model):
@@ -87,6 +137,7 @@ class OrthotropicDefinition(_Model):
     g13: float
     g23: float
     density: _Density = None
+    strength: OrthotropicStrengthDefinition | None = None
 
     @model_validator(mode="after")
     def _check_constants(self) -> OrthotropicDefinition:

@@ -101,6 +101,84 @@ class StressSpot:
         return bool(self.flags)
 
 
+class FailureCriterion(StrEnum):
+    """How a material's strength ratio is computed (ADR-010 D2)."""
+
+    TSAI_WU = "tsai-wu"
+    """Orthotropic materials; interaction coefficients F*_ij = -1/2."""
+    VON_MISES = "von-mises"
+    """Ductile isotropic materials, against the yield strength."""
+    MAX_PRINCIPAL = "max-principal"
+    """Brittle isotropic materials (resin), against the tensile and compressive strengths."""
+
+
+class FailureMode(StrEnum):
+    """Which way a spot is predicted to fail first (ADR-010 D2).
+
+    For Tsai-Wu it names the stress term with the largest maximum-stress ratio there; it
+    explains the strength ratio and never changes it.
+    """
+
+    ALONG_RASTER_TENSION = "along-raster-tension"
+    ALONG_RASTER_COMPRESSION = "along-raster-compression"
+    ACROSS_ROADS_TENSION = "across-roads-tension"
+    """Across the roads within a layer (material axis 2)."""
+    ACROSS_ROADS_COMPRESSION = "across-roads-compression"
+    ACROSS_LAYERS_TENSION = "across-layers-tension"
+    """Along the build direction (material axis 3): the layers pulling apart."""
+    ACROSS_LAYERS_COMPRESSION = "across-layers-compression"
+    IN_LAYER_SHEAR = "in-layer-shear"
+    """tau_12."""
+    INTERLAYER_SHEAR = "interlayer-shear"
+    """tau_13 or tau_23: the layers sliding on each other."""
+    VON_MISES = "von-mises"
+    MAX_PRINCIPAL_TENSION = "max-principal-tension"
+    MAX_PRINCIPAL_COMPRESSION = "max-principal-compression"
+
+
+@dataclass(frozen=True)
+class StrengthSpot:
+    """A strength ratio at one node, with where it is, why and whether it is flagged."""
+
+    ratio: float
+    """How many times every load of the study (gravity included) could be multiplied before the
+    criterion predicts first failure here; ``inf`` where the stress is zero (ADR-010 D1)."""
+    node: int
+    """0-based node index."""
+    element: int
+    """0-based index of the element whose stress gave the lowest ratio at the node."""
+    location: Vec3
+    """mm"""
+    face: int | None
+    """Geometry face the node lies on, as for ``StressSpot.face``."""
+    mode: FailureMode
+    flags: tuple[StressFlag, ...] = ()
+    wall: WallSpan | None = None
+
+    @property
+    def flagged(self) -> bool:
+        return bool(self.flags)
+
+
+@dataclass(frozen=True)
+class StrengthResult:
+    """The strength check of a study (ADR-010 D5), from element-nodal stresses (ADR-008)."""
+
+    criteria: dict[str, FailureCriterion]
+    """Criterion used for each checked material, by material name."""
+    lowest: StrengthSpot
+    """The lowest ratio in the part, flagged or not."""
+    clear_lowest: StrengthSpot | None
+    """The lowest ratio away from supports and sharp inside edges (unflagged nodes); ``None``
+    if every checked node is flagged. The headline unless the mesh check settles ``lowest``."""
+    face_lowest: tuple[StrengthSpot, ...]
+    """Lowest ratio on each geometry face, lowest first."""
+    assumed: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    """Strengths taken equal to the tensile ones, by material name (e.g. ``("c1", "c3")``)."""
+    unchecked: tuple[str, ...] = ()
+    """Materials without strength data; their elements are not checked."""
+
+
 class Verdict(StrEnum):
     """What the two-mesh check found for one reported number (ADR-007)."""
 
@@ -157,6 +235,9 @@ class MeshCheck:
     """``None`` if either mesh has no clear peak."""
     face_peaks: dict[int, SpotCheck]
     """By geometry face, for faces with a peak on both meshes."""
+    lowest_strength_ratio: SpotCheck | None = field(default=None, kw_only=True)
+    """The lowest strength ratio (``StrengthResult.lowest``) on both meshes; ``None`` without a
+    strength check (ADR-010 D5)."""
     wall_elements_min: float = field(default=5.0, kw_only=True)
     """Fewest coarse elements across the wall at which a flagged spot is judged settled; the
     default is ``tessera.post.WALL_ELEMENTS_MIN`` (a post test keeps them equal)."""
@@ -185,6 +266,8 @@ class StudyResult:
     orthotropic: bool = field(default=False, kw_only=True)
     """True if any material in the study is orthotropic (ADR-009 D4). Von Mises still shows where
     the stress is, but it is not a strength check for such a part."""
+    strength: StrengthResult | None = field(default=None, kw_only=True)
+    """Strength ratios (ADR-010), when a material of the study has strength data."""
 
     @property
     def displacement_magnitude(self) -> np.ndarray:

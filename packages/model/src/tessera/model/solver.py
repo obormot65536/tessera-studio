@@ -16,6 +16,7 @@ from numpy.typing import NDArray
 
 from tessera.model.elasticity import check_orthotropic
 from tessera.model.mesh import Mesh
+from tessera.model.strength import IsotropicStrength, OrthotropicStrength
 
 Vector3 = tuple[float, float, float]
 
@@ -34,6 +35,15 @@ class IsotropicMaterial:
     poisson_ratio: float
     density: float | None = None
     """t/mm^3"""
+    strength: IsotropicStrength | None = field(default=None, kw_only=True)
+    """For the failure criteria (ADR-010); the solver ignores it."""
+
+    def __post_init__(self) -> None:
+        if self.strength is not None and not isinstance(self.strength, IsotropicStrength):
+            raise ValueError(
+                f"material {self.name!r} is isotropic and needs an IsotropicStrength, "
+                f"got {type(self.strength).__name__}"
+            )
 
 
 @dataclass(frozen=True)
@@ -60,8 +70,15 @@ class OrthotropicMaterial:
     g23: float
     density: float | None = None
     """t/mm^3"""
+    strength: OrthotropicStrength | None = field(default=None, kw_only=True)
+    """For the failure criteria (ADR-010); the solver ignores it."""
 
     def __post_init__(self) -> None:
+        if self.strength is not None and not isinstance(self.strength, OrthotropicStrength):
+            raise ValueError(
+                f"material {self.name!r} is orthotropic and needs an OrthotropicStrength, "
+                f"got {type(self.strength).__name__}"
+            )
         check_orthotropic(
             self.e1,
             self.e2,

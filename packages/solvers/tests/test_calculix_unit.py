@@ -232,6 +232,18 @@ def test_orthotropic_elastic_block_is_engineering_constants() -> None:
     assert lines[k + 1] == n(1.2e-9)
 
 
+def test_strength_data_leaves_the_deck_unchanged() -> None:
+    from tessera.model import IsotropicStrength, OrthotropicStrength
+
+    iso = tiny_job()
+    strong = dataclasses.replace(iso.materials[0], strength=IsotropicStrength(250.0))
+    assert write_deck(dataclasses.replace(iso, materials=(strong,))) == write_deck(iso)
+    ortho = orthotropic_job()
+    strength = OrthotropicStrength(40.0, 30.0, 15.0, 20.0, 12.0, 12.0, c1=50.0)
+    strong = dataclasses.replace(TO, strength=strength)
+    assert write_deck(dataclasses.replace(ortho, materials=(strong,))) == write_deck(ortho)
+
+
 def test_orientation_card_and_section_reference() -> None:
     lines = write_deck(orthotropic_job()).splitlines()
     n = calculix._num
