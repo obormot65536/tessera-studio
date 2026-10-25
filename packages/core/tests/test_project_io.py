@@ -19,21 +19,21 @@ def test_newer_schema_is_rejected(tmp_path: Path) -> None:
         load_project(path)
 
 
-def test_schema_7_file_is_refused(tmp_path: Path) -> None:
+def test_schema_8_file_is_refused(tmp_path: Path) -> None:
     path = tmp_path / "future.tessera.json"
-    path.write_text('{"schema_version": 7, "name": "x", "materials": []}', encoding="utf-8")
-    with pytest.raises(ValueError, match=r"uses project schema 7; .* reads up to 6"):
+    path.write_text('{"schema_version": 8, "name": "x", "materials": []}', encoding="utf-8")
+    with pytest.raises(ValueError, match=r"uses project schema 8; .* reads up to 7"):
         load_project(path)
 
 
-def test_schema_5_file_loads_and_saves_as_schema_6(tmp_path: Path) -> None:
+def test_schema_5_file_loads_and_saves_as_schema_7(tmp_path: Path) -> None:
     old = tmp_path / "old.tessera.json"
     old.write_text('{"schema_version": 5, "name": "old"}', encoding="utf-8")
     project = load_project(old)
     assert project.materials == []
     new = tmp_path / "new.tessera.json"
     save_project(project, new)
-    assert '"schema_version": 6' in new.read_text(encoding="utf-8")
+    assert '"schema_version": 7' in new.read_text(encoding="utf-8")
 
 
 def test_invalid_project_file_is_an_input_error(tmp_path: Path) -> None:

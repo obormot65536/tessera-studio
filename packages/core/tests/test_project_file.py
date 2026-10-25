@@ -224,7 +224,7 @@ def test_project_materials_and_raster_angle_round_trip_through_a_container(
 
     with zipfile.ZipFile(path) as zf:
         stored = json.loads(zf.read("project.json"))
-    assert stored["schema_version"] == 6
+    assert stored["schema_version"] == 7
     assert stored["materials"][0]["kind"] == "orthotropic"
     assert stored["assembly"]["parts"][0]["print_setup"]["raster_angle"] == 90.0
     loaded = load_project(path)

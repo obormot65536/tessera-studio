@@ -3,6 +3,7 @@
 import math
 import re
 from pathlib import Path
+from typing import Any
 
 import gmsh
 import numpy as np
@@ -212,7 +213,7 @@ def test_gravity_needs_a_material_density(bracket_step: Path) -> None:
 
 
 # ADR-009 PR-6: project materials, orthotropic parts and their print setup.
-_TO = {
+_TO: dict[str, Any] = {
     "e1": 3000.0,
     "e2": 2400.0,
     "e3": 1800.0,

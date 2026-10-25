@@ -2,6 +2,7 @@
 
 import dataclasses
 import math
+from typing import Any
 
 import numpy as np
 import pytest
@@ -16,7 +17,7 @@ from tessera.model.solver import (
     SolveJob,
 )
 
-TO = {
+TO: dict[str, Any] = {
     "e1": 3000.0,
     "e2": 2400.0,
     "e3": 1800.0,
