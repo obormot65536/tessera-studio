@@ -79,6 +79,7 @@ primary source.
 | TO-03 | v0.5 | Orthotropic plate with hole (Lekhnitskii) | planned |
 | TO-04 | v0.5 | Shear-flexible orthotropic cantilever | planned |
 | TO-05 | v0.5 | Region-wise two-material beam (perimeter + infill) | planned |
+| TO-06 | v0.5 | Off-axis strength ratio (Tsai-Wu) | planned |
 | TC-01 | v0.5 | Tied interface patch test, non-matching meshes | planned |
 | TC-02 | v0.5 | Tied cantilever split in two parts | planned |
 | TC-03 | v0.5 | Frictionless contact patch test | planned |
@@ -100,7 +101,7 @@ primary source.
 | TT-04 | v3 | Steady radial conduction and thermal stress in a thick cylinder | planned |
 | TF-01 | v4 | Laminar pipe flow (Hagen-Poiseuille) | planned |
 
-Count: v0.1 12 (11 passing, 1 awaiting reference), v0.5 14 (1 passing), v1.x 3, v2 3, v3 4, v4 1. Total 37.
+Count: v0.1 12 (11 passing, 1 awaiting reference), v0.5 15 (1 passing), v1.x 3, v2 3, v3 4, v4 1. Total 38.
 
 ---
 
@@ -523,6 +524,26 @@ nu12 = 0.35, nu13 = nu23 = 0.30 (check positive definiteness in the case).
 - **Equivalents:** none recorded.
 - **Features:** region-wise materials in one part (print-setup regions), per-region orientation.
 - **Tolerance:** 2 % axial, 3 % bending.
+
+### TO-06 Off-axis strength ratio (Tsai-Wu)
+
+- **Problem:** cube under uniform uniaxial stress sigma = 10 MPa along x, 3-2-1 nodal supports
+  and equal and opposite face tractions, so the off-axis shear coupling is free and the stress is
+  exactly uniform. Material frame: build Z with raster angle 0, 30, 45, 60 and 90 deg; and
+  printed on its side (build (1, 0, 0)), where the load runs across the layers. The side case
+  also runs through `tessera.core.solve` with rollers (exact, the load is along a material axis).
+- **Quantity:** the lowest strength ratio R (ADR-010): the positive root of a R^2 + b R - 1 = 0
+  for the Tsai-Wu coefficients with F*_ij = -1/2, at the material-axis stresses (sigma cos^2,
+  sigma sin^2, 0, -sigma sin cos, 0, 0); and the mode label.
+- **Values** (made-up TO strengths, not user-trusted data: T1 40, C1 50, T2 30, C2 45, T3 15,
+  C3 40, S12 20, S13 = S23 12 MPa): R = 4.000000, 3.380006, 3.096069, 2.982983, 3.000000 for 0 to
+  90 deg; 1.5 on its side, "across the layers, tension" (`computed`; recompute in the case module).
+- **Reference:** Tsai & Wu, J. Composite Materials 5 (1971) 58-80; Tsai & Hahn, *Introduction to
+  Composite Materials* (1980) for F* = -1/2 (both `unverified`).
+- **Licence:** formula only.
+- **Equivalents:** none recorded.
+- **Features:** strength data, material frame, element-nodal stresses (ADR-008), failure modes.
+- **Tolerance:** 1.5e-6 relative (the approved ADR-008 element-nodal floor; exact field).
 
 ---
 
