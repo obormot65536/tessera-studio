@@ -271,4 +271,5 @@ surfaces.
    `SOLVER=ITERATIVE CHOLESKY` because SPOOLES needs 4.7 GB already at 1e5 elements and would
    not fit in 15 GB; the solver does not change what the `.dat` holds. Opt-in (decision 2)
    stays as it is; nothing here argues for more.
-7. [ ] Failure-criteria ADR (v0.5) built on `element_nodal_stresses`.
+7. [ ] Failure-criteria ADR (v0.5) built on `element_nodal_stresses`. Proposed as ADR-010
+   (`0010-failure-criteria.md`).
