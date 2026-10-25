@@ -20,11 +20,17 @@ with the code.
 
 ## CI
 
-- Fast tier (ruff, pyright, lint-imports, unit tests) on Ubuntu and Windows gates the solver
-  tier (CalculiX benchmarks, Linux).
-- macOS runs the fast tier only on PRs labelled `macos`. Add the label when a change touches
-  macOS-specific behaviour (paths, packaging, native libraries); the macOS run must then pass.
-  Other PRs and pushes to `main` skip it, because GitHub's macOS runners are often unavailable.
+- One Ubuntu job runs the fast tier (ruff, pyright, lint-imports, unit tests) and then, if it
+  passed, the solver tier (CalculiX benchmarks).
+- Windows and macOS run the fast tier only on PRs labelled `windows` or `macos`. Add the label
+  when a change touches that platform's behaviour (paths, packaging, native libraries,
+  subprocess and signal handling); that run must then pass. Other PRs and pushes to `main` skip
+  them; GitHub's macOS runners are often slow to start.
+- A change made only of Markdown, `docs/` and `LICENSE` skips the test jobs (they report as
+  skipped, which a required check accepts).
+- A new push to a PR cancels the run still going for its previous commit.
+- Workflows get a read-only token and do not keep it in the checkout. Keep it that way: never
+  add `pull_request_target` or write permissions to a workflow that runs code from a PR.
 
 ## Milestones
 

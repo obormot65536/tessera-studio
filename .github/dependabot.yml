@@ -1,0 +1,14 @@
+# Keeps the actions used by the workflows up to date, in one monthly PR. Python dependencies
+# get Dependabot security updates only (switched on in the repository settings); routine
+# upgrades of uv.lock stay a deliberate change, because they can move solver results.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
