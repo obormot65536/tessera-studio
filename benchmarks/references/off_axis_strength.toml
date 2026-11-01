@@ -1,0 +1,29 @@
+# Approved by the maintainer for TO-06 (ADR-010 PR-5, PR #58).
+description = "TO-06 off-axis strength ratio: cube 10 x 10 x 10 mm, catalog TO elastic constants, made-up TO-06 strengths (T1 40, C1 50, T2 30, C2 45, T3 15, C3 40, S12 20, S13 = S23 12 MPa; not user-trusted data), uniform sigma_xx = 10 MPa, unstructured C3D10 (h = 3.0 gate, 3.0 / 1.3 / 0.9 sweep). raster-*: build Z, raster theta deg, 1000 N on x = L and -1000 N on x = 0, 3-2-1 support on corner nodes (origin xyz, (L, 0, 0) yz, (0, L, 0) z), built as a SolveJob through CalculixAdapter and tessera.post.summarize. side: build (1, 0, 0) through tessera.core.solve, rollers on x = 0, y = 0, z = 0, 1000 N on x = L. Checked: StrengthResult lowest, clear_lowest and face minima and every element-nodal ratio against the closed-form R, and the lowest spot's failure mode"
+source = "Tsai-Wu with F*_ij = -1/2 at the material-axis stresses (sigma cos^2, sigma sin^2, 0, -sigma sin cos, 0, 0) or (0, 0, sigma, 0, 0, 0); R the positive root of a R^2 + b R - 1 = 0. Tsai & Wu, J. Composite Materials 5 (1971) 58-80; Tsai & Hahn, Introduction to Composite Materials (1980) for F* = -1/2 (both unverified). Tolerance: the approved ADR-008 element-nodal floor (patch_test_points.toml rel_tolerance_element_nodal_stress), since R(k s) = R(s) / k"
+stress_mpa = 10.0
+rel_tolerance_strength_ratio = 1.5e-6
+
+[cases.raster-0]
+strength_ratio = 4.0
+mode = "along-raster-tension"
+
+[cases.raster-30]
+strength_ratio = 3.3800055152127144
+mode = "in-layer-shear"
+
+[cases.raster-45]
+strength_ratio = 3.0960693596168363
+mode = "in-layer-shear"
+
+[cases.raster-60]
+strength_ratio = 2.9829826705551583
+mode = "across-roads-tension"
+
+[cases.raster-90]
+strength_ratio = 3.0
+mode = "across-roads-tension"
+
+[cases.side]
+strength_ratio = 1.5
+mode = "across-layers-tension"

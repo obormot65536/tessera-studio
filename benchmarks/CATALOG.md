@@ -79,7 +79,7 @@ primary source.
 | TO-03 | v0.5 | Orthotropic plate with hole (Lekhnitskii) | planned |
 | TO-04 | v0.5 | Shear-flexible orthotropic cantilever | planned |
 | TO-05 | v0.5 | Region-wise two-material beam (perimeter + infill) | planned |
-| TO-06 | v0.5 | Off-axis strength ratio (Tsai-Wu) | awaiting reference |
+| TO-06 | v0.5 | Off-axis strength ratio (Tsai-Wu) | passing |
 | TC-01 | v0.5 | Tied interface patch test, non-matching meshes | planned |
 | TC-02 | v0.5 | Tied cantilever split in two parts | planned |
 | TC-03 | v0.5 | Frictionless contact patch test | planned |
@@ -101,7 +101,7 @@ primary source.
 | TT-04 | v3 | Steady radial conduction and thermal stress in a thick cylinder | planned |
 | TF-01 | v4 | Laminar pipe flow (Hagen-Poiseuille) | planned |
 
-Count: v0.1 12 (11 passing, 1 awaiting reference), v0.5 15 (1 passing, 1 awaiting reference), v1.x 3, v2 3, v3 4, v4 1. Total 38.
+Count: v0.1 12 (11 passing, 1 awaiting reference), v0.5 15 (2 passing), v1.x 3, v2 3, v3 4, v4 1. Total 38.
 
 ---
 
@@ -525,7 +525,7 @@ nu12 = 0.35, nu13 = nu23 = 0.30 (check positive definiteness in the case).
 - **Features:** region-wise materials in one part (print-setup regions), per-region orientation.
 - **Tolerance:** 2 % axial, 3 % bending.
 
-### TO-06 Off-axis strength ratio (Tsai-Wu) (awaiting reference)
+### TO-06 Off-axis strength ratio (Tsai-Wu)
 
 - **Problem:** cube under uniform uniaxial stress sigma = 10 MPa along x, 3-2-1 nodal supports
   and equal and opposite face tractions, so the off-axis shear coupling is free and the stress is
