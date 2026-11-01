@@ -31,6 +31,10 @@ with the code.
 - A new push to a PR cancels the run still going for its previous commit.
 - Workflows get a read-only token and do not keep it in the checkout. Keep it that way: never
   add `pull_request_target` or write permissions to a workflow that runs code from a PR.
+- The repository allows only GitHub's own actions and `astral-sh/setup-uv`, each pinned to a
+  full commit SHA with the version in a comment (`@<sha> # v4.4.0`); a tag is refused and the
+  run fails to start. Dependabot updates the SHAs monthly. A new third-party action must be
+  added to the allow list in Settings → Actions → General before a workflow can use it.
 
 ## Milestones
 
