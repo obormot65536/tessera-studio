@@ -42,18 +42,21 @@ def material_ids() -> list[str]:
 
 
 def _from_definition(definition: MaterialDefinition) -> Material:
-    if isinstance(definition, IsotropicDefinition):
-        return IsotropicMaterial(
-            name=definition.id,
-            youngs_modulus=definition.youngs_modulus,
-            poisson_ratio=definition.poisson_ratio,
-            density=definition.density,
-        )
+    """The material a project definition describes, with its strengths (ADR-010 D3)."""
     d = definition
     try:
+        if isinstance(d, IsotropicDefinition):
+            return IsotropicMaterial(
+                name=d.id,
+                youngs_modulus=d.youngs_modulus,
+                poisson_ratio=d.poisson_ratio,
+                density=d.density,
+                strength=None if d.strength is None else d.strength.to_strength(),
+            )
         return OrthotropicMaterial(
             name=d.id, e1=d.e1, e2=d.e2, e3=d.e3, nu12=d.nu12, nu13=d.nu13, nu23=d.nu23,
             g12=d.g12, g13=d.g13, g23=d.g23, density=d.density,
+            strength=None if d.strength is None else d.strength.to_strength(),
         )  # fmt: skip
     except ValueError as exc:  # a definition changed after pydantic validated it
         raise InputError(f"material {d.id!r}: {exc}") from None

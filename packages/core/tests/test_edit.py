@@ -320,3 +320,26 @@ def test_set_print_setup_checks_its_input(project: Project) -> None:
     with pytest.raises(InputError):
         edit.set_print_setup(project, "box", "fdm", (0.0, 0.0, 1.0), float("nan"))
     assert project.assembly.parts[0].print_setup is None
+
+
+# ADR-010 D3: a definition may carry strengths; they are checked like the stiffness.
+_STRENGTH = {"t1": 40.0, "t2": 30.0, "t3": 15.0, "s12": 20.0, "s13": 12.0, "s23": 12.0}
+
+
+def test_add_material_takes_strengths(project: Project) -> None:
+    added = edit.add_material(
+        project, {"kind": "orthotropic", "id": "pla-xyz", **_TO, "strength": _STRENGTH}
+    )
+    assert added.strength is not None
+    assert added.strength.model_dump() == {**_STRENGTH, "c1": None, "c2": None, "c3": None}
+
+
+@pytest.mark.parametrize(
+    "strength", [{**_STRENGTH, "t3": 0.0}, {k: v for k, v in _STRENGTH.items() if k != "s13"}]
+)
+def test_add_material_refuses_bad_strengths(project: Project, strength: dict[str, float]) -> None:
+    with pytest.raises(InputError, match="invalid material definition"):
+        edit.add_material(
+            project, {"kind": "orthotropic", "id": "pla-xyz", **_TO, "strength": strength}
+        )
+    assert project.materials == []

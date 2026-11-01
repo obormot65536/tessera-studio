@@ -66,3 +66,24 @@ def test_an_invalid_definition_edited_after_creation_is_an_input_error() -> None
     bad.nu12 = 1.2  # no validation on assignment
     with pytest.raises(InputError, match="pla-xyz"):
         get_material("pla-xyz", [bad])
+
+
+# ADR-010 D3: strengths a project defines reach the material the solve and post see.
+def test_project_strengths_reach_the_material() -> None:
+    from tessera.model import IsotropicStrength, OrthotropicStrength
+
+    pla = OrthotropicDefinition.model_validate(
+        {"id": "pla-xyz", **_TO, "strength": {"t1": 40.0, "t2": 30.0, "t3": 15.0,
+         "s12": 20.0, "s13": 12.0, "s23": 12.0, "c3": 40.0}}
+    )  # fmt: skip
+    resin = IsotropicDefinition.model_validate(
+        {"id": "resin", "youngs_modulus": 2500.0, "poisson_ratio": 0.35,
+         "strength": {"tensile": 50.0, "brittle": True}}
+    )  # fmt: skip
+    plain = IsotropicDefinition(id="plain", youngs_modulus=2500.0, poisson_ratio=0.35)
+    defined = [pla, resin, plain]
+    assert get_material("pla-xyz", defined).strength == OrthotropicStrength(
+        t1=40.0, t2=30.0, t3=15.0, s12=20.0, s13=12.0, s23=12.0, c3=40.0
+    )
+    assert get_material("resin", defined).strength == IsotropicStrength(50.0, brittle=True)
+    assert get_material("plain", defined).strength is None

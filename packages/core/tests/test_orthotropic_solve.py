@@ -75,3 +75,37 @@ def test_uniaxial_cube_matches_closed_form(
     assert far.any()
     np.testing.assert_allclose(disp[far, 0], strain[0] * L, rtol=1e-5)
     np.testing.assert_allclose(disp, nodes * np.asarray(strain), atol=1e-6)
+
+
+@pytest.mark.solver
+def test_a_strength_gives_a_strength_ratio_end_to_end(cube_step: Path, tmp_path: Path) -> None:
+    """ADR-010 D6 wiring: with a strength, the solve asks for point stresses and the result
+    carries the strength ratio. Printed on its side, the 10 MPa tension is across the layers,
+    so R = T3 / sigma (made-up TO-06 strengths, not user data). Not the TO-06 benchmark."""
+    from tessera.model import FailureCriterion, FailureMode, OrthotropicStrengthDefinition
+
+    strength = OrthotropicStrengthDefinition(
+        t1=40.0, c1=50.0, t2=30.0, c2=45.0, t3=15.0, c3=40.0, s12=20.0, s13=12.0, s23=12.0
+    )
+    project = new_project("cube")
+    edit.add_material(project, TO.model_copy(update={"strength": strength}))
+    edit.add_part(project, cube_step, part_id="cube", material_id=TO.id)
+    edit.set_print_setup(project, "cube", "fdm", (1.0, 0.0, 0.0), 0.0)
+    faces = describe_faces(project, "cube")
+
+    def face(normal: tuple[float, float, float]) -> int:
+        return next(f.index for f in faces if f.normal == pytest.approx(normal))
+
+    for dof, normal in enumerate([(-1.0, 0.0, 0.0), (0.0, -1.0, 0.0), (0.0, 0.0, -1.0)], 1):
+        edit.add_support(project, "cube", [face(normal)], dofs=(dof,))
+    edit.add_force_load(project, "cube", [face((1.0, 0.0, 0.0))], (SIGMA * L * L, 0.0, 0.0))
+    edit.set_mesh_size(project, 5.0)
+
+    result = solve(project, workdir=tmp_path)
+
+    assert result.solution.point_stresses is not None
+    assert result.strength is not None
+    assert result.strength.criteria == {TO.id: FailureCriterion.TSAI_WU}
+    assert result.strength.assumed == {}
+    assert result.strength.lowest.ratio == pytest.approx(15.0 / SIGMA, rel=1e-5)
+    assert result.strength.lowest.mode is FailureMode.ACROSS_LAYERS_TENSION
