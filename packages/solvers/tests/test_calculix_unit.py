@@ -1,6 +1,7 @@
 """CalculiX adapter unit tests that do not need the ccx executable."""
 
 import dataclasses
+import re
 from pathlib import Path
 
 import numpy as np
@@ -634,6 +635,121 @@ def test_read_point_stresses_reads_the_file(tmp_path: Path) -> None:
     path.write_text(DAT_SNIPPET)
     ps = read_point_stresses(path, three_tets())
     np.testing.assert_array_equal(ps.stresses[2, 3], [-24.1, -24.2, -24.3, -24.4, -24.6, -24.5])
+
+
+# Element 1's stress rows of the last increment (they alone hold 1.k10000E+00 in sxx).
+LAST_E1_STRESS_ROW = re.compile(r"^ +1 +[1-4] +1\.[1-4]10000E\+00 ")
+
+
+def with_suffix(suffix: str, rows: int = 4) -> str:
+    """DAT_SNIPPET with ``suffix`` appended to the first ``rows`` of element 1's last stress
+    rows; the other rows (element 3) stay as they are."""
+    lines, done = [], 0
+    for line in DAT_SNIPPET.splitlines():
+        if done < rows and LAST_E1_STRESS_ROW.match(line):
+            line, done = line + suffix, done + 1
+        lines.append(line)
+    assert done == rows
+    return "\n".join(lines) + "\n"
+
+
+def oriented_snippet() -> str:
+    """DAT_SNIPPET as ccx 2.21 prints it when element 1 is in a section with orientation
+    ``O_PART_CUBE`` (the name padded to 20 characters) and element 3 in one without."""
+    return with_suffix(f" {'O_PART_CUBE':<20}")
+
+
+def test_parse_dat_reads_a_trailing_orientation_name() -> None:
+    text = oriented_snippet()
+    assert " O_PART_CUBE" + " " * 9 + "\n" in text  # ccx pads the name to 20 characters
+    stress = parse_dat(text).blocks["stresses"]
+    np.testing.assert_array_equal(stress.elements, [1, 3])
+    s = DAT_E1_P2
+    np.testing.assert_array_equal(stress.values[0, 1], [s[0], s[1], s[2], s[3], s[5], s[4]])
+    np.testing.assert_array_equal(stress.values[1, 3], [-24.1, -24.2, -24.3, -24.4, -24.6, -24.5])
+    assert stress.names is not None
+    assert stress.names.tolist() == [["O_PART_CUBE"] * 4, [""] * 4]
+    # Blocks without names have none, and the CRLF form reads the same.
+    assert parse_dat(DAT_SNIPPET).blocks["stresses"].names is None
+    crlf = parse_dat(text.replace("\n", "\r\n").encode()).blocks["stresses"]
+    assert crlf.names is not None and crlf.names.tolist() == stress.names.tolist()
+    np.testing.assert_array_equal(crlf.values, stress.values)
+
+
+@pytest.mark.parametrize("word", ["NaN", "-Infinity"])
+def test_parse_dat_reads_non_finite_values_before_an_orientation_name(word: str) -> None:
+    text = oriented_snippet().replace("1.460000E+00", word, 1)  # element 1, point 4, syz
+    stress = parse_dat(text).blocks["stresses"]
+    assert stress.names is not None and stress.names[0, 3] == "O_PART_CUBE"
+    assert not np.isfinite(stress.values[0, 3, 4])
+
+
+@pytest.mark.parametrize("extra", [" 1.0", " O_A O_B", " O_A 1.0"])
+def test_parse_dat_rejects_extra_columns(extra: str) -> None:
+    with pytest.raises(SolverError, match="'stresses' is malformed"):
+        parse_dat(with_suffix(extra, rows=1))
+
+
+FRAME_30 = MaterialFrame(
+    (0.0, float(np.cos(np.pi / 6)), float(np.sin(np.pi / 6))),
+    (0.0, -float(np.sin(np.pi / 6)), float(np.cos(np.pi / 6))),
+)
+
+
+def test_point_stresses_rotate_oriented_elements_to_global_axes() -> None:
+    # ccx prints an oriented element's stresses in its material axes; Tessera's are global.
+    from tessera.model.elasticity import rotate_stress
+
+    mesh = three_tets()
+    dat = parse_dat(oriented_snippet())
+    ps = point_stresses(dat, mesh, {"O_PART_CUBE": (np.array([0]), FRAME_30)})
+    local = dat.blocks["stresses"].values[0]
+    np.testing.assert_allclose(rotate_stress(ps.stresses[0], FRAME_30), local, atol=1e-13)
+    assert np.abs(ps.stresses[0] - local).max() > 0.1  # really rotated
+    np.testing.assert_array_equal(ps.stresses[2], dat.blocks["stresses"].values[1])  # unoriented
+
+
+def test_point_stresses_check_the_printed_orientation() -> None:
+    mesh = three_tets()
+    named = parse_dat(oriented_snippet())
+    # The axes of a row are only known when its name is the one of the element's section.
+    with pytest.raises(
+        SolverError,
+        match=r"element 1 \(point 1\) with orientation 'O_PART_CUBE'; "
+        r"its section has no orientation",
+    ):
+        point_stresses(named, mesh)  # the job has no oriented section
+    with pytest.raises(
+        SolverError,
+        match=r"element 3 \(point 1\) with no orientation; "
+        r"its section has orientation 'O_PART_CUBE'",
+    ):
+        point_stresses(named, mesh, {"O_PART_CUBE": (np.array([0, 2]), FRAME_30)})
+    with pytest.raises(SolverError, match=r"element 1 \(point 1\) with no orientation"):
+        point_stresses(parse_dat(DAT_SNIPPET), mesh, {"O_PART_CUBE": (np.array([0]), FRAME_30)})
+    with pytest.raises(SolverError, match=r"orientation 'O_PART_CUBE'; .* orientation 'O_X'"):
+        point_stresses(named, mesh, {"O_X": (np.array([0]), FRAME_30)})
+
+
+def test_read_point_stresses_of_an_oriented_job(tmp_path: Path) -> None:
+    path = tmp_path / "job.dat"
+    path.write_text(oriented_snippet())
+    orientations = {"O_PART_CUBE": (np.array([0]), FRAME_30)}
+    ps = read_point_stresses(path, three_tets(), orientations=orientations)
+    expected = point_stresses(parse_dat(oriented_snippet()), three_tets(), orientations)
+    np.testing.assert_array_equal(ps.stresses, expected.stresses)
+
+
+def test_section_orientations_use_the_names_ccx_prints() -> None:
+    job = orthotropic_job()
+    found = calculix.section_orientations(job)
+    names = deck_names(job).orientations
+    assert set(found) == {names[s.element_set].upper() for s in job.sections if s.orientation}
+    for sec in job.sections:
+        if sec.orientation is not None:
+            elems, frame = found[names[sec.element_set].upper()]
+            np.testing.assert_array_equal(elems, job.mesh.element_sets[sec.element_set])
+            assert frame == sec.orientation
 
 
 def test_dat_parse_errors_carry_the_log(tmp_path: Path) -> None:

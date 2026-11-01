@@ -22,6 +22,16 @@ coordinates) per section with a ``MaterialFrame``, referenced by ``ORIENTATION=`
 2. The card order ``*MATERIAL``, ``*ORIENTATION``, ``*SOLID SECTION`` is accepted. ccx 2.21 also
    gives identical results with ``*ORIENTATION`` before ``*MATERIAL`` or after the
    ``*SOLID SECTION`` that names it; the order written here is the one the ADR specifies.
+3. ``.dat`` stresses (``*EL PRINT``) of an element with an ``*ORIENTATION`` are in its LOCAL
+   (material) axes, unlike the ``.frd``: the cube above, printed on its side (axis 1 = global
+   -z) and pulled along z, prints sxx = 10 and szz ~ 1e-14. The columns are then sigma 11 22 33
+   12 13 23, and each such row ends with the orientation name, upper-cased and padded to 20
+   characters (``... -1.138412E-14  1.331942E-14 O_PART_CUBE``); rows of elements without an
+   orientation have no name and are global. ``read_point_stresses`` reads the name, checks it
+   against the element's section and rotates the row back to global axes with that section's
+   ``MaterialFrame`` (sigma = R^T sigma' R), so ``PointStresses`` is global like the ``.frd``.
+   Pinned with a general stress state and a frame off every global axis
+   (``test_ccx_prints_oriented_point_stresses_in_material_axes``).
 
 Integration points (ADR-008), only when ``SolveJob.point_stresses`` asks for them:
 ``*EL PRINT`` writes every element's stresses at its integration points to ``job.dat``
@@ -48,7 +58,7 @@ import subprocess
 import sys
 import threading
 import warnings
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Any
@@ -59,6 +69,7 @@ from numpy.typing import NDArray
 from tessera.model.mesh import TET10_EDGES, Mesh
 from tessera.model.solver import (
     AnalysisKind,
+    MaterialFrame,
     OrthotropicMaterial,
     PointStresses,
     SolveJob,
@@ -144,6 +155,24 @@ class DeckNames:
             )
             for neutral, ccx in table.items()
         }
+
+
+Orientations = Mapping[str, tuple[NDArray[np.int64], MaterialFrame]]
+"""ccx orientation name as ccx prints it (upper case) → (0-based elements, ``MaterialFrame``)."""
+
+
+def section_orientations(job: SolveJob) -> dict[str, tuple[NDArray[np.int64], MaterialFrame]]:
+    """The ``*ORIENTATION`` of each section that has a ``MaterialFrame``, by the name ccx prints
+    after the element's rows in ``job.dat`` (upper case), with that section's elements."""
+    names = deck_names(job).orientations
+    return {
+        names[sec.element_set].upper(): (
+            np.asarray(job.mesh.element_sets[sec.element_set], dtype=np.int64).ravel(),
+            sec.orientation,
+        )
+        for sec in job.sections
+        if sec.orientation is not None
+    }
 
 
 def deck_names(job: SolveJob) -> DeckNames:
@@ -429,6 +458,9 @@ class DatBlock:
     """(K,) ccx element ids (1-based), ascending."""
     values: NDArray[np.float64]
     """(K, Q, C) values at points 1..Q of each element; stresses in the neutral order."""
+    names: NDArray[np.str_] | None = None
+    """(K, Q) name after each row (ccx's orientation name, finding 3), ``""`` for a row without
+    one; ``None`` when no row of the block has a name."""
 
 
 @dataclass
@@ -447,6 +479,8 @@ def parse_dat(data: str | bytes | mmap.mmap) -> DatResults:
     is parsed (ccx writes a block per increment and step), one block at a time, with numpy's
     C parser and without a Python token list, so ``data`` can be a memory-mapped file. Stresses
     are reordered from ``.dat``'s sxx syy szz sxy sxz syz to the neutral xx yy zz xy yz zx.
+    A row may end with a name (the element's orientation, finding 3): it is kept in
+    ``DatBlock.names`` and the values are left as printed, in that orientation's axes.
     Raises ``SolverError`` for a malformed row, a point number below 1, a duplicate row, or an
     element that does not have exactly points 1..Q, Q being the same for every element.
     """
@@ -459,10 +493,10 @@ def parse_dat(data: str | bytes | mmap.mmap) -> DatResults:
         if name == DAT_STRESSES and columns != _DAT_STRESS_COLUMNS:
             raise SolverError(f"CalculiX job.dat: unexpected stress columns {columns!r}")
         limit = headers[k + 1][2] if k + 1 < len(headers) else len(buffer)
-        table = _dat_table(name, buffer, end, limit, 2 + len(columns.split(",")))
-        block = _point_block(name, table)
+        table, names = _dat_table(name, buffer, end, limit, 2 + len(columns.split(",")))
+        block = _point_block(name, table, names)
         if name == DAT_STRESSES:
-            block = DatBlock(block.elements, block.values[..., _DAT_TO_NEUTRAL])
+            block = DatBlock(block.elements, block.values[..., _DAT_TO_NEUTRAL], block.names)
         result.blocks[name] = block
     return result
 
@@ -488,34 +522,74 @@ def _dat_headers(buffer: bytes | mmap.mmap) -> list[tuple[str, str, int, int]]:
 
 def _dat_table(
     name: str, buffer: bytes | mmap.mmap, start: int, limit: int, width: int
-) -> NDArray[np.float64]:
-    """(R, width) rows of the block whose header line ends at ``start``, up to a blank line."""
+) -> tuple[NDArray[np.float64], NDArray[np.str_] | None]:
+    """(R, width) rows of the block whose header line ends at ``start``, up to a blank line,
+    and the (R,) names after the rows (``""`` for none), or ``None`` if no row has one."""
     first = _DAT_FIRST_ROW.search(buffer, start, limit)  # skips the blank line after the header
     if first is None:
-        return np.zeros((0, width))
+        return np.zeros((0, width)), None
     blank = _DAT_BLANK_LINE.search(buffer, first.start(), limit)
     end = blank.start() if blank else limit
     while end > first.start() and buffer[end - 1 : end].isspace():
         end -= 1
     rows = buffer[first.start() : end]  # the one copy: this block's text
     n_rows = rows.count(b"\n") + 1
-    try:
-        with warnings.catch_warnings():
-            # numpy warns (DeprecationWarning) and stops at text it cannot read as a number.
-            warnings.simplefilter("error", DeprecationWarning)
-            numbers = np.fromstring(rows, sep=" ")  # type: ignore[call-overload]
-    except (ValueError, DeprecationWarning):
-        raise SolverError(f"CalculiX job.dat block {name!r} is malformed: not a number") from None
+    names: NDArray[np.str_] | None = None
+    numbers = _numbers(rows)
+    if numbers is None:
+        # Text that is not a number: rows of oriented elements end with a name (finding 3).
+        # Only then pay for a regex per row.
+        rows, names = _split_names(name, rows, n_rows, width)
+        numbers = _numbers(rows)
+        if numbers is None:
+            raise SolverError(f"CalculiX job.dat block {name!r} is malformed: not a number")
     del rows
     if numbers.size != n_rows * width:
         raise SolverError(
             f"CalculiX job.dat block {name!r} is malformed: expected {width} numbers per row"
         )
-    return numbers.reshape(n_rows, width)
+    return numbers.reshape(n_rows, width), names
 
 
-def _point_block(name: str, table: NDArray[np.float64]) -> DatBlock:
-    """Group the rows (element, point, values...) by element, checking points 1..Q."""
+def _numbers(rows: bytes | mmap.mmap) -> NDArray[np.float64] | None:
+    """All numbers in ``rows`` (separated by white space), or ``None`` at text that is not one."""
+    try:
+        with warnings.catch_warnings():
+            # numpy warns (DeprecationWarning) and stops at text it cannot read as a number.
+            warnings.simplefilter("error", DeprecationWarning)
+            return np.fromstring(rows, sep=" ")  # type: ignore[call-overload]
+    except (ValueError, DeprecationWarning):
+        return None
+
+
+def _split_names(
+    name: str, rows: bytes | mmap.mmap, n_rows: int, width: int
+) -> tuple[bytes, NDArray[np.str_]]:
+    """Split every row into its ``width`` values and an optional trailing name (``""`` if none).
+
+    A name is one token after the values that starts with a letter or ``_``; a row with any
+    other extra token, or with too few, is malformed.
+    """
+    row = re.compile(
+        rb"^([ \t]*(?:\S+[ \t]+){%d}\S+)(?:[ \t]+([A-Za-z_]\S*))?[ \t\r]*$" % (width - 1),
+        re.MULTILINE,
+    )
+    matches = list(row.finditer(rows))
+    if len(matches) != n_rows:
+        raise SolverError(
+            f"CalculiX job.dat block {name!r} is malformed: expected {width} numbers per row, "
+            "optionally followed by a name"
+        )
+    values = b"\n".join(m[1] for m in matches)
+    names = np.array([(m[2] or b"").decode("ascii", "replace") for m in matches], dtype=np.str_)
+    return values, names
+
+
+def _point_block(
+    name: str, table: NDArray[np.float64], names: NDArray[np.str_] | None = None
+) -> DatBlock:
+    """Group the rows (element, point, values...) and their names by element, checking that
+    every element has points 1..Q."""
     ids, points = table[:, 0].astype(np.int64), table[:, 1].astype(np.int64)
     if not (np.array_equal(ids, table[:, 0]) and np.array_equal(points, table[:, 1])):
         raise SolverError(f"CalculiX job.dat block {name!r} is malformed: non-integer ids")
@@ -542,7 +616,8 @@ def _point_block(name: str, table: NDArray[np.float64]) -> DatBlock:
         )
     order = np.lexsort((points, ids))
     values = table[order, 2:].reshape(len(elements), q, table.shape[1] - 2)
-    return DatBlock(elements=elements, values=values)
+    grouped = None if names is None else names[order].reshape(len(elements), q)
+    return DatBlock(elements=elements, values=values, names=grouped)
 
 
 def rule_points(mesh: Mesh) -> NDArray[np.float64]:
@@ -562,11 +637,19 @@ def rule_points(mesh: Mesh) -> NDArray[np.float64]:
     return np.stack([mesh.nodes[mesh.elements, k] @ shape.T for k in range(3)], axis=-1)
 
 
-def point_stresses(dat: DatResults, mesh: Mesh) -> PointStresses:
-    """Integration-point stresses in mesh element order, at the points ``rule_points`` gives.
+def point_stresses(
+    dat: DatResults, mesh: Mesh, orientations: Orientations | None = None
+) -> PointStresses:
+    """GLOBAL integration-point stresses in mesh element order, at the points ``rule_points``
+    gives. Elements ccx did not print are NaN.
 
-    Elements ccx did not print are NaN.
+    ``orientations`` (see ``section_orientations``) are the job's oriented sections. ccx prints
+    their elements' stresses in material axes, each row followed by the orientation name
+    (finding 3); those rows are rotated back to global axes with the section's frame. Raises
+    ``SolverError`` if a printed name is not the one of the element's section, or a row of an
+    oriented element has none: the axes of its values would be unknown.
     """
+    orientations = orientations or {}
     block = dat.blocks.get(DAT_STRESSES)
     if block is None:
         raise SolverError(f"CalculiX job.dat lacks the {DAT_STRESSES!r} block")
@@ -581,13 +664,57 @@ def point_stresses(dat: DatResults, mesh: Mesh) -> PointStresses:
         raise SolverError(
             f"CalculiX job.dat has element ids outside 1..{mesh.n_elements} (the mesh)"
         )
+    expected = np.full(mesh.n_elements, "", dtype=object)
+    for name, (elements, _) in orientations.items():
+        expected[elements] = name
+    printed = np.full(block.values.shape[:2], "", dtype=object)
+    if block.names is not None:
+        printed[...] = block.names
+    wrong = printed != expected[index][:, None]
+    if wrong.any():
+        k, q = (int(i) for i in np.argwhere(wrong)[0])
+        got, want = str(printed[k, q]), str(expected[index[k]])
+        raise SolverError(
+            f"CalculiX job.dat prints element {block.elements[k]} (point {q + 1}) with "
+            f"{_orientation(got)}; its section has {_orientation(want)}"
+        )
     stresses = np.full((mesh.n_elements, n_points, 6), np.nan)
     stresses[index] = block.values
+    for name, (_, frame) in orientations.items():
+        rows = expected == name
+        stresses[rows] = _material_to_global(stresses[rows], frame)
     return PointStresses(points=rule_points(mesh), stresses=stresses)
 
 
-def read_point_stresses(path: Path, mesh: Mesh, log: str = "") -> PointStresses:
-    """Read ``job.dat`` (memory-mapped, parsed block by block).
+def _orientation(name: str) -> str:
+    return f"orientation {name!r}" if name else "no orientation"
+
+
+def _material_to_global(stress: NDArray[np.float64], frame: MaterialFrame) -> NDArray[np.float64]:
+    """Voigt stresses (..., 6) in ``frame``'s axes (11 22 33 12 23 31) to part axes (xx yy zz
+    xy yz zx): sigma = R^T sigma' R, the inverse of ``tessera.model.elasticity.rotate_stress``."""
+    s11, s22, s33, s12, s23, s31 = np.moveaxis(stress, -1, 0)
+    local = np.stack(
+        [
+            np.stack([s11, s12, s31], axis=-1),
+            np.stack([s12, s22, s23], axis=-1),
+            np.stack([s31, s23, s33], axis=-1),
+        ],
+        axis=-2,
+    )
+    r = frame.rotation
+    g = r.T @ local @ r
+    return np.stack(
+        [g[..., 0, 0], g[..., 1, 1], g[..., 2, 2], g[..., 0, 1], g[..., 1, 2], g[..., 2, 0]],
+        axis=-1,
+    )
+
+
+def read_point_stresses(
+    path: Path, mesh: Mesh, log: str = "", orientations: Orientations | None = None
+) -> PointStresses:
+    """Read ``job.dat`` (memory-mapped, parsed block by block) into GLOBAL point stresses;
+    ``orientations`` as for ``point_stresses``.
 
     A missing or empty file is a ``SolverError``: ccx exits 0 with an empty ``.dat`` when
     ``*EL PRINT`` names no set (ADR-008, finding 7). Parse errors carry ``log`` too.
@@ -598,7 +725,7 @@ def read_point_stresses(path: Path, mesh: Mesh, log: str = "") -> PointStresses:
         )
     try:
         with path.open("rb") as file, mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ) as data:
-            return point_stresses(parse_dat(data), mesh)
+            return point_stresses(parse_dat(data), mesh, orientations)
     except SolverError as exc:
         raise SolverError(str(exc), log) from None
 
@@ -675,7 +802,9 @@ class CalculixAdapter:
         stresses = _to_array(parsed.blocks["STRESS"], n, 6)
         points = None
         if job.point_stresses:
-            points = read_point_stresses(workdir / f"{JOB_NAME}.dat", job.mesh, log)
+            points = read_point_stresses(
+                workdir / f"{JOB_NAME}.dat", job.mesh, log, section_orientations(job)
+            )
             metadata["point_rule"] = POINT_RULE
         check_results_complete(job.mesh, displacements, stresses, points, log)
         return SolveResult(
