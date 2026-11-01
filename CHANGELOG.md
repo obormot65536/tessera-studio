@@ -26,7 +26,7 @@
   criteria, the assumed compressive strengths and the materials left unchecked.
   `compare_meshes` fills `MeshCheck.lowest_strength_ratio`. New: `tsai_wu_ratio`,
   `isotropic_ratio`, `strength_ratio`, `failure_mode`, `criterion`, `TSAI_WU_INTERACTION`.
-  A solve asks for integration-point stresses when a material has a strength (see below).
+  A solve asks for integration-point stresses when a material has a strength (see above).
 - Project files are now schema 7 (ADR-010 D3): `IsotropicDefinition` and
   `OrthotropicDefinition` take an optional `strength` (`IsotropicStrengthDefinition`: `tensile`,
   `compressive`, `brittle`; `OrthotropicStrengthDefinition`: `t1`-`t3`, `s12`, `s13`, `s23`,

@@ -76,7 +76,7 @@ lowest strength ratio 1.91 (Tsai-Wu, along the raster, tension), away from suppo
 **A ratio below 1.** Failure is predicted at the applied loads:
 
 ```
-  First failure is predicted there at these loads: it starts at about 0.41 times them.
+  First failure is predicted there at these loads: it starts at about 0.62 times them.
 ```
 
 **A flagged spot.** The lowest ratio is near a support or a sharp inside edge. Tessera shows it
@@ -86,7 +86,8 @@ but does not make it the headline, because the stress there depends on the mesh:
 lowest strength ratio 1.36 at (1.797, 8.224, 0) mm, face 5: near support 'base' (within 5.81 mm); the ratio there may keep falling as the mesh is refined; compare two mesh sizes (--check-mesh) before trusting either value
 ```
 
-- "near support 'base'" names the support. "within 5.81 mm" is how close the spot is to it.
+- "near support 'base'" names the support. "within 5.81 mm" is the flag distance (twice the
+  median element edge): every spot this close to a support or sharp inside edge is flagged.
 - "near a sharp inside edge" is used instead when the spot is near a sharp inside edge.
 - Run `tessera solve --check-mesh` to compare two mesh sizes. The line then ends with one of
   the verdicts below.
@@ -153,24 +154,21 @@ Ratios of 1000 or more are printed as whole numbers, for example `12346`.
 
 The mode says which stress is predicted to fail first. It is a label only: the ratio does not
 change with it. It is the stress term with the largest stress relative to its strength at the
-weakest spot. The mode tells you what to change.
+weakest spot. The mode tells you which way the part is predicted to break.
 
-| Line says | What it means | What to try |
-|---|---|---|
-| along the raster, tension | The roads are pulled apart along their length. | Change the build direction or raster angle so the load runs along the roads, then solve again. |
-| along the raster, compression | The roads are crushed along their length. | Same as above. |
-| across the roads, tension | Neighbouring roads in a layer pull apart. | Turn the raster angle so the roads run along the main load. |
-| across the roads, compression | Roads in a layer are pushed together. | Same as above. |
-| across the layers, tension | The layers pull apart. Printed parts are often weakest in this direction. | Change the build direction so the main load runs within the layers. |
-| across the layers, compression | The layers are crushed together. | Change the build direction, or make the section thicker there. |
-| in-layer shear | Roads slide over each other within a layer. | Turn the raster angle, or make the section thicker there. |
-| interlayer shear | Layers slide over each other. | Change the build direction so this shear runs within a layer, or make the section thicker there. |
-| von Mises | A ductile (metal) part reaches its yield strength. | Make the section thicker, or add a fillet at a sharp corner. |
-| maximum principal stress, tension | A brittle (resin) part is pulled apart. | Make the section thicker, or add a fillet at a sharp corner. |
-| maximum principal stress, compression | A brittle (resin) part is crushed. | Make the section thicker, or add a fillet at a sharp corner. |
-
-Each of these is a guide to where to look, not a rule. Change one thing, solve again, and check
-the ratio.
+| Line says | What it means |
+|---|---|
+| along the raster, tension | The roads are pulled apart along their length. |
+| along the raster, compression | The roads are crushed along their length. |
+| across the roads, tension | Neighbouring roads in a layer pull apart. |
+| across the roads, compression | Roads in a layer are pushed together. |
+| across the layers, tension | The layers pull apart. Printed parts are often weakest in this direction. |
+| across the layers, compression | The layers are crushed together. |
+| in-layer shear | Roads slide over each other within a layer. |
+| interlayer shear | Layers slide over each other. |
+| von Mises | A ductile (metal) part reaches its yield strength. |
+| maximum principal stress, tension | A brittle (resin) part is pulled apart. |
+| maximum principal stress, compression | A brittle (resin) part is crushed. |
 
 ## Give a material its strengths
 
