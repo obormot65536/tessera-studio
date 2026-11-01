@@ -475,7 +475,7 @@ def _change(
 
 
 def _thin_wall(
-    spot: StressSpot, check: SpotCheck | None, minimum: float
+    spot: StressSpot | StrengthSpot, check: SpotCheck | None, minimum: float
 ) -> tuple[WallSpan, float] | None:
     """The wall at a flagged spot, and its elements across, when it has too few for the
     two-mesh check to judge it and no verdict says so already: without a check (the elements
@@ -492,28 +492,61 @@ def _thin_wall(
     return (wall, across) if across < minimum else None
 
 
+def _ratio(ratio: float, digits: int = 3) -> str:
+    """A strength ratio to ``digits`` significant digits, without an exponent: 2.41, 1.2e+04
+    reads as 12345."""
+    return f"{ratio:.{digits}g}" if ratio < 10**digits else f"{ratio:.0f}"
+
+
 def _explained(ratio: float) -> str:
     """What a strength ratio means for the user's loads (ADR-010 D1, D6)."""
     if ratio < 1:
         return (
             "  First failure is predicted there at these loads: it starts at about "
-            f"{ratio:.2g} times them."
+            f"{_ratio(ratio, 2)} times them."
         )
     return (
-        f"  The loads could be about {ratio:.2g} times higher before the first failure is "
-        "predicted there."
+        f"  The loads could be about {_ratio(ratio, 2)} times higher before the first failure "
+        "is predicted there."
+    )
+
+
+def _thin_wall_line(
+    spot: StressSpot | StrengthSpot,
+    check: SpotCheck | None,
+    checked: bool,
+    minimum: float,
+    mesh_size: float,
+    trend: str,
+) -> str | None:
+    """Advice for a flagged spot on a wall too thin, in elements, for the two-mesh check to
+    see ``trend`` ("rise", "ratio fall") there (ADR-007 Amendment 2); ``checked`` if the mesh check
+    ran."""
+    if (thin := _thin_wall(spot, check, minimum)) is None:
+        return None
+    wall, across = thin
+    where = " on the coarse mesh" if checked else ""
+    return (
+        f"  thin wall: {_elements(across)} elements across the {wall.thickness:.3g} mm wall "
+        f"here{where}; use --mesh-size {_advised_size(mesh_size, across, minimum)} or "
+        f"less before --check-mesh, or the comparison cannot see the {trend}"
     )
 
 
 def _strength_lines(
-    strength: StrengthResult, result: StudyResult, change: Callable[[SpotCheck, StrengthSpot], str]
+    strength: StrengthResult, result: StudyResult, minimum: float, mesh_size: float
 ) -> list[str]:
     """The strength-ratio lines of ``tessera solve`` (ADR-010 D5, D6): the headline (the clear
     lowest ratio, or the lowest one when the mesh check settles it) with what it means, then
     the lowest ratio with its flags, then the assumed strengths and the unchecked materials.
-    ``change`` words a mesh-check verdict for a spot."""
+    ``minimum`` and ``mesh_size`` are as for ``_change``."""
     lowest, clear = strength.lowest, strength.clear_lowest
+    checked = result.mesh_check is not None
     check = None if result.mesh_check is None else result.mesh_check.lowest_strength_ratio
+
+    def change(spot_check: SpotCheck, spot: StrengthSpot) -> str:
+        return _change(spot_check, spot, minimum, mesh_size)
+
     lines: list[str] = []
     if math.isinf(lowest.ratio):
         lines.append("lowest strength ratio: none, no checked node carries stress")
@@ -521,7 +554,7 @@ def _strength_lines(
         # The lowest ratio is the clear one: one line, with its verdict when checked.
         verdict = "" if check is None else f" ({change(check, lowest)})"
         lines.append(
-            f"lowest strength ratio {lowest.ratio:.3g} ({_FAILURE_LABELS[lowest.mode]}), "
+            f"lowest strength ratio {_ratio(lowest.ratio)} ({_FAILURE_LABELS[lowest.mode]}), "
             f"{_CLEAR}, {_where(lowest)}{verdict}"
         )
         lines.append(_explained(lowest.ratio))
@@ -530,7 +563,7 @@ def _strength_lines(
         if check is not None and check.verdict is Verdict.SETTLED:
             # Settled on two meshes: the flagged spot is trusted and leads (ADR-010 D5).
             lines.append(
-                f"lowest strength ratio {lowest.ratio:.3g} ({_FAILURE_LABELS[lowest.mode]}) "
+                f"lowest strength ratio {_ratio(lowest.ratio)} ({_FAILURE_LABELS[lowest.mode]}) "
                 f"{_where(lowest)}: {near}; {change(check, lowest)}"
             )
             lines.append(_explained(lowest.ratio))
@@ -540,21 +573,32 @@ def _strength_lines(
                     f"lowest strength ratio {_CLEAR}: none, every checked node is near a marked "
                     "support or sharp inside edge"
                 )
+            elif math.isinf(clear.ratio):
+                lines.append(
+                    f"lowest strength ratio {_CLEAR}: none, no checked node there carries stress"
+                )
             else:
                 lines.append(
-                    f"lowest strength ratio {clear.ratio:.3g} ({_FAILURE_LABELS[clear.mode]}), "
+                    f"lowest strength ratio {_ratio(clear.ratio)} ({_FAILURE_LABELS[clear.mode]}), "
                     f"{_CLEAR}, {_where(clear)}"
                 )
                 lines.append(_explained(clear.ratio))
-            status = (
-                "the ratio there may keep falling as the mesh is refined; compare two mesh "
-                "sizes (--check-mesh) before trusting either value"
-                if check is None
-                else change(check, lowest)
-            )
+            if check is not None:
+                status = change(check, lowest)
+            elif checked:
+                # Only the fine mesh has a finite lowest ratio: nothing to compare.
+                status = "not judged: the coarse mesh had no strength ratio to compare it with"
+            else:
+                status = (
+                    "the ratio there may keep falling as the mesh is refined; compare two mesh "
+                    "sizes (--check-mesh) before trusting either value"
+                )
             lines.append(
-                f"lowest strength ratio {lowest.ratio:.3g} {_where(lowest)}: {near}; {status}"
+                f"lowest strength ratio {_ratio(lowest.ratio)} {_where(lowest)}: {near}; {status}"
             )
+            thin = _thin_wall_line(lowest, check, checked, minimum, mesh_size, "ratio fall")
+            if thin is not None:
+                lines.append(thin)
     for material, names in sorted(strength.assumed.items()):
         if names == ("compressive",):
             what = "compressive strength equal to the tensile one"
@@ -621,11 +665,7 @@ def solve_cmd(
         + verdict(check and check.max_displacement)
     )
     if result.strength is not None:
-        for line in _strength_lines(
-            result.strength,
-            result,
-            lambda spot_check, spot: _change(spot_check, spot, minimum, mesh_size),
-        ):
+        for line in _strength_lines(result.strength, result, minimum, mesh_size):
             typer.echo(line)
     elif result.orthotropic:
         typer.echo(_ORTHOTROPIC_NOTE)
@@ -662,14 +702,10 @@ def solve_cmd(
         typer.echo(f"  {near}: the stress there may keep rising as the mesh is refined; {advice}")
     elif check is not None:
         typer.echo(f"  {_change(check.peak_von_mises, peak, minimum, mesh_size)}")
-    if (thin := _thin_wall(peak, check and check.peak_von_mises, minimum)) is not None:
-        wall, across = thin
-        where = "" if check is None else " on the coarse mesh"
-        typer.echo(
-            f"  thin wall: {_elements(across)} elements across the {wall.thickness:.3g} mm wall "
-            f"here{where}; use --mesh-size {_advised_size(mesh_size, across, minimum)} or "
-            "less before --check-mesh, or the comparison cannot see the rise"
-        )
+    peak_check = check and check.peak_von_mises
+    thin_line = _thin_wall_line(peak, peak_check, check is not None, minimum, mesh_size, "rise")
+    if thin_line is not None:
+        typer.echo(thin_line)
     shown = result.face_peaks[:FACE_PEAKS_SHOWN]
     if shown:
         typer.echo(f"max von Mises stress by face ({len(shown)} of {len(result.face_peaks)}):")

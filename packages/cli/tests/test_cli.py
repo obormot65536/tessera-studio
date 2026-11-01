@@ -981,3 +981,103 @@ def test_every_failure_mode_has_a_label(
     )
     lines = _solve_output(monkeypatch, result)
     assert lines[2].startswith(f"lowest strength ratio 2.41 ({label}), away")
+
+
+def _lowest_on_wall(result: StudyResult, thickness: float, elements: float) -> StudyResult:
+    from tessera.model import WallSpan
+
+    assert result.strength is not None
+    wall = WallSpan(thickness=thickness, elements=elements, direction=(0.0, 0.0, 1.0))
+    lowest = dataclasses.replace(result.strength.lowest, wall=wall)
+    return dataclasses.replace(result, strength=dataclasses.replace(result.strength, lowest=lowest))
+
+
+def test_a_flagged_lowest_ratio_on_a_thin_wall_gets_advice_or_is_not_judged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    thin = _lowest_on_wall(_strength(_solved((), clear=True)), thickness=2.0, elements=1.6)
+    lines = _solve_output(monkeypatch, thin)
+    assert lines[5] == (
+        "  thin wall: 1.6 elements across the 2 mm wall here; use --mesh-size 0.72 or less before"
+        " --check-mesh, or the comparison cannot see the ratio fall"
+    )
+
+    # With the check, the guard answers instead (the coarse mesh had 1.6 elements across).
+    from tessera.post import spot_check
+
+    checked = _checked(thin, peak=143.0, faces={})
+    assert checked.mesh_check is not None and thin.strength is not None
+    checked = dataclasses.replace(
+        checked,
+        mesh_check=dataclasses.replace(
+            checked.mesh_check,
+            lowest_strength_ratio=spot_check(
+                1.61, 1.62, 0.7, elements_across=1.6, guard_thin_wall=True
+            ),
+        ),
+    )
+    lines = _solve_output(monkeypatch, checked, "--check-mesh")
+    assert lines[3:6] == [
+        "lowest strength ratio 2.41 (Tsai-Wu, across the layers, tension), away from supports"
+        " and sharp inside edges, at (12, 4.5, 30) mm, face 7",
+        STRENGTH_EXPLAINED,
+        "lowest strength ratio 1.62 at (0, 2, 1) mm, face 3: near support 'base' (within 5 mm);"
+        " not judged: changed 0.62 % between the meshes, but the coarse mesh had only 1.6"
+        " elements across the 2 mm wall here (at least 5 needed); try --mesh-size 0.72 or less",
+    ]
+    assert not any("thin wall:" in line for line in lines)
+
+    thick = _lowest_on_wall(_strength(_solved((), clear=True)), thickness=20.0, elements=8.0)
+    assert not any("thin wall:" in line for line in _solve_output(monkeypatch, thick))
+
+
+def test_an_unflagged_mesh_dependent_lowest_ratio_still_leads_with_its_verdict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _strength(_solved(("root",), clear=True), lowest_flagged=False)
+    lines = _solve_output(monkeypatch, _strength_checked(result, coarse=3.0), "--check-mesh")
+    assert lines[3:5] == [
+        "lowest strength ratio 2.41 (Tsai-Wu, across the layers, tension), away from supports"
+        " and sharp inside edges, at (12, 4.5, 30) mm, face 7 (mesh-dependent, changed 24.5 %"
+        " between the meshes)",
+        STRENGTH_EXPLAINED,
+    ]
+
+
+def test_a_mesh_check_without_a_coarse_ratio_does_not_ask_for_a_mesh_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _checked(_strength(_solved(("root",), clear=True)), peak=143.0, faces={})
+    lines = _solve_output(monkeypatch, result, "--check-mesh")
+    assert lines[5] == (
+        "lowest strength ratio 1.62 at (0, 2, 1) mm, face 3: near support 'base' (within 5 mm);"
+        " not judged: the coarse mesh had no strength ratio to compare it with"
+    )
+
+
+def test_unstressed_parts_print_no_infinite_ratio(monkeypatch: pytest.MonkeyPatch) -> None:
+    inf = float("inf")
+    lines = _solve_output(
+        monkeypatch,
+        _strength(_solved(("root",), clear=True), lowest_ratio=inf, clear_ratio=inf),
+    )
+    assert lines[2] == "lowest strength ratio: none, no checked node carries stress"
+    assert lines[3].startswith("von Mises stress away")
+
+    # Stress only near the support: the clear nodes carry none.
+    lines = _solve_output(monkeypatch, _strength(_solved(("root",), clear=True), clear_ratio=inf))
+    assert lines[2] == (
+        "lowest strength ratio away from supports and sharp inside edges: none, no checked node"
+        " there carries stress"
+    )
+    assert lines[3].startswith("lowest strength ratio 1.62 at")
+    assert not any("inf" in line for line in lines)
+
+
+def test_large_ratios_are_printed_without_an_exponent(monkeypatch: pytest.MonkeyPatch) -> None:
+    result = _strength(_solved(("root",), clear=True), lowest_flagged=False, clear_ratio=12345.6)
+    lines = _solve_output(monkeypatch, result)
+    assert lines[2].startswith("lowest strength ratio 12346 (Tsai-Wu")
+    assert lines[3] == (
+        "  The loads could be about 12346 times higher before the first failure is predicted there."
+    )
