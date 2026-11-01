@@ -25,6 +25,9 @@ Read this first. It saves you from setting up a study that Tessera cannot run.
   von Mises stress with where it is: away from supports and sharp inside edges, anywhere, and
   on each face. Tessera does not compare them with a limit, does not compute a safety factor
   and does not say whether the part will hold.
+- **Strength ratios, if you enter strengths.** A material you define with strengths also gives
+  a strength ratio: how far the loads are from the first predicted failure. It covers first-ply
+  onset only. See `docs/user/strength-ratio.md` before you use it.
 - **Needs CalculiX.** The solver `ccx` must be installed and on the PATH, or its location set
   in the `TESSERA_CCX` environment variable.
 
@@ -165,8 +168,9 @@ in a top-level `"materials"` list with `"kind": "orthotropic"`, and the part get
 `"print_setup": {"process": "fdm", "build_direction": [0, 0, 1], "raster_angle": 0}`. Use an id
 that is not a library id: `add_material` refuses one (see `docs/user/project-files.md`).
 
-The solve then prints a note: von Mises stress still shows where the stress is, but it is not a
-strength check for a printed part.
+Without a strength in the material, the solve prints a note: von Mises stress still shows where
+the stress is, but it is not a strength check for a printed part. With a strength, the strength
+ratio lines replace the note (see `docs/user/strength-ratio.md`).
 
 ## Step 4: Find the face numbers
 
@@ -526,14 +530,16 @@ How to read it:
   A linear model only holds while the movement is small compared with the part. If the
   largest movement is a large fraction of the part's size, the answer is not reliable.
 - **note: this part uses an orthotropic (layer-wise) material**: printed only when the part's
-  material is orthotropic. Von Mises stress still shows where the stress is, but it is not a
-  strength check: a printed part is weaker across its layers than along them, so do not compare
-  these numbers with a datasheet strength. Layer-wise failure checks are planned for v0.5.
+  material is orthotropic and has no strength. Von Mises stress still shows where the stress is,
+  but it is not a strength check: a printed part is weaker across its layers than along them, so
+  do not compare these numbers with a datasheet strength. With a strength in the material, the
+  strength ratio lines are printed instead; see `docs/user/strength-ratio.md`.
 - **von Mises stress away from supports and sharp inside edges (MPa)**: the highest
   equivalent stress outside the marked places (see below), with its location and face. It is
   not always the stress to compare with the **yield strength** from the material's datasheet:
-  read "Why the peak stress changes with the mesh" first. Tessera v0.1 does not store yield
-  strength. If every node is in a marked place, the line says `none`; use a finer mesh.
+  read "Why the peak stress changes with the mesh" first. The built-in materials store no yield
+  strength; the strength ratio (`docs/user/strength-ratio.md`) uses strengths you enter. If every
+  node is in a marked place, the line says `none`; use a finer mesh.
 - **max von Mises stress (MPa)**: the largest equivalent stress at any node, with its location
   and face (`inside the part` if it is not on a face). When it is in a marked place, the next
   line says which, and that the value depends on the mesh size.

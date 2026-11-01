@@ -144,6 +144,11 @@ New frozen types in `tessera.model.results`:
   clear_lowest: StrengthSpot | None, face_lowest: tuple[StrengthSpot, ...], assumed:
   tuple[str, ...], unchecked: tuple[str, ...])`. `unchecked` names materials without strength
   data; their elements are left out and the CLI says so.
+  *Corrected 2026-11-01 against the merged model (PR-1, #48):* `StrengthResult.criteria` is
+  `dict[str, FailureCriterion]` (material name to criterion, an enum: `tsai-wu`, `von-mises`,
+  `max-principal`), and `assumed` is `dict[str, tuple[str, ...]]` (material name to the compressive
+  strengths taken equal to the tensile ones), not `tuple[str, ...]`. The type list above is
+  otherwise as merged.
 - `StudyResult.strength: StrengthResult | None = field(default=None, kw_only=True)`.
 - `MeshCheck.lowest_strength_ratio: SpotCheck | None = field(default=None, kw_only=True)`, judged
   with the approved 5 % threshold, the refinement limit and the thin-wall guard, exactly as the
@@ -285,5 +290,5 @@ rollers, which are exact when the load is along a material axis.
 1. [x] Maintainer approves the items above (approvals 1-4; 5 comes with the TO-06 PR).
 2. [ ] PR-1 to PR-5.
 3. [ ] Curator issue for PLA/PETG strengths.
-4. [ ] ADR-009 D4: replace the orthotropic note with the strength lines once PR-4 lands.
-5. [ ] ADR-007: record that strength ratios follow decision 5 (cross-reference).
+4. [x] ADR-009 D4: replace the orthotropic note with the strength lines once PR-4 lands.
+5. [x] ADR-007: record that strength ratios follow decision 5 (cross-reference).

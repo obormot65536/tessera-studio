@@ -11,6 +11,8 @@ stress. The current release, v0.1, handles one part at a time.
 - [Set up a study](user/study-setup.md): from a STEP or STL file to a solved result, step by
   step. Covers materials, face numbers, supports, loads, gravity, mesh size and how to read the
   output. Start here if you are new.
+- [Strength ratios](user/strength-ratio.md): how far the loads are from the first predicted
+  failure, what each `tessera solve` strength line means, and how to enter a material's strengths.
 - [How we know the results are right](user/validation.md): the textbook checks Tessera passes,
   their tolerances, and what they do not show.
 

@@ -72,6 +72,10 @@ request.
 5. **Downstream rule.** A future safety factor or failure index is reported from unflagged or
    `settled` spots; flagged spots that are not settled are listed separately and never become the
    headline.
+
+   *Cross-reference (ADR-010, 2026-11-01):* strength ratios follow this decision (ADR-010 D5).
+   The headline is `StrengthResult.clear_lowest`, or `StrengthResult.lowest` when the mesh check
+   settles it, and a flagged spot that is not settled is never the headline.
 6. **Defaults (approved by the maintainer):**
 
 | Parameter | Value |

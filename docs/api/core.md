@@ -201,6 +201,10 @@ material axis 3 along the build direction and axis 1 along the rasters. Displace
 stresses come back in part axes, and `StudyResult.orthotropic` is true. The part must have a
 print setup; Tessera does not assume one. An isotropic part ignores its print setup.
 
+When the part's material has a strength (ADR-010), `solve` asks the solver for point stresses and
+returns the strength ratios in `StudyResult.strength`; see "Strength ratio" below. Without a
+strength nothing extra is requested.
+
 Raises:
 
 - `NotImplementedError`: the project has more than one part, any connection, or a placement
@@ -514,9 +518,9 @@ them from `tessera.model` for the full set.
 
 | Type | Fields (type, default) | Notes |
 |---|---|---|
-| `Project` | `name: str`, `schema_version: int = 6`, `assembly: Assembly`, `study: Study`, `materials: list[MaterialDefinition] = []` | Root object. Extra fields are errors. Material ids must be unique. |
-| `IsotropicDefinition` | `kind: "isotropic"`, `id: str`, `youngs_modulus: float`, `poisson_ratio: float`, `density: float \| None = None` | A material defined in the project. MPa; t/mm³. E > 0, -1 < ν < 0.5, density > 0. |
-| `OrthotropicDefinition` | `kind: "orthotropic"`, `id: str`, `e1`, `e2`, `e3`, `nu12`, `nu13`, `nu23`, `g12`, `g13`, `g23`, `density: float \| None = None` | Engineering constants in MPa on the material axes (1 = raster, 2 = across the road, 3 = build), major Poisson ratios. Checked with `check_orthotropic` (positive definite compliance). |
+| `Project` | `name: str`, `schema_version: int = 7`, `assembly: Assembly`, `study: Study`, `materials: list[MaterialDefinition] = []` | Root object. Extra fields are errors. Material ids must be unique. |
+| `IsotropicDefinition` | `kind: "isotropic"`, `id: str`, `youngs_modulus: float`, `poisson_ratio: float`, `density: float \| None = None`, `strength: IsotropicStrengthDefinition \| None = None` | A material defined in the project. MPa; t/mm³. E > 0, -1 < ν < 0.5, density > 0. `strength` is optional (schema 7, ADR-010). |
+| `OrthotropicDefinition` | `kind: "orthotropic"`, `id: str`, `e1`, `e2`, `e3`, `nu12`, `nu13`, `nu23`, `g12`, `g13`, `g23`, `density: float \| None = None`, `strength: OrthotropicStrengthDefinition \| None = None` | Engineering constants in MPa on the material axes (1 = raster, 2 = across the road, 3 = build), major Poisson ratios. Checked with `check_orthotropic` (positive definite compliance). `strength` is optional (schema 7, ADR-010). |
 | `Assembly` | `parts: list[PartInstance]`, `connections: list[Connection]` | Part ids must be unique. |
 | `PartInstance` | `id: str`, `name: str`, `geometry: Path`, `transform: Transform`, `material_id: str \| None`, `print_setup: PrintSetup \| None` | `geometry` is a STEP or STL path. |
 | `Transform` | `rotation`, `translation` | Rotation is a row-major 3 × 3 matrix; translation in mm. Only the identity is solved in v0.1. |
@@ -534,18 +538,38 @@ them from `tessera.model` for the full set.
 `Load` is the union `ForceLoad | PressureLoad | MomentLoad`. Files without a `kind` are read as
 force loads. `MaterialDefinition` is the union `IsotropicDefinition | OrthotropicDefinition`,
 chosen by `kind` (required). Add one with `edit.add_material`; a part names it by its id, and
-`solve` finds project materials before built-in ones.
+`solve` finds project materials before built-in ones. A definition's `strength` (optional) is
+kept with the material and used by the strength check.
 
 Validation: a `Study` item that names a part id not in `assembly.parts`, or two parts with the
 same id, is an error. Items you add later with `append` skip pydantic's checks at that moment,
 so `solve`, `describe_faces` and `save_project` check the whole project again and raise
 `InputError`.
 
+### Strength data
+
+These come from `tessera.model` (ADR-010 D3). Strengths are in MPa, every value finite and greater
+than 0. Compressive strengths are positive magnitudes. A project file gives them as the
+`*StrengthDefinition` types; `to_strength()` turns each into the matching type below, which a
+material carries as `strength`.
+
+| Type | Fields | Notes |
+|---|---|---|
+| `IsotropicStrengthDefinition` | `tensile: float`, `compressive: float \| None = None`, `brittle: bool = False` | Project-file form of `IsotropicStrength`. `tensile` is the yield strength of a ductile material or the tensile strength of a brittle one. |
+| `OrthotropicStrengthDefinition` | `t1`, `t2`, `t3`, `s12`, `s13`, `s23`: `float`; `c1`, `c2`, `c3: float \| None = None` | Project-file form of `OrthotropicStrength`. `t*` tensile, `c*` compressive, `s12` in-layer shear, `s13` and `s23` interlayer shear. The six without a default are required. |
+| `IsotropicStrength` | `tensile: float`, `compressive: float \| None = None`, `brittle: bool = False` | Frozen. A ductile material (`brittle=False`) is checked with von Mises against `tensile`; a `compressive` value raises `ValueError` there, because nothing would use it. A brittle material is checked with the maximum principal stress against `tensile` and `compressive`; a missing `compressive` is taken equal to `tensile`. `compressive_or_tensile` is the compressive value used. `assumed` is `("compressive",)` for a brittle material with no compressive strength, else `()`. |
+| `OrthotropicStrength` | `t1`, `t2`, `t3`, `s12`, `s13`, `s23`: `float`; `c1`, `c2`, `c3: float \| None = None` | Frozen. On the material axes (1 = raster, 2 = across the road, 3 = build). Checked with Tsai-Wu, F*_ij = -1/2. `compressive` gives (C1, C2, C3), each equal to its tensile value where it was not given. `assumed` lists the names (`"c1"` to `"c3"`) that were not given. |
+| `Strength` | `IsotropicStrength \| OrthotropicStrength` | The union of the two. `IsotropicMaterial.strength` and `OrthotropicMaterial.strength` hold one of them, or `None`. |
+
+A value that is not positive and finite is refused: `ValueError` when the type is built, and a
+pydantic error when a project file is loaded. A project material's `strength` is passed on to the
+material of the same id (see `edit.add_material` and `tessera.materials.get_material`).
+
 ### Results and geometry
 
 | Type | Fields | Notes |
 |---|---|---|
-| `StudyResult` | `mesh: Mesh`, `solution: SolveResult`, `max_displacement: float` (mm), `max_von_mises: float` (MPa), `workdir: Path \| None`, `peak_von_mises: StressSpot`, `clear_peak_von_mises: StressSpot \| None`, `face_peaks: tuple[StressSpot, ...]`, `node_flags: NodeFlags`, `mesh_check: MeshCheck \| None`, `orthotropic: bool = False` | Returned by `solve`. `displacement_magnitude` gives the per-node displacement length. See "Peak stress" below. `orthotropic` is true when the part's material is orthotropic: von Mises then shows where the stress is, but it is not a strength check for a layer-wise part. |
+| `StudyResult` | `mesh: Mesh`, `solution: SolveResult`, `max_displacement: float` (mm), `max_von_mises: float` (MPa), `workdir: Path \| None`, `peak_von_mises: StressSpot`, `clear_peak_von_mises: StressSpot \| None`, `face_peaks: tuple[StressSpot, ...]`, `node_flags: NodeFlags`, `mesh_check: MeshCheck \| None`, `orthotropic: bool = False`, `strength: StrengthResult \| None = None` | Returned by `solve`. `strength` is set when a material of the part has a strength (see "Strength ratio" below). `displacement_magnitude` gives the per-node displacement length. See "Peak stress" below. `orthotropic` is true when the part's material is orthotropic: von Mises then shows where the stress is, but it is not a strength check for a layer-wise part. |
 | `StressSpot` | `value: float` (MPa), `node: int`, `location: (x, y, z)` (mm), `face: int \| None`, `flags: tuple[StressFlag, ...]`, `wall: WallSpan \| None` | A stress at one node. `face` is the face the node lies on (the lowest number on an edge between faces), `None` inside the part. `flagged` is `True` when `flags` is not empty. `wall` is the wall at the node (see "Thin walls" below); `None` where it was not measured. |
 | `WallSpan` | `thickness: float` (mm), `elements: float`, `direction: (x, y, z)` | How thick the part is at a node: the diameter of the largest ball inside the part touching the surface there. `elements` = `thickness` / the local median corner edge length of the mesh it was measured on. `direction` is the unit direction from the node to the ball's centre. |
 | `StressFlag` | `kind: FlagKind`, `support: str \| None` | Why a node is flagged. `support` is the support's id for `FlagKind.SUPPORT`. `str()` gives `near support 'root'` or `near a sharp inside edge`. |
@@ -621,7 +645,7 @@ mesh, and `mesh_check` compares them with the coarse solve (ADR-007):
 
 | Type | Fields | Notes |
 |---|---|---|
-| `MeshCheck` | `coarse_edge_length`, `fine_edge_length` (mm), `coarse_nodes: int`, `threshold: float`, `refinement_limit: float`, `max_displacement: SpotCheck`, `peak_von_mises: SpotCheck`, `clear_peak_von_mises: SpotCheck \| None`, `face_peaks: dict[int, SpotCheck]`, `wall_elements_min: float` | Edge lengths are each mesh's median corner edge length. `clear_peak_von_mises` is `None` unless both meshes have a clear peak; `face_peaks` has the faces with a peak on both meshes. `wall_elements_min` is the thin-wall minimum used (5). |
+| `MeshCheck` | `coarse_edge_length`, `fine_edge_length` (mm), `coarse_nodes: int`, `threshold: float`, `refinement_limit: float`, `max_displacement: SpotCheck`, `peak_von_mises: SpotCheck`, `clear_peak_von_mises: SpotCheck \| None`, `face_peaks: dict[int, SpotCheck]`, `wall_elements_min: float`, `lowest_strength_ratio: SpotCheck \| None = None` | Edge lengths are each mesh's median corner edge length. `clear_peak_von_mises` is `None` unless both meshes have a clear peak; `face_peaks` has the faces with a peak on both meshes. `wall_elements_min` is the thin-wall minimum used (5). `lowest_strength_ratio` judges `StrengthResult.lowest` on both meshes with the same threshold, refinement limit and thin-wall guard as the von Mises peaks; `None` without a strength check. |
 | `SpotCheck` | `coarse: float`, `fine: float`, `change: float`, `refinement: float`, `verdict: Verdict`, `elements_across: float \| None` | `change` = \|fine − coarse\| / \|fine\|; `inf` if only the fine value is zero. `refinement` is the local element edge length, fine / coarse, where the fine value was taken (for the displacement, the ratio of the median edge lengths). `elements_across` is the fine spot's wall thickness over the coarse local edge length; `None` for the displacement or where no wall was measured. |
 | `Verdict` | `SETTLED = "settled"`, `MESH_DEPENDENT = "mesh-dependent"`, `NOT_REFINED = "not-refined"`, `THIN_WALL = "thin-wall"` | `NOT_REFINED` if `refinement > refinement_limit` (or it could not be measured); otherwise, if `change <= threshold`, `THIN_WALL` for a flagged spot with `elements_across < wall_elements_min` and settled for any other; otherwise mesh-dependent. `NOT_REFINED` and `THIN_WALL` are no verdict: the spot's flags still apply. |
 
@@ -685,6 +709,34 @@ In the `SolveJob` that physics builds, each support is a `FixedSupport` whose no
 `support:<id>`. A line support has `FixedSupport.line = True`, so results code can find the
 supports whose peak stress is mesh-dependent.
 
+#### Strength ratio
+
+`solve` adds `StudyResult.strength` (ADR-010) when a material of the part has a strength. The
+solver is then asked for `point_stresses`, and each element's own stresses at its nodes are
+rotated into its material's axes (`tessera.post.element_nodal_stresses`). The ratio R at a node is
+the lowest over the elements that meet there. R is the factor by which every load of the study
+(gravity included) could be multiplied before the criterion predicts first failure there. R < 1
+means failure is predicted at the applied loads. R is `inf` where the stress is zero.
+
+The check is first-ply onset only. It does not model progressive damage, fatigue, creep,
+buckling, or print defects beyond what the strengths contain. The `StrengthResult` headline is
+`clear_lowest` (unflagged nodes), or `lowest` when the mesh check settles it. A flagged spot that
+is not settled is never the headline (ADR-007 decision 5). A solve without strengths is unchanged
+and `strength` is `None`. `FailureMode` and `FailureCriterion` are `StrEnum`s; their values are
+the strings shown.
+
+| Type | Fields | Notes |
+|---|---|---|
+| `StrengthResult` | `criteria: dict[str, FailureCriterion]`, `lowest: StrengthSpot`, `clear_lowest: StrengthSpot \| None`, `face_lowest: tuple[StrengthSpot, ...]`, `assumed: dict[str, tuple[str, ...]] = {}`, `unchecked: tuple[str, ...] = ()` | `criteria` gives the criterion for each checked material, by name. `lowest` is the lowest ratio in the part, flagged or not. `clear_lowest` is the lowest ratio on unflagged nodes; `None` if every checked node is flagged. `face_lowest` is the lowest ratio on each geometry face, lowest first. `assumed` lists, per material name, the compressive strengths taken equal to the tensile ones (e.g. `("c1", "c3")`). `unchecked` names the materials without strength data; their elements are not checked. |
+| `StrengthSpot` | `ratio: float`, `node: int`, `element: int`, `location: (x, y, z)` (mm), `face: int \| None`, `mode: FailureMode`, `flags: tuple[StressFlag, ...] = ()`, `wall: WallSpan \| None = None` | A ratio at one node. `node` and `element` are 0-based; `element` is the one whose stress gave the lowest ratio there. `face` is as for `StressSpot.face`. `flagged` is `True` when `flags` is not empty. |
+| `FailureMode` | `ALONG_RASTER_TENSION`, `ALONG_RASTER_COMPRESSION`, `ACROSS_ROADS_TENSION`, `ACROSS_ROADS_COMPRESSION`, `ACROSS_LAYERS_TENSION`, `ACROSS_LAYERS_COMPRESSION`, `IN_LAYER_SHEAR`, `INTERLAYER_SHEAR`, `VON_MISES`, `MAX_PRINCIPAL_TENSION`, `MAX_PRINCIPAL_COMPRESSION` | Values are `"along-raster-tension"`, `"along-raster-compression"`, `"across-roads-tension"`, `"across-roads-compression"`, `"across-layers-tension"`, `"across-layers-compression"`, `"in-layer-shear"`, `"interlayer-shear"`, `"von-mises"`, `"max-principal-tension"`, `"max-principal-compression"`. For Tsai-Wu, the mode is the stress term with the largest maximum-stress ratio \|σ_k\| / strength_k at the spot (σ_1 along the raster, σ_2 across the roads, σ_3 across the layers, τ_12 in-layer shear, τ_13 and τ_23 interlayer shear). It explains R and never changes it. |
+| `FailureCriterion` | `TSAI_WU = "tsai-wu"`, `VON_MISES = "von-mises"`, `MAX_PRINCIPAL = "max-principal"` | Orthotropic materials use Tsai-Wu with F*_ij = -1/2. Ductile isotropic materials use von Mises against the yield strength. Brittle isotropic materials use the maximum principal stress against the tensile and compressive strengths. |
+
+`tessera.post.summarize` builds the `StrengthResult`, and `compare_meshes` fills
+`MeshCheck.lowest_strength_ratio`. The `tessera.post` functions `criterion`, `failure_mode`,
+`strength_ratio` and `tsai_wu_ratio` are the building blocks. They are not part of
+`tessera.core`.
+
 ### Errors
 
 | Type | Module | Meaning |
@@ -721,8 +773,8 @@ orthotropic material as engineering constants and a section's `MaterialFrame` as
 
 | Type | Fields | Notes |
 |---|---|---|
-| `IsotropicMaterial` | `name`, `youngs_modulus`, `poisson_ratio`, `density = None` | MPa; density in t/mm³. |
-| `OrthotropicMaterial` | `name`, `e1`, `e2`, `e3`, `nu12`, `nu13`, `nu23`, `g12`, `g13`, `g23`, `density = None` | Axes 1 = raster, 2 = across the road, 3 = build. Major Poisson ratios: nu_ij = -eps_j / eps_i under uniaxial sigma_i; nu_ji = nu_ij E_j / E_i is derived. Raises `ValueError` unless every E and G is positive and finite, every Poisson ratio is finite, and the compliance is positive definite. |
+| `IsotropicMaterial` | `name`, `youngs_modulus`, `poisson_ratio`, `density = None`, `strength: IsotropicStrength \| None = None` | MPa; density in t/mm³. `strength` is keyword-only (ADR-010 D3); the solver ignores it. |
+| `OrthotropicMaterial` | `name`, `e1`, `e2`, `e3`, `nu12`, `nu13`, `nu23`, `g12`, `g13`, `g23`, `density = None`, `strength: OrthotropicStrength \| None = None` | `strength` is keyword-only and the solver ignores it. Axes 1 = raster, 2 = across the road, 3 = build. Major Poisson ratios: nu_ij = -eps_j / eps_i under uniaxial sigma_i; nu_ji = nu_ij E_j / E_i is derived. Raises `ValueError` unless every E and G is positive and finite, every Poisson ratio is finite, and the compliance is positive definite. |
 | `Material` | | The union `IsotropicMaterial \| OrthotropicMaterial`; `SolveJob.materials` is a `tuple[Material, ...]`. |
 | `MaterialFrame` | `axis_1`, `axis_2` | Material axes 1 and 2 in part coordinates, unit and orthogonal within 1e-9. `axis_3` = `axis_1` × `axis_2`; `rotation` is the 3 × 3 matrix whose rows are axes 1, 2, 3; `MaterialFrame.from_axes(a, b)` builds one from two non-parallel vectors (Gram-Schmidt). |
 | `Section` | `element_set`, `material`, `orientation: MaterialFrame \| None = None` | `None` means the part axes. |
