@@ -293,7 +293,8 @@ def test_point_stresses_are_requested_only_with_a_strength(bracket_step: Path) -
     setup = PrintSetup(process="fdm", build_direction=(0.0, 0.0, 1.0))
     project = _orthotropic_project(bracket_step, setup)
     assert _job(project).point_stresses is False
-    project.materials[0].strength = OrthotropicStrengthDefinition.model_validate(_STRENGTH)
+    strength = OrthotropicStrengthDefinition.model_validate(_STRENGTH)
+    project.materials[0] = project.materials[0].model_copy(update={"strength": strength})
     job = _job(project)
     assert job.point_stresses is True
     assert job.materials[0].strength == OrthotropicStrength(**_STRENGTH)
