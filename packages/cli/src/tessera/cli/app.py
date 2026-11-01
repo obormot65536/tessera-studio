@@ -22,6 +22,7 @@ from tessera.core import (
     solve,
 )
 from tessera.model import (
+    FailureMode,
     ForceLoad,
     InputError,
     MeshCheck,
@@ -30,7 +31,10 @@ from tessera.model import (
     SolverError,
     SolverTimeoutError,
     SpotCheck,
+    StrengthResult,
+    StrengthSpot,
     StressSpot,
+    StudyResult,
     Verdict,
     WallSpan,
 )
@@ -375,16 +379,35 @@ _ORTHOTROPIC_NOTE = (
     " stress is, but it is not a strength check: printed parts are weaker across layers."
     " Layer-wise failure checks are planned for v0.5."
 )
-"""Printed before the stress lines for an orthotropic part (ADR-009 D4, approved wording)."""
+"""Printed before the stress lines for an orthotropic part without strength data (ADR-009 D4,
+approved wording); with strengths, the strength lines take its place (ADR-010 D6)."""
+
+_TSAI_WU = "Tsai-Wu"
+_MAX_PRINCIPAL = "maximum principal stress"
+_FAILURE_LABELS: dict[FailureMode, str] = {
+    FailureMode.ALONG_RASTER_TENSION: f"{_TSAI_WU}, along the raster, tension",
+    FailureMode.ALONG_RASTER_COMPRESSION: f"{_TSAI_WU}, along the raster, compression",
+    FailureMode.ACROSS_ROADS_TENSION: f"{_TSAI_WU}, across the roads, tension",
+    FailureMode.ACROSS_ROADS_COMPRESSION: f"{_TSAI_WU}, across the roads, compression",
+    FailureMode.ACROSS_LAYERS_TENSION: f"{_TSAI_WU}, across the layers, tension",
+    FailureMode.ACROSS_LAYERS_COMPRESSION: f"{_TSAI_WU}, across the layers, compression",
+    FailureMode.IN_LAYER_SHEAR: f"{_TSAI_WU}, in-layer shear",
+    FailureMode.INTERLAYER_SHEAR: f"{_TSAI_WU}, interlayer shear",
+    FailureMode.VON_MISES: "von Mises",
+    FailureMode.MAX_PRINCIPAL_TENSION: f"{_MAX_PRINCIPAL}, tension",
+    FailureMode.MAX_PRINCIPAL_COMPRESSION: f"{_MAX_PRINCIPAL}, compression",
+}
+"""Criterion and failure mode of a strength spot, as ``tessera solve`` names them (ADR-010 D6).
+Each mode belongs to one criterion, so the mode alone names both."""
 
 
-def _where(spot: StressSpot) -> str:
+def _where(spot: StressSpot | StrengthSpot) -> str:
     x, y, z = spot.location
     face = "inside the part" if spot.face is None else f"face {spot.face}"
     return f"at ({x:.4g}, {y:.4g}, {z:.4g}) mm, {face}"
 
 
-def _reasons(spot: StressSpot) -> str:
+def _reasons(spot: StressSpot | StrengthSpot) -> str:
     return " and ".join(str(flag) for flag in spot.flags)
 
 
@@ -420,7 +443,7 @@ def _elements(count: float) -> str:
 
 def _change(
     check: SpotCheck,
-    spot: StressSpot | None = None,
+    spot: StressSpot | StrengthSpot | None = None,
     minimum: float = WALL_ELEMENTS_MIN,
     mesh_size: float | None = None,
 ) -> str:
@@ -467,6 +490,84 @@ def _thin_wall(
     else:
         return None
     return (wall, across) if across < minimum else None
+
+
+def _explained(ratio: float) -> str:
+    """What a strength ratio means for the user's loads (ADR-010 D1, D6)."""
+    if ratio < 1:
+        return (
+            "  First failure is predicted there at these loads: it starts at about "
+            f"{ratio:.2g} times them."
+        )
+    return (
+        f"  The loads could be about {ratio:.2g} times higher before the first failure is "
+        "predicted there."
+    )
+
+
+def _strength_lines(
+    strength: StrengthResult, result: StudyResult, change: Callable[[SpotCheck, StrengthSpot], str]
+) -> list[str]:
+    """The strength-ratio lines of ``tessera solve`` (ADR-010 D5, D6): the headline (the clear
+    lowest ratio, or the lowest one when the mesh check settles it) with what it means, then
+    the lowest ratio with its flags, then the assumed strengths and the unchecked materials.
+    ``change`` words a mesh-check verdict for a spot."""
+    lowest, clear = strength.lowest, strength.clear_lowest
+    check = None if result.mesh_check is None else result.mesh_check.lowest_strength_ratio
+    lines: list[str] = []
+    if math.isinf(lowest.ratio):
+        lines.append("lowest strength ratio: none, no checked node carries stress")
+    elif not lowest.flagged:
+        # The lowest ratio is the clear one: one line, with its verdict when checked.
+        verdict = "" if check is None else f" ({change(check, lowest)})"
+        lines.append(
+            f"lowest strength ratio {lowest.ratio:.3g} ({_FAILURE_LABELS[lowest.mode]}), "
+            f"{_CLEAR}, {_where(lowest)}{verdict}"
+        )
+        lines.append(_explained(lowest.ratio))
+    else:
+        near = f"{_reasons(lowest)} (within {result.node_flags.distance:.3g} mm)"
+        if check is not None and check.verdict is Verdict.SETTLED:
+            # Settled on two meshes: the flagged spot is trusted and leads (ADR-010 D5).
+            lines.append(
+                f"lowest strength ratio {lowest.ratio:.3g} ({_FAILURE_LABELS[lowest.mode]}) "
+                f"{_where(lowest)}: {near}; {change(check, lowest)}"
+            )
+            lines.append(_explained(lowest.ratio))
+        else:
+            if clear is None:
+                lines.append(
+                    f"lowest strength ratio {_CLEAR}: none, every checked node is near a marked "
+                    "support or sharp inside edge"
+                )
+            else:
+                lines.append(
+                    f"lowest strength ratio {clear.ratio:.3g} ({_FAILURE_LABELS[clear.mode]}), "
+                    f"{_CLEAR}, {_where(clear)}"
+                )
+                lines.append(_explained(clear.ratio))
+            status = (
+                "the ratio there may keep falling as the mesh is refined; compare two mesh "
+                "sizes (--check-mesh) before trusting either value"
+                if check is None
+                else change(check, lowest)
+            )
+            lines.append(
+                f"lowest strength ratio {lowest.ratio:.3g} {_where(lowest)}: {near}; {status}"
+            )
+    for material, names in sorted(strength.assumed.items()):
+        if names == ("compressive",):
+            what = "compressive strength equal to the tensile one"
+        elif len(names) == 1:
+            what = f"compressive strength {names[0]} equal to the tensile one"
+        else:
+            what = f"compressive strengths {', '.join(names)} equal to the tensile ones"
+        lines.append(f"assumed: {what} (material {material!r})")
+    lines.extend(
+        f"not checked for strength (no strength data): material {material!r}"
+        for material in strength.unchecked
+    )
+    return lines
 
 
 def _mesh_check_header(check: MeshCheck) -> str:
@@ -519,7 +620,14 @@ def solve_cmd(
         f"max displacement: {result.max_displacement:.6g} mm"
         + verdict(check and check.max_displacement)
     )
-    if result.orthotropic:
+    if result.strength is not None:
+        for line in _strength_lines(
+            result.strength,
+            result,
+            lambda spot_check, spot: _change(spot_check, spot, minimum, mesh_size),
+        ):
+            typer.echo(line)
+    elif result.orthotropic:
         typer.echo(_ORTHOTROPIC_NOTE)
 
     clear, peak = result.clear_peak_von_mises, result.peak_von_mises

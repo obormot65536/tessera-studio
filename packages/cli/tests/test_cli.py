@@ -742,3 +742,242 @@ def test_solve_help_shows_the_default_timeout() -> None:
     text = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
     assert "--timeout" in text
     assert f"{SOLVE_TIMEOUT:g}" in text
+
+
+# Strength ratios (ADR-010 D5, D6).
+
+STRENGTH_EXPLAINED = (
+    "  The loads could be about 2.4 times higher before the first failure is predicted there."
+)
+
+
+def _strength(
+    result: StudyResult,
+    lowest_flagged: bool = True,
+    clear: bool = True,
+    assumed: dict[str, tuple[str, ...]] | None = None,
+    unchecked: tuple[str, ...] = (),
+    lowest_ratio: float = 1.62,
+    clear_ratio: float = 2.41,
+) -> StudyResult:
+    """``result`` with a strength check: the clear lowest ratio across the layers at face 7,
+    and the raw lowest by support 'base' at face 3 (or the clear one when not flagged)."""
+    from tessera.model import (
+        FailureCriterion,
+        FailureMode,
+        FlagKind,
+        StrengthResult,
+        StrengthSpot,
+        StressFlag,
+    )
+
+    clear_spot = StrengthSpot(
+        ratio=clear_ratio,
+        node=1,
+        element=0,
+        location=(12.0, 4.5, 30.0),
+        face=7,
+        mode=FailureMode.ACROSS_LAYERS_TENSION,
+    )
+    lowest = (
+        StrengthSpot(
+            ratio=lowest_ratio,
+            node=0,
+            element=0,
+            location=(0.0, 2.0, 1.0),
+            face=3,
+            mode=FailureMode.INTERLAYER_SHEAR,
+            flags=(StressFlag(FlagKind.SUPPORT, support="base"),),
+        )
+        if lowest_flagged
+        else clear_spot
+    )
+    return dataclasses.replace(
+        result,
+        orthotropic=True,
+        strength=StrengthResult(
+            criteria={"petg-x": FailureCriterion.TSAI_WU},
+            lowest=lowest,
+            clear_lowest=clear_spot if clear else None,
+            face_lowest=(lowest,),
+            assumed={} if assumed is None else assumed,
+            unchecked=unchecked,
+        ),
+    )
+
+
+def test_solve_leads_with_the_clear_lowest_strength_ratio_before_von_mises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base = _solved(("root",), clear=True)
+    plain = _solve_output(monkeypatch, base)
+    result = _strength(base, assumed={"petg-x": ("c1", "c2", "c3")})
+    lines = _solve_output(monkeypatch, result)
+    assert lines[:2] == plain[:2]
+    assert lines[2:6] == [
+        "lowest strength ratio 2.41 (Tsai-Wu, across the layers, tension), away from supports"
+        " and sharp inside edges, at (12, 4.5, 30) mm, face 7",
+        STRENGTH_EXPLAINED,
+        "lowest strength ratio 1.62 at (0, 2, 1) mm, face 3: near support 'base' (within 5 mm);"
+        " the ratio there may keep falling as the mesh is refined; compare two mesh sizes"
+        " (--check-mesh) before trusting either value",
+        "assumed: compressive strengths c1, c2, c3 equal to the tensile ones (material 'petg-x')",
+    ]
+    # The strength lines replace ADR-009's orthotropic note; the von Mises lines follow as before.
+    assert ORTHOTROPIC_NOTE not in lines
+    assert lines[6:] == plain[2:]
+
+
+def test_an_unflagged_lowest_ratio_is_one_line_with_its_verdict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tessera.post import spot_check
+
+    result = _strength(_solved(("root",), clear=True), lowest_flagged=False)
+    lines = _solve_output(monkeypatch, result)
+    assert lines[2:4] == [
+        "lowest strength ratio 2.41 (Tsai-Wu, across the layers, tension), away from supports"
+        " and sharp inside edges, at (12, 4.5, 30) mm, face 7",
+        STRENGTH_EXPLAINED,
+    ]
+    assert lines[4].startswith("von Mises stress away")
+
+    checked = _checked(result, peak=143.0, faces={})
+    assert checked.mesh_check is not None
+    checked = dataclasses.replace(
+        checked,
+        mesh_check=dataclasses.replace(
+            checked.mesh_check, lowest_strength_ratio=spot_check(2.38, 2.41, 0.7)
+        ),
+    )
+    lines = _solve_output(monkeypatch, checked, "--check-mesh")
+    assert lines[3:5] == [
+        "lowest strength ratio 2.41 (Tsai-Wu, across the layers, tension), away from supports"
+        " and sharp inside edges, at (12, 4.5, 30) mm, face 7 (settled, changed 1.24 % between"
+        " the meshes)",
+        STRENGTH_EXPLAINED,
+    ]
+    assert lines[5].startswith("von Mises stress away")
+
+
+def _strength_checked(result: StudyResult, coarse: float, refinement: float = 0.7) -> StudyResult:
+    from tessera.post import spot_check
+
+    assert result.strength is not None
+    checked = _checked(result, peak=143.0, faces={})
+    assert checked.mesh_check is not None
+    lowest = result.strength.lowest
+    return dataclasses.replace(
+        checked,
+        mesh_check=dataclasses.replace(
+            checked.mesh_check,
+            lowest_strength_ratio=spot_check(
+                coarse,
+                lowest.ratio,
+                refinement,
+                elements_across=8.0,
+                guard_thin_wall=lowest.flagged,
+            ),
+        ),
+    )
+
+
+def test_a_settled_flagged_lowest_ratio_becomes_the_headline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _strength_checked(_strength(_solved(("root",), clear=True)), coarse=1.61)
+    lines = _solve_output(monkeypatch, result, "--check-mesh")
+    assert lines[3:5] == [
+        "lowest strength ratio 1.62 (Tsai-Wu, interlayer shear) at (0, 2, 1) mm, face 3:"
+        " near support 'base' (within 5 mm); settled, changed 0.62 % between the meshes",
+        "  The loads could be about 1.6 times higher before the first failure is predicted there.",
+    ]
+    assert lines[5].startswith("von Mises stress away")
+
+
+def test_a_mesh_dependent_flagged_lowest_ratio_is_never_the_headline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _strength_checked(_strength(_solved(("root",), clear=True)), coarse=2.0)
+    lines = _solve_output(monkeypatch, result, "--check-mesh")
+    assert lines[3:6] == [
+        "lowest strength ratio 2.41 (Tsai-Wu, across the layers, tension), away from supports"
+        " and sharp inside edges, at (12, 4.5, 30) mm, face 7",
+        STRENGTH_EXPLAINED,
+        "lowest strength ratio 1.62 at (0, 2, 1) mm, face 3: near support 'base' (within 5 mm);"
+        " mesh-dependent, changed 23.5 % between the meshes",
+    ]
+
+
+def test_without_a_clear_lowest_ratio_the_flagged_one_is_shown_but_not_explained(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _strength(_solved(("root",), clear=True), clear=False)
+    lines = _solve_output(monkeypatch, result)
+    assert lines[2:4] == [
+        "lowest strength ratio away from supports and sharp inside edges: none, every checked"
+        " node is near a marked support or sharp inside edge",
+        "lowest strength ratio 1.62 at (0, 2, 1) mm, face 3: near support 'base' (within 5 mm);"
+        " the ratio there may keep falling as the mesh is refined; compare two mesh sizes"
+        " (--check-mesh) before trusting either value",
+    ]
+    assert not any("could be about" in line for line in lines)
+
+
+def test_a_ratio_below_one_says_failure_is_predicted_at_these_loads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _strength(_solved(("root",), clear=True), lowest_ratio=0.41, clear_ratio=0.62)
+    lines = _solve_output(monkeypatch, result)
+    assert lines[3] == (
+        "  First failure is predicted there at these loads: it starts at about 0.62 times them."
+    )
+
+
+def test_isotropic_assumptions_and_unchecked_materials_are_listed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _strength(
+        _solved(("root",), clear=True),
+        assumed={"petg-x": ("c3",), "resin": ("compressive",)},
+        unchecked=("pla", "steel"),
+    )
+    lines = _solve_output(monkeypatch, result)
+    assert lines[5:9] == [
+        "assumed: compressive strength c3 equal to the tensile one (material 'petg-x')",
+        "assumed: compressive strength equal to the tensile one (material 'resin')",
+        "not checked for strength (no strength data): material 'pla'",
+        "not checked for strength (no strength data): material 'steel'",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("mode", "label"),
+    [
+        ("along-raster-tension", "Tsai-Wu, along the raster, tension"),
+        ("along-raster-compression", "Tsai-Wu, along the raster, compression"),
+        ("across-roads-tension", "Tsai-Wu, across the roads, tension"),
+        ("across-roads-compression", "Tsai-Wu, across the roads, compression"),
+        ("across-layers-tension", "Tsai-Wu, across the layers, tension"),
+        ("across-layers-compression", "Tsai-Wu, across the layers, compression"),
+        ("in-layer-shear", "Tsai-Wu, in-layer shear"),
+        ("interlayer-shear", "Tsai-Wu, interlayer shear"),
+        ("von-mises", "von Mises"),
+        ("max-principal-tension", "maximum principal stress, tension"),
+        ("max-principal-compression", "maximum principal stress, compression"),
+    ],
+)
+def test_every_failure_mode_has_a_label(
+    monkeypatch: pytest.MonkeyPatch, mode: str, label: str
+) -> None:
+    from tessera.model import FailureMode
+
+    result = _strength(_solved(("root",), clear=True), lowest_flagged=False)
+    assert result.strength is not None
+    spot = dataclasses.replace(result.strength.lowest, mode=FailureMode(mode))
+    result = dataclasses.replace(
+        result,
+        strength=dataclasses.replace(result.strength, lowest=spot, clear_lowest=spot),
+    )
+    lines = _solve_output(monkeypatch, result)
+    assert lines[2].startswith(f"lowest strength ratio 2.41 ({label}), away")
