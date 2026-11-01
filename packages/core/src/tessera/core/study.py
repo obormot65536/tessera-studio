@@ -120,6 +120,9 @@ def solve(
     ``SolverTimeoutError`` is raised; ``None`` means ``SOLVE_TIMEOUT``. It applies to every
     solve on its own, so with ``check_mesh`` the solver may run for up to twice as long. It is
     for the built-in solver: an ``adapter`` you pass keeps its own limit.
+
+    When the part's material has a strength, the solver is asked for integration-point
+    stresses and the result carries ``strength`` (ADR-010); otherwise ``strength`` is ``None``.
     """
     if timeout is not None:
         if adapter is not None:
@@ -149,6 +152,10 @@ def solve(
     def run(where: Path, size_factor: float = 1.0, which: str | None = None) -> StudyResult:
         part_mesh = _mesh_part(part, size, size_factor)
         job = physics.build_static_job(project.study, part, part_mesh, material, frame)
+        if material.strength is not None:
+            # The strength check reads each element's own stresses (ADR-010 D4, D6); studies
+            # without strengths skip the extra output.
+            job = dataclasses.replace(job, point_stresses=True)
         where.mkdir(parents=True, exist_ok=True)
         try:
             solution = adapter.run(job, where)

@@ -21,6 +21,8 @@ from tessera.model import (
     IsotropicMaterial,
     OrthotropicDefinition,
     OrthotropicMaterial,
+    OrthotropicStrength,
+    OrthotropicStrengthDefinition,
     PartInstance,
     PrintSetup,
     SolveJob,
@@ -281,6 +283,27 @@ def test_a_project_material_wins_over_the_library(bracket_step: Path) -> None:
     assert material == IsotropicMaterial(
         name="steel-generic", youngs_modulus=190_000.0, poisson_ratio=0.3
     )
+
+
+# ADR-010 D6: point stresses are asked for only when a strength can use them.
+_STRENGTH = {"t1": 40.0, "t2": 30.0, "t3": 15.0, "s12": 20.0, "s13": 12.0, "s23": 12.0}
+
+
+def test_point_stresses_are_requested_only_with_a_strength(bracket_step: Path) -> None:
+    setup = PrintSetup(process="fdm", build_direction=(0.0, 0.0, 1.0))
+    project = _orthotropic_project(bracket_step, setup)
+    assert _job(project).point_stresses is False
+    project.materials[0].strength = OrthotropicStrengthDefinition.model_validate(_STRENGTH)
+    job = _job(project)
+    assert job.point_stresses is True
+    assert job.materials[0].strength == OrthotropicStrength(**_STRENGTH)
+
+
+def test_a_library_material_without_strength_asks_for_no_point_stresses(
+    bracket_step: Path,
+) -> None:
+    root, tip = _root_and_tip(bracket_step)
+    assert _job(_project(bracket_step, root, tip)).point_stresses is False
 
 
 def test_moment_load_twists_the_tip_face_without_a_net_force(bracket_step: Path) -> None:
