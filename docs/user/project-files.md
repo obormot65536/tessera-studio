@@ -153,8 +153,9 @@ less, or Poisson ratios so large that stretching would release energy), and says
 material is wrong.
 
 From schema 7, a material can also carry a `strength` (MPa), measured on test pieces printed
-the same way. Strengths are optional and are not used by the solve yet; the strength check that
-uses them is planned (ADR-010).
+the same way. Strengths are optional. When a part's material has one, `tessera solve` reports a
+strength ratio for the part; `docs/user/strength-ratio.md` explains the numbers and how to enter
+the strengths.
 
 ```json
 {"kind": "orthotropic", "id": "my-pla", "...": "stiffness as above",

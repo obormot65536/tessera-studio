@@ -128,6 +128,8 @@ check work on any scalar.
   "note: this part uses an orthotropic (layer-wise) material; von Mises stress shows where the
   stress is, but it is not a strength check: printed parts are weaker across layers. Layer-wise
   failure checks are planned for v0.5."
+  *Amended 2026-11-01 (ADR-010 action item 4):* the note is printed only when no strength is given
+  for the material. With a strength, the strength lines replace it (ADR-010 D6, merged in #56).
 - ADR-007's "clear/settled = compare with a strength" does not apply to orthotropic parts; the
   MCP tools must expose `orthotropic` and say so.
 - The failure-criteria slice depends on ADR-008 (integration-point stresses, proposed: averaging

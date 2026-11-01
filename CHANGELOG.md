@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- `tessera solve` prints strength ratios (ADR-010 D6): for a part whose material has a strength,
+  the lowest strength ratio with its failure mode, where it is and what it means, before the
+  von Mises lines; a flagged spot is shown with its flags and is never the headline unless the
+  two-mesh check settles it. The lines also say which compressive strengths were assumed and
+  which materials were left out. The ADR-009 orthotropic note is printed only when no strength
+  is given. The wording is in the user guide (`docs/user/strength-ratio.md`).
+- Strengths in a project file reach the solve (ADR-010 PR-3): a project material with a
+  `strength` (schema 7) becomes `IsotropicMaterial.strength` or `OrthotropicMaterial.strength`.
+  A solve of such a part asks for each element's own stresses, and `StudyResult.strength` holds
+  the strength ratios. A solve without strengths is unchanged (no extra output). No library
+  material has a strength yet.
+- Integration-point stresses of an orthotropic part (`SolveJob(point_stresses=True)`) are now
+  returned in global (part) axes, like the nodal stresses; before, they were in the material's
+  axes (ADR-010).
 - Strength ratios in `tessera.post` (ADR-010 PR-2): `summarize` adds `StudyResult.strength` when
   a material of the job has a strength and the solution has integration-point stresses. The
   ratio R (how many times the loads could rise before first failure is predicted) comes from
@@ -12,7 +26,7 @@
   criteria, the assumed compressive strengths and the materials left unchecked.
   `compare_meshes` fills `MeshCheck.lowest_strength_ratio`. New: `tsai_wu_ratio`,
   `isotropic_ratio`, `strength_ratio`, `failure_mode`, `criterion`, `TSAI_WU_INTERACTION`.
-  Solves do not ask for integration-point stresses yet (PR-3), so results are unchanged.
+  A solve asks for integration-point stresses when a material has a strength (see above).
 - Project files are now schema 7 (ADR-010 D3): `IsotropicDefinition` and
   `OrthotropicDefinition` take an optional `strength` (`IsotropicStrengthDefinition`: `tensile`,
   `compressive`, `brittle`; `OrthotropicStrengthDefinition`: `t1`-`t3`, `s12`, `s13`, `s23`,
@@ -22,8 +36,8 @@
   in `assumed`; a ductile material refuses a compressive strength. The solver ignores strengths
   (decks unchanged). Result types for the coming strength check: `FailureCriterion`,
   `FailureMode`, `StrengthSpot`, `StrengthResult`, `StudyResult.strength` and
-  `MeshCheck.lowest_strength_ratio` (both `None` until it lands). Schema 6 files open unchanged;
-  older Tessera versions refuse schema 7 files.
+  `MeshCheck.lowest_strength_ratio` (both `None` when there is no strength check). Schema 6
+  files open unchanged; older Tessera versions refuse schema 7 files.
 - Solve parts made of your own orthotropic (layer-wise) material (ADR-009): define a material
   in the project with `edit.add_material` (an `IsotropicDefinition` or
   `OrthotropicDefinition`, or its fields; an id that is built in or already defined is
