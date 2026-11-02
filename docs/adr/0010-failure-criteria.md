@@ -172,6 +172,29 @@ Headline: `clear_lowest` (unflagged), or `lowest` when the mesh check rates it `
   assumed: compressive strengths c1, c2, c3 equal to the tensile ones (material 'petg-x')
   ```
 
+  *As shipped 2026-11-01 (PR-4, #56):* the wording above was approved and is printed as drafted,
+  with these additions found while implementing it:
+  - The flagged line gives the flag distance, `near support 'base' (within 5 mm)`, and in place
+    of `mesh-dependent` says what to do: without `--check-mesh`, "the ratio there may keep
+    falling as the mesh is refined; compare two mesh sizes (--check-mesh) before trusting either
+    value"; with it, the mesh-check verdict as for the von Mises peaks, or "not judged: the
+    coarse mesh had no strength ratio to compare it with". A thin-wall hint follows when the spot
+    is on a wall thinner than the mesh can resolve, as for the peaks (ADR-007 Amendment 2).
+  - When the lowest ratio is unflagged it is printed once, as the headline, with its verdict.
+    When it is flagged but settled on two meshes it is the headline, with its flags (D5).
+  - Below 1 the explanation reads "First failure is predicted there at these loads: it starts at
+    about 0.62 times them."
+  - Ratios have three significant digits and no exponent (12400, not 1.24e+04); the explanation
+    has two.
+  - With no clear spot: "lowest strength ratio away from supports and sharp inside edges: none,
+    every checked node is near a marked support or sharp inside edge" (or "... no checked node
+    there carries stress"); with no stressed node at all: "lowest strength ratio: none, no checked
+    node carries stress".
+  - Materials without strength data get "not checked for strength (no strength data): material
+    'x'", and a single assumed strength reads "compressive strength c3 equal to the tensile one".
+
+  The user guide (`docs/user/strength-ratio.md`) shows each case.
+
   ADR-009's orthotropic note is kept only when no strength is given.
 - MCP (when it exists) carries `strength` with the same `trust` field as the peaks.
 - Results cache (ADR-003 item 3) stores the per-node R with the stresses.
@@ -288,7 +311,7 @@ rollers, which are exact when the load is along a material axis.
 ## Action items
 
 1. [x] Maintainer approves the items above (approvals 1-4; 5 comes with the TO-06 PR).
-2. [ ] PR-1 to PR-5.
+2. [x] PR-1 to PR-5 (#48, #49, #53, #54, #56, #58; TO-06 reference #59).
 3. [ ] Curator issue for PLA/PETG strengths.
 4. [x] ADR-009 D4: replace the orthotropic note with the strength lines once PR-4 lands.
 5. [x] ADR-007: record that strength ratios follow decision 5 (cross-reference).
