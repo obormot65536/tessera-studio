@@ -551,8 +551,9 @@ How to read it:
 - **von Mises stress away from supports and sharp inside edges (MPa)**: the highest
   equivalent stress outside the marked places (see below), with its location and face. It is
   not always the stress to compare with the **yield strength** from the material's datasheet:
-  read "Why the peak stress changes with the mesh" first. The built-in materials store no yield
-  strength; the strength ratio (`docs/user/strength-ratio.md`) uses strengths you enter. If every
+  read "Why the peak stress changes with the mesh" first. The built-in metals store no yield
+  strength. `pla-fff-gonabadi2020` carries strengths; for other materials the strength ratio
+  (`docs/user/strength-ratio.md`) uses strengths you enter. If every
   node is in a marked place, the line says `none`; use a finer mesh.
 - **max von Mises stress (MPa)**: the largest equivalent stress at any node, with its location
   and face (`inside the part` if it is not on a face). When it is in a marked place, the next
@@ -744,7 +745,8 @@ These suggestions are general design advice; Tessera does not check them.
 - **Too much movement.** For a beam in bending, depth matters most: stiffness goes with the
   cube of the depth. A small increase in depth can cut the movement a lot.
 - **Printed parts.** Layers are weaker when pulled apart than when pulled along. Orient the part
-  so the main load runs along the layers, not across them. Tessera v0.1 cannot check this.
+  so the main load runs along the layers, not across them. For a layer-wise material with
+  strengths, the strength ratio checks this (`docs/user/strength-ratio.md`).
 
 ### Exit codes
 

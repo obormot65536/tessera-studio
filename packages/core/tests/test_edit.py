@@ -251,6 +251,9 @@ def test_add_material_refuses_built_in_and_duplicate_ids(project: Project) -> No
     steel = IsotropicDefinition(id="steel-generic", youngs_modulus=1.0, poisson_ratio=0.3)
     with pytest.raises(InputError, match="'steel-generic' is a built-in material"):
         edit.add_material(project, steel)
+    pla = OrthotropicDefinition.model_validate({"id": "pla-fff-gonabadi2020", **_TO})
+    with pytest.raises(InputError, match="'pla-fff-gonabadi2020' is a built-in material"):
+        edit.add_material(project, pla)
     added = edit.add_material(
         project, OrthotropicDefinition.model_validate({"id": "pla-xyz", **_TO})
     )

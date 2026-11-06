@@ -57,8 +57,9 @@ _ORTHOTROPIC: dict[str, OrthotropicMaterial] = {
     # Wei, Additive Manufacturing (2022) 103145, doi 10.1016/j.addma.2022.103145, Tables 5-8:
     # 5 mm roads, 2 mm layers, 220 C, heat-treated 10 min at 100 C before ASTM D3039 tests with
     # DIC. G from 45-degree off-axis tension. nu13 derived from the measured nu31 (0.461) as
-    # nu31 * E1 / E3. No strength: no source gives interlayer tension or shear for PETG, so
-    # Tessera reports "not checked for strength" (decision on #61).
+    # nu31 * E1 / E3 (Table 6 labels it nu13; Eq 6 defines it as nu31). No strength: no source
+    # gives interlayer tension or shear for PETG, so a PETG part gets the orthotropic note
+    # instead of a strength ratio (decision on #61).
     "petg-pellet-romeijn2022": OrthotropicMaterial(
         name="petg-pellet-romeijn2022",
         e1=1898.7, e2=1272.4, e3=1894.8,

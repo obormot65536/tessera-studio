@@ -275,8 +275,8 @@ Common rules:
 def material_ids() -> list[str]
 ```
 
-The ids of the built-in materials, sorted, for `material_id`. Currently `aluminium-6061-t6` and
-`steel-generic`. It raises nothing. Materials defined in the project are in
+The ids of the built-in materials, sorted, for `material_id`. Currently `aluminium-6061-t6`,
+`petg-pellet-romeijn2022`, `pla-fff-gonabadi2020` and `steel-generic`. It raises nothing. Materials defined in the project are in
 `project.materials`.
 
 #### `add_material`
