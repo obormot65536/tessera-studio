@@ -15,6 +15,8 @@ stress. The current release, v0.1, handles one part at a time.
   failure, what each `tessera solve` strength line means, and how to enter a material's strengths.
 - [How we know the results are right](user/validation.md): the textbook checks Tessera passes,
   their tolerances, and what they do not show.
+- [Built-in PLA and PETG](materials/pla-petg.md): where every number of the printed library
+  materials comes from, what is assumed, and which papers were rejected.
 
 ## For developers: the API
 

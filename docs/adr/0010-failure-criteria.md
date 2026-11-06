@@ -312,6 +312,7 @@ rollers, which are exact when the load is along a material axis.
 
 1. [x] Maintainer approves the items above (approvals 1-4; 5 comes with the TO-06 PR).
 2. [x] PR-1 to PR-5 (#48, #49, #53, #54, #56, #58; TO-06 reference #59).
-3. [ ] Curator issue for PLA/PETG strengths.
+3. [x] Curator issue for PLA/PETG strengths (#61): `pla-fff-gonabadi2020` with strengths and
+   `petg-pellet-romeijn2022` elastic only; evidence in `docs/materials/pla-petg.md`.
 4. [x] ADR-009 D4: replace the orthotropic note with the strength lines once PR-4 lands.
 5. [x] ADR-007: record that strength ratios follow decision 5 (cross-reference).

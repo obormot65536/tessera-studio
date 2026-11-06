@@ -7,7 +7,8 @@ summarises the nine checks that pass today. The full plan, with 28 more checks s
 
 ## What the checks do not show
 
-- They do not check printed parts. No printed material is in the v0.1 library yet.
+- They do not check printed parts. Printed library materials exist, but no benchmark checks them
+  yet.
 - They check simple shapes and loads. They do not prove that a complicated part is right.
 - Passing means the answer is within a stated tolerance at one mesh size. Your own study still
   needs the two-mesh check described in [study-setup.md](study-setup.md), Step 7
