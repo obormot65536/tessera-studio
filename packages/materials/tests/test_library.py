@@ -87,3 +87,63 @@ def test_project_strengths_reach_the_material() -> None:
     )
     assert get_material("resin", defined).strength == IsotropicStrength(50.0, brittle=True)
     assert get_material("plain", defined).strength is None
+
+
+# ADR-010 action item 3 (#61): the first printed materials in the library. These pin the
+# numbers the maintainer approved in the PR; changing one is a rule-6 change.
+def test_printed_materials_are_listed() -> None:
+    ids = material_ids()
+    assert "pla-fff-gonabadi2020" in ids
+    assert "petg-pellet-romeijn2022" in ids
+
+
+def test_pla_entry_has_the_approved_constants_and_strengths() -> None:
+    from tessera.model import OrthotropicStrength
+    from tessera.model.elasticity import check_orthotropic
+
+    pla = get_material("pla-fff-gonabadi2020")
+    assert pla == OrthotropicMaterial(
+        name="pla-fff-gonabadi2020",
+        e1=3500.0, e2=4040.0, e3=2000.0,
+        nu12=0.32, nu13=0.35, nu23=0.37,
+        g12=1270.0, g13=1210.0, g23=950.0,
+        density=1.22e-9,
+        strength=OrthotropicStrength(
+            t1=55.0, t2=45.16, t3=5.0, s12=30.0, s13=17.5, s23=17.5, c1=95.79, c2=94.87
+        ),
+    )  # fmt: skip
+    assert isinstance(pla, OrthotropicMaterial)
+    check_orthotropic(
+        pla.e1, pla.e2, pla.e3, pla.nu12, pla.nu13, pla.nu23, pla.g12, pla.g13, pla.g23
+    )
+
+
+def test_petg_entry_is_elastic_only() -> None:
+    from tessera.model.elasticity import check_orthotropic
+
+    petg = get_material("petg-pellet-romeijn2022")
+    assert petg == OrthotropicMaterial(
+        name="petg-pellet-romeijn2022",
+        e1=1898.7, e2=1272.4, e3=1894.8,
+        nu12=0.401, nu13=0.462, nu23=0.373,
+        g12=748.8, g13=611.7, g23=685.5,
+        density=1.2742e-9,
+    )  # fmt: skip
+    assert isinstance(petg, OrthotropicMaterial)
+    assert petg.strength is None  # no interlayer strengths published (#61): not checked
+    check_orthotropic(
+        petg.e1, petg.e2, petg.e3, petg.nu12, petg.nu13, petg.nu23, petg.g12, petg.g13,
+        petg.g23,
+    )  # fmt: skip
+
+
+def test_a_project_definition_wins_over_a_printed_library_material() -> None:
+    mine = OrthotropicDefinition.model_validate({"id": "pla-fff-gonabadi2020", **_TO})
+    assert get_material("pla-fff-gonabadi2020", [mine]) == OrthotropicMaterial(
+        name="pla-fff-gonabadi2020", **_TO
+    )
+
+
+def test_printed_materials_are_not_isotropic() -> None:
+    with pytest.raises(InputError, match="unknown material"):
+        get_isotropic("pla-fff-gonabadi2020")

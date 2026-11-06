@@ -8,10 +8,10 @@ A stress is only a number; a ratio is compared with the loads you applied.
 This page explains the lines `tessera solve` prints, how to give a material its strengths,
 and what the check does not cover.
 
-Strength ratios only appear when the material of the part has strengths. Tessera has no
-strengths built in: the library materials are stiffness and density only. You enter the
-strengths yourself, from tests on your own printed pieces. See "Give a material its strengths"
-below.
+Strength ratios only appear when the material of the part has strengths. One built-in material
+has strengths, `pla-fff-gonabadi2020` (see "Built-in printed materials" below). For any other
+material, you enter the strengths yourself, from tests on your own printed pieces. See "Give a
+material its strengths" below.
 
 ## Read this first: what the ratio does and does not cover
 
@@ -169,6 +169,21 @@ weakest spot. The mode tells you which way the part is predicted to break.
 | von Mises | A ductile (metal) part reaches its yield strength. |
 | maximum principal stress, tension | A brittle (resin) part is pulled apart. |
 | maximum principal stress, compression | A brittle (resin) part is crushed. |
+
+## Built-in printed materials
+
+Two printed materials are built in. Each id names the study its numbers come from, because the
+same plastic measures very differently on different printers and settings. Every number, its
+source and its assumptions are listed in `docs/materials/pla-petg.md`.
+
+| Id | What it is | Strengths |
+|---|---|---|
+| `pla-fff-gonabadi2020` | PLA printed on a desktop Ender-3 at 0.15 mm layers, 100% infill. A few values come from a second PLA study, and the interlayer shear plane is assumed. | Yes. Across the layers it is only 5 MPa in tension, so parts pulled across their layers show low ratios. |
+| `petg-pellet-romeijn2022` | PETG from a large-format pellet printer (5 mm roads, 2 mm layers). Not desktop filament: across the roads it is likely less stiff than your prints. | No. No published study gives PETG strengths across the layers, so a PETG part gets no strength ratio: see "Unchecked materials" below. |
+
+These are values from one set of test pieces each, not guarantees for your printer, filament
+or settings. If you can test your own prints, define your own material in the project file
+(below). A material you define wins over a built-in one with the same id.
 
 ## Give a material its strengths
 

@@ -16,10 +16,13 @@ Read this first. It saves you from setting up a study that Tessera cannot run.
 - **Linear static analysis only.** The model assumes small displacements and a material that
   springs back when unloaded. It does not model buckling, large bending, plastic yield,
   contact, heat, vibration or time.
-- **A short material library, and your own values.** Two library materials exist:
-  `steel-generic` and `aluminium-6061-t6`. There is no printed plastic (PLA, PETG, ABS, nylon)
-  in the library yet. You can define your own material in the project, including a layer-wise
-  (orthotropic) one from your own coupon tests; see "Your own printed material" in Step 3.
+- **A short material library, and your own values.** Four library materials exist: the metals
+  `steel-generic` and `aluminium-6061-t6`, and two layer-wise printed plastics,
+  `pla-fff-gonabadi2020` and `petg-pellet-romeijn2022`. Each plastic comes from one published
+  study, so its numbers fit that study's printer and settings, not necessarily yours (see
+  `docs/user/strength-ratio.md`). There is no ABS or nylon yet. You can define your own material
+  in the project, including a layer-wise (orthotropic) one from your own coupon tests; see "Your
+  own printed material" in Step 3.
   There is no command for that yet: use the Python API or edit the JSON.
 - **Displacement and von Mises stress come out.** The largest displacement, and the largest
   von Mises stress with where it is: away from supports and sharp inside edges, anywhere, and
@@ -103,11 +106,22 @@ part 'beam' is steel-generic
 | `steel-generic` | 210 000 | 0.30 | 7.85e-9 |
 | `aluminium-6061-t6` | 68 900 | 0.33 | 2.70e-9 |
 
+Two printed plastics are also built in, as layer-wise (orthotropic) materials. Like any
+layer-wise material, a part made of one needs a print setup, or the solve is refused (see "Your
+own printed material" below):
+
+| Material id | Stiffness along / across the road / across the layers (MPa) | Density (t/mm³) | Strengths |
+|---|---|---|---|
+| `pla-fff-gonabadi2020` | 3500 / 4040 / 2000 | 1.22e-9 | Yes |
+| `petg-pellet-romeijn2022` | 1899 / 1272 / 1895 | 1.274e-9 | No |
+
+All nine stiffness constants of each, with their sources, are in `docs/materials/pla-petg.md`.
+
 Density is needed only if you use gravity. An unknown id is refused, and the message lists the
 known ids.
 
-If your part is a printed plastic, these values are not right for it. Use the closest library
-entry only to get a rough idea, and do not treat the numbers as a print result.
+If your part is a printed plastic, the metal values are not right for it. Use a printed library
+entry, or better your own material from tests on your own prints.
 
 ### Your own printed material
 
@@ -429,7 +443,7 @@ study updated
 
 - `--gravity` takes three numbers, GX GY GZ, in mm/s². Standard gravity is 9810 mm/s² (9.81
   m/s²). If z points up, gravity is `0 0 -9810`. It acts on the whole part, using the density of
-  the material. Both library materials have a density.
+  the material. All library materials have a density.
 - `--no-gravity` turns gravity off.
 - `--mesh-size` is the target size of each small element, in mm. The solver works on a mesh of
   these elements.
