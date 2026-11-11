@@ -29,8 +29,9 @@ are the only place that is taken into account. If a print has voids, weak layer 
 poor infill that your test pieces did not have, the ratio does not see it. Use your own
 judgement about the margin you need. Tessera does not pick a safety factor.
 
-The check also has no benchmark yet. The check of the criterion against exact cases (benchmark
-TO-06) is still to come, so treat the numbers as not yet validated.
+The criterion has one benchmark, TO-06, which checks the ratio against exact cases (see
+[`benchmarks/CATALOG.md`](../../benchmarks/CATALOG.md)). It uses made-up strengths, so it does
+not show that any real material's numbers are right.
 
 ## What the ratio means
 
@@ -242,10 +243,10 @@ Use this for metals and for resin:
 ### Where to get the numbers
 
 Enter the strengths you measured on your own printed test pieces, printed the way the part will
-be printed. Of the built-in materials only `pla-fff-gonabadi2020` has strengths, from one
-published study; your own tested values describe your prints better. Tessera does not check
-that your numbers are right. A wrong strength gives a wrong ratio, and the ratio looks just
-as confident.
+be printed. Of the built-in materials only `pla-fff-gonabadi2020` has strengths, from published
+tests (most of them from one study); your own tested values describe your prints better.
+Tessera does not check that your numbers are right. A wrong strength gives a wrong ratio, and
+the ratio looks just as confident.
 
 Strengths you enter are data you own. They are not checked against a reference.
 

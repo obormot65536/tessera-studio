@@ -18,19 +18,19 @@ Read this first. It saves you from setting up a study that Tessera cannot run.
   contact, heat, vibration or time.
 - **A short material library, and your own values.** Four library materials exist: the metals
   `steel-generic` and `aluminium-6061-t6`, and two layer-wise printed plastics,
-  `pla-fff-gonabadi2020` and `petg-pellet-romeijn2022`. Each plastic comes from one published
-  study, so its numbers fit that study's printer and settings, not necessarily yours (see
-  `docs/user/strength-ratio.md`). There is no ABS or nylon yet. You can define your own material
-  in the project, including a layer-wise (orthotropic) one from your own coupon tests; see "Your
-  own printed material" in Step 3.
+  `pla-fff-gonabadi2020` and `petg-pellet-romeijn2022`. Each plastic's numbers come mostly from
+  one published study (PLA fills a few gaps from a second), so they fit that study's printer and
+  settings, not necessarily yours (see `docs/user/strength-ratio.md`). There is no ABS or nylon
+  yet. You can define your own material in the project, including a layer-wise (orthotropic)
+  one from your own coupon tests; see "Your own printed material" in Step 3.
   There is no command for that yet: use the Python API or edit the JSON.
 - **Displacement and von Mises stress come out.** The largest displacement, and the largest
   von Mises stress with where it is: away from supports and sharp inside edges, anywhere, and
   on each face. Tessera does not compare them with a limit, does not compute a safety factor
   and does not say whether the part will hold.
-- **Strength ratios, if you enter strengths.** A material you define with strengths also gives
-  a strength ratio: how far the loads are from the first predicted failure. It covers first-ply
-  onset only. See `docs/user/strength-ratio.md` before you use it.
+- **Strength ratios, if the material has strengths.** A material with strengths (yours, or the
+  built-in PLA) also gives a strength ratio: how far the loads are from the first predicted
+  failure. It covers first-ply onset only. See `docs/user/strength-ratio.md` before you use it.
 - **Needs CalculiX.** The solver `ccx` must be installed and on the PATH, or its location set
   in the `TESSERA_CCX` environment variable.
 
@@ -86,6 +86,8 @@ Output:
 
 ```
 aluminium-6061-t6
+petg-pellet-romeijn2022
+pla-fff-gonabadi2020
 steel-generic
 ```
 
@@ -817,7 +819,7 @@ Any field name that Tessera does not know causes an error. This catches typing m
 | Message (after `error:`) | What to do |
 |---|---|
 | `part 'beam' has faces 1 to 6; there is no face 99 (list them with `tessera faces`)` | Use a face number from `tessera faces` |
-| `unknown material 'steel-x'; known: aluminium-6061-t6, steel-generic` | Use a material id from `tessera materials` |
+| `unknown material 'steel-x'; known: aluminium-6061-t6, petg-pellet-romeijn2022, pla-fff-gonabadi2020, steel-generic` | Use a material id from `tessera materials` |
 | `no part 'gear' in project 'beam'` | Check the part id with `tessera info`. The message names the project, which may differ from the file name |
 | `the id 'root' is already used in this project` | Give the new item another `--id` |
 | `nothing called 'x' in project 'beam'` | `tessera remove` found no support, load or part with that id |
