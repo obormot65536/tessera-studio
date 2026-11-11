@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Two printed materials are in the built-in library (ADR-010 action item 3, #61):
+  `pla-fff-gonabadi2020` (orthotropic stiffness and strengths, from Gonabadi et al. 2020 with
+  gaps from Song et al. 2017; c3 is not published, so it is taken equal to t3 and reported as
+  assumed) and `petg-pellet-romeijn2022` (orthotropic stiffness only, from a large-format pellet
+  printer, not desktop filament; no strength, so a PETG part gets the orthotropic note instead of
+  a strength ratio). A part of either needs a print setup to solve. `material_ids()` and
+  `get_material` include them; `get_isotropic` does not; `add_material` refuses their ids. Sources
+  and assumptions are in `docs/materials/pla-petg.md`.
 - `tessera solve` prints strength ratios (ADR-010 D6): for a part whose material has a strength,
   the lowest strength ratio with its failure mode, where it is and what it means, before the
   von Mises lines; a flagged spot is shown with its flags and is never the headline unless the
@@ -11,8 +19,8 @@
 - Strengths in a project file reach the solve (ADR-010 PR-3): a project material with a
   `strength` (schema 7) becomes `IsotropicMaterial.strength` or `OrthotropicMaterial.strength`.
   A solve of such a part asks for each element's own stresses, and `StudyResult.strength` holds
-  the strength ratios. A solve without strengths is unchanged (no extra output). No library
-  material has a strength yet.
+  the strength ratios. A solve without strengths is unchanged (no extra output). The built-in
+  PLA has strengths and PETG has none (see the printed-materials entry above).
 - Integration-point stresses of an orthotropic part (`SolveJob(point_stresses=True)`) are now
   returned in global (part) axes, like the nodal stresses; before, they were in the material's
   axes (ADR-010).
