@@ -201,6 +201,7 @@ def test_editing_errors_are_one_line_and_leave_the_file_alone(
 def test_materials_lists_the_library() -> None:
     shown = _ok("materials")
     assert "steel-generic" in shown and "aluminium-6061-t6" in shown
+    assert "pla-fff-gonabadi2020" in shown and "petg-pellet-romeijn2022" in shown
 
 
 def test_study_without_options_is_refused(tmp_path: Path) -> None:
