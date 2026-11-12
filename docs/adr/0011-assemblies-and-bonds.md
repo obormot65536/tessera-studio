@@ -1,6 +1,6 @@
 # ADR-011: Assemblies of placed parts joined by bonded connections (v0.5)
 
-**Status:** Proposed (draft for the maintainer, issue #69)
+**Status:** Accepted (maintainer, 2026-11-12; issue #69)
 **Deciders:** Maintainer
 
 ## Context
@@ -332,7 +332,7 @@ hand-built jobs.
 
 ## Action items
 
-1. [ ] Maintainer approves the items above.
+1. [x] Maintainer approves the items above (2026-11-12).
 2. [ ] PR-0 to PR-7.
 3. [ ] ADR-004 item 3: record bonded connections as done after PR-5.
 4. [ ] Tick ADR-009's action items, which shipped with TO-01 (#43).
