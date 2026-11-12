@@ -61,6 +61,9 @@ What exists today:
 - `MaterialFrame(axis_1, axis_2)` in `tessera.model.solver`: unit, orthogonal within 1e-9;
   `axis_3 = axis_1 × axis_2`; `rotation` (rows = material axes in part coordinates);
   `from_axes(a, b)` does Gram-Schmidt.
+  *Note (ADR-011 D1):* once parts can be placed, the frame given to the solver is in global
+  axes: the print setup's frame, in part axes, turned by the part's placement. With an identity
+  placement the two are the same.
 - `Section.orientation: MaterialFrame | None = None` (additive; `None` = global axes). CalculiX
   orientations are per element set anyway, so region-wise frames (TO-05) or curved rasters become
   more element sets, not a new table. No CalculiX keyword enters `model` (ADR-004).

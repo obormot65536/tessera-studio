@@ -80,8 +80,8 @@ primary source.
 | TO-04 | v0.5 | Shear-flexible orthotropic cantilever | planned |
 | TO-05 | v0.5 | Region-wise two-material beam (perimeter + infill) | planned |
 | TO-06 | v0.5 | Off-axis strength ratio (Tsai-Wu) | passing |
-| TC-01 | v0.5 | Tied interface patch test, non-matching meshes | planned |
-| TC-02 | v0.5 | Tied cantilever split in two parts | planned |
+| TC-01 | v0.5 | Bonded interface patch test, non-matching meshes | planned |
+| TC-02 | v0.5 | Bonded cantilever split in two parts | planned |
 | TC-03 | v0.5 | Frictionless contact patch test | planned |
 | TC-04 | v0.5 | Hertz sphere on flat | planned |
 | TC-05 | v0.5 | Shrink (interference) fit of two cylinders | planned |
@@ -549,32 +549,41 @@ nu12 = 0.35, nu13 = nu23 = 0.30 (check positive definiteness in the case).
 
 ## v0.5: contact and assemblies (TC)
 
-### TC-01 Tied (bonded) interface patch test, non-matching meshes
+### TC-01 Bonded interface patch test, non-matching meshes
 
-- **Problem:** two blocks stacked along z and tied on their common face, meshed independently
+- **Problem:** two blocks stacked along z and bonded on their common face, meshed independently
   with different sizes so that the interface nodes do not match. Uniform tension along z, then
   along x (in-plane).
 - **Quantity:** uniform stress sigma everywhere (max deviation), and a displacement field with
   no jump across the interface.
-- **Reference:** exact (constant-stress patch). The tie must pass it to be consistent.
+- **Reference:** exact (constant-stress patch). The bond must pass it to be consistent.
 - **Licence:** no reuse issue.
 - **Equivalents:** NAFEMS R0081 CGS-1 is a *contact* patch test (see TC-03). No tied case
   recorded.
-- **Features:** bonded/tied connection (CalculiX `*TIE`), assemblies of several parts.
-- **Tolerance:** 1e-4 relative for the z load (CalculiX ties of quadratic faces are not exactly
-  patch-test-consistent, so ask `calculix-specialist` to confirm the achievable level); 1e-6
-  for matching meshes.
+- **Features:** bonded connection (tied penalty contact pair, ADR-011), assemblies of several
+  parts.
+- **Tolerance (proposed, ADR-011):** relative, stress to sigma and displacement to the largest
+  exact displacement. z tension, steel on steel: 1e-4 (measured 1.0e-7 stress, 1.6e-6
+  displacement with a tied penalty contact pair at the proposed stiffness). x tension: 1e-5
+  (measured about 1e-6). z tension with PLA on steel and with an orthotropic block on steel:
+  1e-4, measured in ADR-011 PR-3 before the reference is proposed. The earlier 1e-6 case for
+  matching meshes is dropped: parts are always meshed separately and joined by the same bond.
+  A plain `*TIE` fails this test (16 % stress error for z tension), so bonds do not use it.
+- **Variant TC-01b (partial cover):** a 10 mm block bonded to the middle of a 30 mm plate face.
+  Checks that the bond is accepted with the block as slave, that forces balance and that the
+  corner is flagged near the bond's edge. No closed-form stress.
 
-### TC-02 Cantilever split into two tied parts
+### TC-02 Cantilever split into two bonded parts
 
-- **Problem:** the TS-01 beam cut at mid-span into two parts tied together, with non-matching
+- **Problem:** the TS-01 beam cut at mid-span into two parts bonded together, with non-matching
   meshes.
 - **Quantity:** tip deflection.
 - **Reference:** TS-01 value (1.526724 mm).
 - **Licence:** none.
 - **Equivalents:** TS-01.
-- **Features:** tie, assemblies.
+- **Features:** bonded connection, assemblies.
 - **Tolerance:** 2 %, and within 0.5 % of the single-part TS-01 result at the same mesh size.
+  ADR-011 D3 measured -0.40 % at 2.5 / 2.0 mm meshes, within 0.03 % of the single part.
 
 ### TC-03 Frictionless contact patch test
 
