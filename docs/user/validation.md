@@ -2,23 +2,25 @@
 
 Tessera is checked against simple problems whose answers are known from textbooks. If Tessera
 gets those right, its mesher, supports, loads and solver are working together. This page
-summarises the nine checks that pass today. The full plan, with 28 more checks still to do, is in
+summarises the 13 checks that pass today. The full plan, with 25 more checks still to do, is in
 [`benchmarks/CATALOG.md`](../../benchmarks/CATALOG.md).
 
 ## What the checks do not show
 
-- They do not check printed parts. Printed library materials exist, but no benchmark checks them
-  yet.
+- They do not check printed materials' numbers. Two checks (TO-01, TO-06) use a layer-wise
+  (orthotropic) material, but with made-up constants and strengths. They show that Tessera
+  handles such a material correctly, not that the built-in PLA or PETG values are right.
 - They check simple shapes and loads. They do not prove that a complicated part is right.
 - Passing means the answer is within a stated tolerance at one mesh size. Your own study still
   needs the two-mesh check described in [study-setup.md](study-setup.md), Step 7
   (`tessera solve --check-mesh` runs it for you).
 
-## The nine passing checks
+## The 13 passing checks
 
 Each row is one check. "Gate" is the largest error allowed. "Error at gate" is the error Tessera
-gave at the mesh size the test uses. Numbers come from one run of the suite on 21 October 2026
-with CalculiX 2.21.
+gave at the mesh size the test uses. Numbers for TS-01 to TS-09 come from one run of the suite on
+21 October 2026, and for TS-11, TS-12, TO-01 and TO-06 from a run on 11 November 2026, both with
+CalculiX 2.21. The November run also gave the same errors for the earlier rows.
 
 | Check | What it tests | Reference answer | Gate | Mesh size | Error at gate |
 |---|---|---|---|---|---|
@@ -31,6 +33,10 @@ with CalculiX 2.21.
 | **TS-07** Thick-walled sphere | Hoop stress and radial growth of a hollow steel ball (inner radius 10 mm, outer 20 mm) at 10 MPa inside | Lamé's solution: hoop stress 7.143 MPa, radial growth 3.810 × 10⁻⁴ mm | 2 % stress, 1 % growth | 1.25 mm | 0.48 % (stress), 0.009 % (growth) |
 | **TS-08** Circular plate | Centre deflection of a steel disc (radius 20 mm, 2 mm thick) under 1 MPa, clamped at its rim (A) or resting on a ring (B) | Plate theory with a shear correction: 0.01699 mm (A), 0.06699 mm (B) | 2 % (A), 3 % (B) | 0.667 mm | A: 0.65 %. B: 0.22 % |
 | **TS-09** Torsion | Twist and maximum shear stress of a 10 mm round shaft and a 10 mm square bar, 60 mm long, under 10 000 N·mm | Saint-Venant torsion theory | 2 % twist, 3 % shear | 2.5 mm | Round: 0.004 % (twist), 0.22 % (shear). Square: 0.42 % (twist), 0.78 % (shear) |
+| **TS-11** NAFEMS LE1 elliptic membrane | Stress at the inner edge of a steel elliptic ring, 100 mm thick, under 10 MPa pulling its outer edge outward | NAFEMS LE1: 92.7 MPa | 2 % | 50 mm | 0.06 % |
+| **TS-12** NAFEMS LE10 thick plate | Stress on the top face of a 600 mm thick steel elliptic plate under 1 MPa, held vertically only along a line round the middle of its outer edge | NAFEMS LE10: -5.38 MPa | 2 % | 120 mm | 0.15 % |
+| **TO-01** Orthotropic patch test | Every node of a 10 mm cube of a made-up layer-wise material under 10 MPa, pulled along each of its three axes and sheared in each of its three planes, with the layers in two directions: stress and displacement | The exact uniform field of each of the nine cases | 2 × 10⁻⁵ (stress), 10⁻⁵ (displacement) | 3.0 mm | 1.0 × 10⁻⁵ (stress), 3.5 × 10⁻⁶ (displacement) |
+| **TO-06** Strength ratio | Strength ratio of a 10 mm cube of a made-up layer-wise material under 10 MPa, with the raster at 0°, 30°, 45°, 60° and 90° to the load, and with the load across the layers; also the failure mode | Tsai-Wu worked out by hand: ratios 4.0, 3.380, 3.096, 2.983, 3.0 and 1.5 | 1.5 × 10⁻⁶ | 3.0 mm | 2.6 × 10⁻⁹ |
 
 Notes on the rows:
 
@@ -53,6 +59,19 @@ Notes on the rows:
   line support at its bottom outer edge, which holds it only vertically. Its gate is wider
   because a ring support has no single exact 3D form; the measured gap is about 0.4 %.
 - **TS-09** applies the torque with Tessera's moment load, the same load you can use in a study.
+- **TS-11** and **TS-12** are standard checks from NAFEMS, an industry body that publishes test
+  problems for FEA programs. The targets were taken from public copies of the problems (the
+  NAFEMS book was not opened), and the size of the outer ellipse is not yet confirmed there.
+  TS-11 reads the stress at mid-thickness; at the surface it is about 0.4 % lower.
+- **TS-12** holds the plate only along a line, using Tessera's edge supports. Some later
+  versions of LE10 hold the whole outer face, which gives a different answer (reported as about
+  -5.25 MPa, not confirmed). Tessera checks the original line version.
+- **TO-01** is TS-03 for a layer-wise material. As there, the error is at the precision
+  CalculiX writes its results with. The other five stress components stay below 10⁻¹⁰ MPa.
+- **TO-06** checks the strength ratio at every node, the lowest ratio and its failure mode,
+  against Tsai-Wu worked out by hand. Under a uniform stress the ratio does not depend on the
+  mesh, so the errors are rounding only. Its strengths are made up, so it checks the formula,
+  not any material.
 
 ## Convergence
 
