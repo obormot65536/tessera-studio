@@ -64,8 +64,8 @@ Notes on the rows:
   NAFEMS book was not opened), and the size of the outer ellipse is not yet confirmed there.
   TS-11 reads the stress at mid-thickness; at the surface it is about 0.4 % lower.
 - **TS-12** holds the plate only along a line, using Tessera's edge supports. Some later
-  versions of LE10 hold the whole outer face, which gives a different answer (reported as about -5.25 MPa, not confirmed).
-  Tessera checks the original line version.
+  versions of LE10 hold the whole outer face, which gives a different answer (reported as about
+  -5.25 MPa, not confirmed). Tessera checks the original line version.
 - **TO-01** is TS-03 for a layer-wise material. As there, the error is at the precision
   CalculiX writes its results with. The other five stress components stay below 10⁻¹⁰ MPa.
 - **TO-06** checks the strength ratio at every node, the lowest ratio and its failure mode,
