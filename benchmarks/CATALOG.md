@@ -560,10 +560,12 @@ nu12 = 0.35, nu13 = nu23 = 0.30 (check positive definiteness in the case).
 - **Licence:** no reuse issue.
 - **Equivalents:** NAFEMS R0081 CGS-1 is a *contact* patch test (see TC-03). No tied case
   recorded.
-- **Features:** bonded/tied connection (CalculiX `*TIE`), assemblies of several parts.
-- **Tolerance:** 1e-4 relative for the z load (CalculiX ties of quadratic faces are not exactly
-  patch-test-consistent, so ask `calculix-specialist` to confirm the achievable level); 1e-6
-  for matching meshes.
+- **Features:** bonded connection (tied penalty contact pair, ADR-011), assemblies of several
+  parts.
+- **Tolerance:** 1e-4 relative, stress and displacement, for both loads. ADR-011 D3 measured
+  1.0e-7 (stress) and 1.6e-6 (displacement) for z tension with a tied penalty contact pair at
+  the proposed stiffness. A plain `*TIE` fails this test (16 % stress error for z tension), so
+  bonds do not use it.
 
 ### TC-02 Cantilever split into two tied parts
 
@@ -575,6 +577,7 @@ nu12 = 0.35, nu13 = nu23 = 0.30 (check positive definiteness in the case).
 - **Equivalents:** TS-01.
 - **Features:** tie, assemblies.
 - **Tolerance:** 2 %, and within 0.5 % of the single-part TS-01 result at the same mesh size.
+  ADR-011 D3 measured -0.40 % at 2.5 / 2.0 mm meshes, within 0.03 % of the single part.
 
 ### TC-03 Frictionless contact patch test
 

@@ -1,4 +1,4 @@
-# ADR-011: Assemblies of placed parts joined by bonded (tied) connections (v0.5)
+# ADR-011: Assemblies of placed parts joined by bonded connections (v0.5)
 
 **Status:** Proposed (draft for the maintainer, issue #69)
 **Deciders:** Maintainer
@@ -35,8 +35,8 @@ Constraints:
 - ADR-002: mm, N, MPa.
 - ADR-004: no CalculiX names in `tessera.model`, and changes are additive.
 - ADR-007 decision 5: flagged spots never become the headline unless settled.
-- Hard rule 6: the tie tolerance, the gap a bond accepts, the flag rule at a tie and the TC-01
-  and TC-02 tolerances are numbers users trust.
+- Hard rule 6: the penalty stiffness, the gap a bond accepts, the flag rule at a bond and the
+  TC-01 and TC-02 tolerances are numbers users trust.
 
 ## Decision
 
@@ -66,31 +66,71 @@ Constraints:
   "part 'cap' is not held: add a support on it or bond it to a held part". Without it CalculiX
   fails with a singular matrix, and the message says nothing useful.
 
-### D3. Bonded connection → tie
+### D3. Bonded connection → tied penalty interface
 
-*(Waiting for the `calculix-specialist` measurements. The choices below are the draft
-proposal.)*
+`calculix-specialist` measured the candidates in CalculiX 2.21 on two 10 mm steel cubes meshed
+separately (sizes 3.0 and 2.1 mm, C3D10), with 10 MPa uniform tension. The main session
+re-ran the `*TIE` and K = 1e10 cases and got the same numbers.
 
-- **Solver-neutral type.** `tessera.model.solver.Tie(name, slave, master, tolerance)` names two
-  mesh surfaces. `SolveJob.ties: tuple[Tie, ...] = ()` is additive. The CalculiX adapter
-  writes it as `*TIE`.
-- **Which side.** The slave is the side with the finer mesh on the bonded faces (smaller median
-  edge length). On a tie the slave nodes follow the master surface, so the finer side as slave
-  avoids gaps opening between coarse master nodes.
-- **Tolerance and gap check.** Before the solve, `physics` measures how far each slave node is
-  from the master surface. If any node is farther than the bond tolerance, the solve is refused:
-  "connection 'glue' does not touch: faces 6 of 'beam' and 1 of 'cap' are up to 0.42 mm apart
-  (allowed 0.05 mm)". The same tolerance goes to CalculiX, so no node is silently left
-  untied. Proposed tolerance: 5 % of the smaller median edge length on the two faces, at least
-  1e-3 mm.
+| Join | Tension across the interface: largest stress error | Largest displacement error | In-plane tension |
+|---|---|---|---|
+| `*TIE`, finer mesh as slave | 16 % | 0.8 % | exact |
+| `*TIE`, coarser mesh as slave | 45 % | 2.6 % | exact |
+| `*TIE`, both meshes halved | 16.5 % | 0.4 % | not run |
+| Tied penalty, K = 1e8 MPa/mm | 6.6e-6 | 1.1e-4 | 1e-6 |
+| Tied penalty, K = 1e10 MPa/mm | 1.0e-7 | 1.6e-6 | 1e-6 |
+| Matching meshes, `*TIE` | 0 | 5e-7 | exact |
+
+`*TIE` fails the patch test whenever load crosses the interface, and refining the mesh does not
+fix it. Each slave node is placed exactly on the master face, but forces are not passed on
+consistently. The 16 % error sits in the elements at the interface, so it would show up as a
+false stress peak in every bonded part. For the TS-01 cantilever cut in two (TC-02) every
+method is within 0.03 % of the single part, because the error stays local.
+
+Decision:
+
+- **Method.** A bonded connection becomes a surface-to-surface contact pair with tied
+  behaviour, a penalty stiffness K, and a stick stiffness equal to K
+  (`*SURFACE BEHAVIOR, PRESSURE-OVERCLOSURE=TIED`, `*FRICTION`, `*CONTACT PAIR, TYPE=SURFACE TO
+  SURFACE`). CalculiX needs the friction line, or it stops with an error. The interface acts
+  as glued in every direction, and the step converges in two iterations. A solve takes about
+  twice as long as one with `*TIE`.
+- **Penalty stiffness.** K = 1e5 × E_max / h, where E_max is the largest Young's modulus of the
+  two parts' materials (any direction for an orthotropic one) and h is the smaller median edge
+  length on the two bonded faces. For the steel cubes this gives K ≈ 1e10 MPa/mm, the row
+  above. The error scales with E / (K h), so the rule keeps it near 1e-7 for any material and
+  mesh. PR-3 checks that the matrix stays well conditioned with SPOOLES for PLA and for steel.
+- **Solver-neutral type.** `tessera.model.solver.Bond(name, slave, master, stiffness)` names two
+  mesh surfaces. `SolveJob.bonds: tuple[Bond, ...] = ()` is additive. The CalculiX adapter
+  writes the contact pair. A job with bonds runs a static step that CalculiX solves
+  iteratively, which the adapter allows for.
+- **Surfaces.** Each bonded face becomes an element-face surface (`*SURFACE, TYPE=ELEMENT`, one
+  `element, Sk` line per TRI6). The face id comes from which corners of its tetrahedron the
+  triangle uses: {1,2,3} S1, {1,2,4} S2, {2,3,4} S3, {1,3,4} S4. The specialist checked this
+  mapping with a uniform pressure. The adapter has no surfaces today (loads are nodal), so PR-3
+  adds this.
+- **Which side.** The finer mesh on the bonded faces (smaller median edge) is the slave. The
+  penalty method passes either way (9e-6 with the coarse side as slave at K = 1e8), but the
+  finer side is the safer choice.
+- **Gap check.** Before the solve, `physics` measures how far each slave node is from the master
+  surface. If any is farther than the bond tolerance, the solve is refused: "connection 'glue'
+  does not touch: faces 6 of 'beam' and 1 of 'cap' are up to 0.42 mm apart (allowed 0.05 mm)".
+  Proposed tolerance: 5 % of the smaller median edge length on the two faces, at least 1e-3 mm.
+  This matters: with `*TIE` and a 0.02 mm gap, CalculiX left every node unjoined, still
+  exited normally, and gave displacements 1e14 times too large. PR-3 finds out how the contact
+  pair behaves at gaps below the tolerance, and adds a check of the solver output if it can
+  also leave nodes unjoined.
 - **Refused.**
-  - A node that is a slave in two ties. The connections overlap.
-  - A slave node that is also held by a support. Tessera swaps the sides for that tie if the
-    other side is free, and refuses otherwise.
+  - Two bonds that share faces. They would overlap.
   - Contact, bolt and pin connections, with "contact connections arrive in a later v0.5
     release".
 - **Model checks.** A bonded `Connection` with `friction` or `preload_n` set is refused. So is
   one whose two sides are the same part.
+- **Solver.** SPOOLES, as now. PARDISO is not linked in this CalculiX build, and the iterative
+  Cholesky solver converged slowly in the tests (84 iterations).
+- **Later.** Two refinements are left for later, if solve time ever matters: merging nodes when
+  two meshes match exactly, and `*TIE` for interfaces known to carry only in-plane load. Mortar
+  contact (`TYPE=MORTAR`) crashed with no output in CalculiX 2.21 and is not used.
 
 ### D4. Naming spots in results
 
@@ -101,17 +141,17 @@ proposal.)*
   single parts do not change.
 - `MeshCheck` matches spots and faces by (part, face).
 
-### D5. Trust at a tie
+### D5. Trust at a bond
 
 - **Sharp inside edges** are found on the assembly's outer surface. Bonded faces are inside the
   assembly and are left out. Without this, the inside corner where a rib meets a plate is
   invisible: each part on its own has no inside corner there.
-- **Tie edges.** A new flag kind, `FlagKind.TIE_EDGE`, flags nodes within the flag distance of
+- **Bond edges.** A new flag kind, `FlagKind.BOND_EDGE`, flags nodes within the flag distance of
   the boundary of each bonded face pair. Where a bond ends, the stress depends on the mesh, as
   at a support, so these spots never become the headline unless the two-mesh check settles
   them. The line reads "near the edge of bond 'glue'".
-- **Inside a bond**, away from its edge, nothing is flagged. TC-01 shows the tie carries a
-  uniform stress across non-matching meshes to its tolerance.
+- **Inside a bond**, away from its edge, nothing is flagged. TC-01 shows the bond carries a
+  uniform stress across non-matching meshes to about 1e-7 (D3).
 
 ### D6. Edit API and CLI
 
@@ -131,8 +171,8 @@ proposal.)*
 
 ### D7. Mesh check
 
-Both meshes refine every part by `MESH_CHECK_REFINEMENT`. The gap check and slave choice are
-redone on each mesh.
+Both meshes refine every part by `MESH_CHECK_REFINEMENT`. The gap check, slave choice and K
+are redone on each mesh.
 
 ## Options considered
 
@@ -140,9 +180,9 @@ redone on each mesh.
 
 | Option | For | Against |
 |---|---|---|
-| A. `*TIE` (chosen, pending D3 measurements) | Linear and cheap. Meshes need not match. Standard CalculiX | Small error at non-matching quadratic faces (TC-01 measures it) |
+| A. `*TIE` | Linear and cheap. Meshes need not match. Standard CalculiX | Fails the patch test when load crosses the interface: 16 % stress error, a false peak in every bonded part (D3) |
 | B. Merge coincident nodes | Exact when meshes match | Needs matching meshes, which gmsh does not give for separately meshed parts |
-| C. `*CONTACT PAIR` with tied behaviour | Same input as later contact | Nonlinear solve and penalty stiffness for a linear bond. More settings users must trust |
+| C. Tied penalty contact pair (chosen) | Passes the patch test to 1e-7. Either side can be the slave. Same input as later contact | Iterative step, about twice as slow as `*TIE`. A penalty stiffness to choose and approve |
 | D. One gmsh model with shared faces (fragment) | Conforming mesh, exact | Couples the meshing of all parts. STL parts cannot be fragmented. Changes the face numbering users already see |
 
 ### Where placement is applied
@@ -159,26 +199,27 @@ prefer the first.
 
 ## Trade-off analysis
 
-Ties keep the analysis linear and each part's mesh independent, which keeps STEP and STL on one
-path and face numbers stable. The price is a small interface error and a new kind of flagged
-spot at the edges of a bond. A conforming mesh (D) would remove both but would tie every part's
-meshing to every other's, and could not handle STL. That cost grows with each part. Contact
-(C) is needed later anyway, but bringing it in for a bond would make the first assembly release
-nonlinear for no gain.
+The tied penalty pair keeps each part's mesh independent, which keeps STEP and STL on one path
+and face numbers stable, and it passes the patch test. `*TIE` would be faster, but its false
+16 % peak at every bond is exactly the kind of number Tessera exists to get right. The price
+is a penalty stiffness (a number users trust, set by a rule rather than by the user), an
+iterative step about twice as slow as a tie, and a new kind of flagged spot at a bond's edge. A
+conforming mesh (D) would remove the penalty and the flags, but would tie every part's meshing
+to every other's and could not handle STL.
 
 ## Test-first plan
 
 Unit tests (fail before the code):
 - `model`: `Transform` refuses a non-rotation and a mirror. A bonded connection with friction or
-  preload is refused, and so is one with the same part on both sides. `Tie` and
-  `SolveJob.ties` default to empty. The spot `part` field.
+  preload is refused, and so is one with the same part on both sides. `Bond` and
+  `SolveJob.bonds` default to empty. The spot `part` field.
 - `physics`: merging two meshes gives offset nodes, prefixed sets and one section per part.
   Placement moves nodes and turns the material frame. The gap check refuses faces 0.1 mm apart
   and accepts touching ones. The slave is the finer side, and sides are swapped away from a
   supported face. A part with no path to a support is refused.
-- `solvers`: the deck writes `*TIE` with element-face surfaces, and a job without ties gives the
-  same deck as today.
-- `post`: bonded faces are not outer surface. `TIE_EDGE` flags the bond boundary and not its
+- `solvers`: the deck writes the tied contact pair with element-face surfaces (face ids checked
+  against the table in D3), and a job without bonds gives the same deck as today.
+- `post`: bonded faces are not outer surface. `BOND_EDGE` flags the bond boundary and not its
   middle. Face peaks are keyed by part.
 - `core`: placement invariance. TS-01 turned 90° about z and moved gives the same tip deflection,
   turned. An orthotropic cube turned so that axis 1 lies along global x gives the TO-01
@@ -187,22 +228,25 @@ Unit tests (fail before the code):
 
 Benchmarks (`fea-verifier` writes them first; references proposed in the PR and created by the
 maintainer):
-- **TC-01**, tied patch test with non-matching meshes: z tension and x tension. The tolerance
-  comes from the `calculix-specialist` measurement (D3), replacing the catalog's placeholder
-  1e-4.
-- **TC-02**, the TS-01 cantilever cut at mid-span and tied: within 2 % of 1.526724 mm and within
+- **TC-01**, bonded patch test with non-matching meshes: z tension and x tension. The catalog's
+  1e-4 relative is now realistic: D3 measured 1e-7 (stress) and 1.6e-6 (displacement) with the
+  proposed K. The catalog note that ties are not patch-test-consistent is replaced with the D3
+  numbers.
+- **TC-02**, the TS-01 cantilever cut at mid-span and bonded (measured: -0.40 %, the same as
+  the single part): within 2 % of 1.526724 mm and within
   0.5 % of the single-part result at the same mesh size.
 
 ## Pull requests
 
-1. **PR-0 (docs):** this ADR, and the TC-01 and TC-02 catalog entries updated with the measured
-   tolerance.
-2. **PR-1 (model):** `Transform` and `Connection` validators, `Tie`, `SolveJob.ties`, spot
-   `part`, `FlagKind.TIE_EDGE`.
-3. **PR-2 (physics):** merge, placement, frame rotation, bonded → `Tie`, gap check, slave
-   choice, held-part check.
-4. **PR-3 (solvers):** `*TIE` in the deck (`calculix-specialist`).
-5. **PR-4 (post):** keys by part, assembly outer surface, tie-edge flags.
+1. **PR-0 (docs):** this ADR, and the TC-01 and TC-02 catalog entries updated with the D3
+   measurements.
+2. **PR-1 (model):** `Transform` and `Connection` validators, `Bond`, `SolveJob.bonds`, spot
+   `part`, `FlagKind.BOND_EDGE`.
+3. **PR-2 (physics):** merge, placement, frame rotation, bonded → `Bond` with K, gap check,
+   slave choice, held-part check.
+4. **PR-3 (solvers):** element-face surfaces and the tied contact pair in the deck, behaviour at
+   small gaps, conditioning (`calculix-specialist`).
+5. **PR-4 (post):** keys by part, assembly outer surface, bond-edge flags.
 6. **PR-5 (core + edit):** multi-part solve, `place_part`, `add_bond`, the refusal for other
    connection kinds.
 7. **PR-6 (CLI and docs):** commands and wording, and the user guide section on assemblies.
@@ -213,13 +257,15 @@ hand-built jobs.
 
 ## Approvals needed
 
-1. Ties (`*TIE`) for bonded connections, with the slave rule and the refusals (D3).
-2. The bond tolerance (5 % of the smaller median edge, at least 1e-3 mm) and refusing the solve
+1. Tied penalty contact pairs for bonded connections, not `*TIE`, with the slave rule and the
+   refusals (D3).
+2. The penalty stiffness rule K = 1e5 × E_max / h (D3).
+3. The bond tolerance (5 % of the smaller median edge, at least 1e-3 mm) and refusing the solve
    when a gap exceeds it (D3).
-3. The `TIE_EDGE` flag and leaving bonded faces out of the outer surface (D5).
-4. Placement rules: mirrors refused, the print setup in part axes (D1).
-5. Results and CLI wording for several parts (D4, D6).
-6. The TC-01 and TC-02 tolerances (in PR-0 and PR-7).
+4. The `BOND_EDGE` flag and leaving bonded faces out of the outer surface (D5).
+5. Placement rules: mirrors refused, the print setup in part axes (D1).
+6. Results and CLI wording for several parts (D4, D6).
+7. The TC-01 and TC-02 tolerances (in PR-0 and PR-7).
 
 ## Consequences
 
@@ -235,5 +281,5 @@ hand-built jobs.
 
 1. [ ] Maintainer approves the items above.
 2. [ ] PR-0 to PR-7.
-3. [ ] ADR-004 item 3: record ties as done after PR-5.
+3. [ ] ADR-004 item 3: record bonded connections (ties) as done after PR-5.
 4. [ ] Tick ADR-009's action items, which shipped with TO-01 (#43).
