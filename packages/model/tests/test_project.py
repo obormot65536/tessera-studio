@@ -1,9 +1,11 @@
+import math
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 from tessera.model import Assembly, Connection, ConnectionKind, FaceSet, PartInstance, Project
+from tessera.model.project import Transform, Vec3
 
 
 def _part(pid: str) -> PartInstance:
@@ -343,3 +345,81 @@ def test_schema_5_project_loads_unchanged() -> None:
     assert dumped["assembly"]["parts"][0]["print_setup"] == {**setup, "raster_angle": 0.0}
     assert dumped["study"]["supports"] == supports
     assert dumped["materials"] == []
+
+
+# --- Assemblies and bonds (ADR-011 PR-1) ---
+
+
+def _turn_z(degrees: float) -> tuple[Vec3, Vec3, Vec3]:
+    c, s = math.cos(math.radians(degrees)), math.sin(math.radians(degrees))
+    return ((c, -s, 0.0), (s, c, 0.0), (0.0, 0.0, 1.0))
+
+
+def test_transform_accepts_rotations() -> None:
+    assert Transform().translation == (0.0, 0.0, 0.0)
+    placed = Transform(rotation=_turn_z(37.0), translation=(1.0, -2.0, 3.0))
+    assert Transform.model_validate_json(placed.model_dump_json()) == placed
+
+
+@pytest.mark.parametrize(
+    ("rotation", "message"),
+    [
+        (((2.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)), "not a rotation"),
+        (((1.0, 0.1, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)), "not a rotation"),
+        (((0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0)), "not a rotation"),
+        (((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, -1.0)), "mirror"),
+    ],
+)
+def test_transform_refuses_non_rotations_and_mirrors(
+    rotation: tuple[Vec3, Vec3, Vec3], message: str
+) -> None:
+    with pytest.raises(ValidationError, match=message):
+        Transform(rotation=rotation)
+
+
+def test_transform_allows_round_off_but_not_more() -> None:
+    r = _turn_z(30.0)
+    nudged = ((r[0][0] + 1e-12, r[0][1], r[0][2]), r[1], r[2])
+    Transform(rotation=nudged)
+    off = ((r[0][0] + 1e-6, r[0][1], r[0][2]), r[1], r[2])
+    with pytest.raises(ValidationError, match="not a rotation"):
+        Transform(rotation=off)
+
+
+def _bonded(**changes: object) -> Connection:
+    fields: dict[str, object] = {
+        "id": "glue",
+        "kind": ConnectionKind.BONDED,
+        "a": FaceSet(part_id="p1", faces=(6,)),
+        "b": FaceSet(part_id="p2", faces=(1,)),
+    }
+    return Connection.model_validate(fields | changes)
+
+
+def test_bonded_connection_joins_two_parts() -> None:
+    bond = _bonded()
+    assert bond.friction is None
+    assert bond.preload_n is None
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"friction": 0.2}, "friction"),
+        ({"friction": 0.0}, "friction"),
+        ({"preload_n": 500.0}, "preload"),
+        ({"b": FaceSet(part_id="p1", faces=(1,))}, "same part"),
+    ],
+)
+def test_bonded_connection_refuses_friction_preload_and_one_part(
+    changes: dict[str, object], message: str
+) -> None:
+    with pytest.raises(ValidationError, match=message):
+        _bonded(**changes)
+
+
+def test_other_connection_kinds_keep_friction_and_preload() -> None:
+    contact = _bonded(kind=ConnectionKind.CONTACT, friction=0.3)
+    assert contact.friction == 0.3
+    bolt = _bonded(kind=ConnectionKind.BOLT, preload_n=500.0)
+    assert bolt.preload_n == 500.0

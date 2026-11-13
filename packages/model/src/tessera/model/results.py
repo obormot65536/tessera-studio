@@ -20,6 +20,8 @@ class FlagKind(StrEnum):
     """Near a line support (ADR-006), or a face support that holds two or three directions."""
     SHARP_INSIDE_EDGE = "sharp-inside-edge"
     """Near an edge where the outer surface turns inward by 30 degrees or more."""
+    BOND_EDGE = "bond-edge"
+    """Near the boundary of a bonded connection (ADR-011 D5)."""
 
 
 @dataclass(frozen=True)
@@ -29,10 +31,14 @@ class StressFlag:
     kind: FlagKind
     support: str | None = None
     """The support's id for ``FlagKind.SUPPORT``, otherwise ``None``."""
+    bond: str | None = None
+    """The connection's id for ``FlagKind.BOND_EDGE``, otherwise ``None``."""
 
     def __str__(self) -> str:
         if self.kind is FlagKind.SUPPORT:
             return f"near support {self.support!r}"
+        if self.kind is FlagKind.BOND_EDGE:
+            return f"near the edge of bond {self.bond!r}"
         return "near a sharp inside edge"
 
 
@@ -95,6 +101,8 @@ class StressSpot:
     wall: WallSpan | None = None
     """The wall at the node (for a node inside the part, at the nearest surface node); ``None``
     where it was not measured or could not be (an open surface)."""
+    part: str | None = field(default=None, kw_only=True)
+    """Id of the part instance the node belongs to (ADR-011 D4); ``None`` when not recorded."""
 
     @property
     def flagged(self) -> bool:
@@ -154,6 +162,8 @@ class StrengthSpot:
     mode: FailureMode
     flags: tuple[StressFlag, ...] = ()
     wall: WallSpan | None = None
+    part: str | None = field(default=None, kw_only=True)
+    """Id of the part instance the node belongs to (ADR-011 D4); ``None`` when not recorded."""
 
     @property
     def flagged(self) -> bool:

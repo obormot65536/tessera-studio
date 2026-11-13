@@ -38,11 +38,42 @@ class _Model(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=False, allow_inf_nan=False)
 
 
+_ROTATION_TOLERANCE = 1e-9
+
+
 class Transform(_Model):
-    """Rigid placement of a part: rotation (row-major 3x3) then translation in mm."""
+    """Rigid placement of a part: x_global = R x_part + t (ADR-011 D1).
+
+    ``rotation`` is R, row-major, and must be a rotation (R R^T = I within 1e-9, det R = +1);
+    a mirror is refused. ``translation`` is t in mm.
+    """
 
     rotation: tuple[Vec3, Vec3, Vec3] = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
     translation: Vec3 = (0.0, 0.0, 0.0)
+
+    @field_validator("rotation")
+    @classmethod
+    def _proper_rotation(cls, rotation: tuple[Vec3, Vec3, Vec3]) -> tuple[Vec3, Vec3, Vec3]:
+        r = rotation
+        for i in range(3):
+            for j in range(i, 3):
+                dot = sum(r[i][k] * r[j][k] for k in range(3))
+                if abs(dot - (1.0 if i == j else 0.0)) > _ROTATION_TOLERANCE:
+                    raise ValueError(
+                        "placement is not a rotation: its rows must be unit length and "
+                        f"perpendicular to each other, got {rotation!r}"
+                    )
+        determinant = (
+            r[0][0] * (r[1][1] * r[2][2] - r[1][2] * r[2][1])
+            - r[0][1] * (r[1][0] * r[2][2] - r[1][2] * r[2][0])
+            + r[0][2] * (r[1][0] * r[2][1] - r[1][1] * r[2][0])
+        )
+        if determinant < 0.0:
+            raise ValueError(
+                "placement is a mirror, which would turn the part inside out; "
+                "mirror the part in CAD instead"
+            )
+        return rotation
 
 
 class PrintSetup(_Model):
@@ -214,12 +245,30 @@ class EdgeSet(_Model):
 
 
 class Connection(_Model):
+    """Two face sets joined. A bonded one (ADR-011 D3) joins two different parts and has
+    neither friction nor preload."""
+
     id: str
     kind: ConnectionKind
     a: FaceSet
     b: FaceSet
     friction: Annotated[float, Field(ge=0.0)] | None = None
     preload_n: Annotated[float, Field(ge=0.0)] | None = None
+
+    @model_validator(mode="after")
+    def _check_bonded(self) -> Connection:
+        if self.kind is not ConnectionKind.BONDED:
+            return self
+        if self.friction is not None:
+            raise ValueError(f"bonded connection {self.id!r} cannot have friction")
+        if self.preload_n is not None:
+            raise ValueError(f"bonded connection {self.id!r} cannot have a preload")
+        if self.a.part_id == self.b.part_id:
+            raise ValueError(
+                f"bonded connection {self.id!r} joins part {self.a.part_id!r} to itself: "
+                "both sides are the same part"
+            )
+        return self
 
 
 class Assembly(_Model):

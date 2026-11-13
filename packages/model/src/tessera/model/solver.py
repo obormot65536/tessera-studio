@@ -102,8 +102,10 @@ def _as_vector(v: Vector3 | NDArray[np.float64]) -> Vector3:
 
 @dataclass(frozen=True)
 class MaterialFrame:
-    """Material axes 1 and 2 as unit vectors in part coordinates (ADR-009 D2).
+    """Material axes 1 and 2 as unit vectors (ADR-009 D2).
 
+    The vectors are in the axes of the mesh they are used with: a part's own axes while it is
+    alone, global axes in a solve job, where the part has been placed (ADR-011 D1).
     Both must be unit length and orthogonal within 1e-9; axis 3 = axis_1 x axis_2 (right-handed).
     Use ``from_axes`` to build one from any two non-parallel vectors.
     """
@@ -129,7 +131,7 @@ class MaterialFrame:
 
     @property
     def rotation(self) -> NDArray[np.float64]:
-        """3 x 3 matrix whose rows are the material axes 1, 2, 3 in part coordinates."""
+        """3 x 3 matrix whose rows are the material axes 1, 2, 3."""
         return np.array([self.axis_1, self.axis_2, self.axis_3], dtype=np.float64)
 
     @classmethod
@@ -159,7 +161,8 @@ class Section:
     element_set: str
     material: str
     orientation: MaterialFrame | None = None
-    """Material axes for this element set; ``None`` means the part axes (global)."""
+    """Material axes for this element set in the job's global axes; ``None`` means the global
+    axes themselves."""
 
 
 @dataclass(frozen=True)
@@ -182,6 +185,31 @@ class NodalLoads:
 
 
 @dataclass(frozen=True)
+class Bond:
+    """Two mesh surfaces glued together in every direction (ADR-011 D3).
+
+    ``slave`` and ``master`` name triangle surfaces of the job's mesh. The adapter joins them
+    with a penalty stiffness, so the faces can separate by stress / ``stiffness``.
+    """
+
+    name: str
+    slave: str
+    master: str
+    stiffness: float
+    """MPa/mm"""
+
+    def __post_init__(self) -> None:
+        if not (math.isfinite(self.stiffness) and self.stiffness > 0.0):
+            raise ValueError(
+                f"bond {self.name!r}: stiffness must be positive and finite, got {self.stiffness!r}"
+            )
+        if self.slave == self.master:
+            raise ValueError(
+                f"bond {self.name!r} needs two different surfaces, got {self.slave!r} twice"
+            )
+
+
+@dataclass(frozen=True)
 class SolveJob:
     mesh: Mesh
     materials: tuple[Material, ...]
@@ -189,6 +217,8 @@ class SolveJob:
     supports: tuple[FixedSupport, ...] = ()
     loads: tuple[NodalLoads, ...] = ()
     analysis: AnalysisKind = AnalysisKind.STATIC
+    bonds: tuple[Bond, ...] = field(default=(), kw_only=True)
+    """Surfaces glued together (ADR-011 D3)."""
     point_stresses: bool = field(default=False, kw_only=True)
     """Ask the solver for integration-point stresses (``SolveResult.point_stresses``, ADR-008);
     costs about 0.6 kB per element in .dat plus parse time."""

@@ -43,6 +43,7 @@ from tessera.model.results import (
 )
 from tessera.model.solver import (
     AnalysisKind,
+    Bond,
     FixedSupport,
     IsotropicMaterial,
     Material,
@@ -65,6 +66,7 @@ __all__ = [
     "TRI6_EDGES",
     "AnalysisKind",
     "Assembly",
+    "Bond",
     "Connection",
     "ConnectionKind",
     "EdgeInfo",

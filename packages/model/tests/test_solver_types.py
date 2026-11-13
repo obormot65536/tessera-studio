@@ -10,6 +10,7 @@ import pytest
 import tessera.model as model
 from tessera.model.mesh import Mesh
 from tessera.model.solver import (
+    Bond,
     IsotropicMaterial,
     MaterialFrame,
     OrthotropicMaterial,
@@ -155,3 +156,49 @@ def test_from_axes_near_parallel_gives_a_frame_or_says_parallel() -> None:
             assert "parallel" in str(error)
         else:
             assert abs(np.dot(frame.axis_1, frame.axis_2)) <= 1e-9
+
+
+# --- Bonds (ADR-011 PR-1) ---
+
+
+def test_bond_names_two_surfaces_and_a_stiffness() -> None:
+    bond = Bond("glue", slave="face:cap:1", master="face:beam:6", stiffness=1e10)
+    assert (bond.name, bond.slave, bond.master, bond.stiffness) == (
+        "glue",
+        "face:cap:1",
+        "face:beam:6",
+        1e10,
+    )
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        bond.stiffness = 1.0  # type: ignore[misc]
+    assert "Bond" in model.__all__
+
+
+@pytest.mark.parametrize("stiffness", [0.0, -1.0, math.inf, math.nan])
+def test_bond_stiffness_must_be_positive_and_finite(stiffness: float) -> None:
+    with pytest.raises(ValueError, match="stiffness"):
+        Bond("glue", slave="a", master="b", stiffness=stiffness)
+
+
+def test_bond_needs_two_different_surfaces() -> None:
+    with pytest.raises(ValueError, match="two different surfaces"):
+        Bond("glue", slave="a", master="a", stiffness=1e10)
+
+
+def test_solve_job_has_no_bonds_by_default() -> None:
+    mesh = Mesh(
+        nodes=np.zeros((0, 3)),
+        elements=np.zeros((0, 10), dtype=np.int64),
+        element_sets={},
+        node_sets={},
+    )
+    assert SolveJob(mesh=mesh, materials=(), sections=()).bonds == ()
+    bond = Bond("glue", slave="a", master="b", stiffness=1e10)
+    assert SolveJob(mesh=mesh, materials=(), sections=(), bonds=(bond,)).bonds == (bond,)
+
+
+def test_material_frame_does_not_claim_part_coordinates() -> None:
+    # After placement the solver's frame is in global axes (ADR-011 D1).
+    assert MaterialFrame.__doc__ is not None
+    assert "part coordinates" not in MaterialFrame.__doc__
+    assert "part coordinates" not in (MaterialFrame.rotation.__doc__ or "")
