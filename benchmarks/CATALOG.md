@@ -33,7 +33,9 @@ separate acceptance test, not part of this catalog.)
 
 **Status.** `passing`: the case exists in `benchmarks/cases/` and its reference file is
 approved. `awaiting reference`: the case exists but its reference file is not approved yet, so
-it skips. `planned`: not written yet.
+it skips. `awaiting feature`: the case was written test-first, before the code it checks, and
+fails until that code lands; it then skips until its reference is approved. `planned`: not
+written yet.
 
 **Verification of the reference value** (what this draft checked; see "How values were checked"):
 
@@ -80,8 +82,8 @@ primary source.
 | TO-04 | v0.5 | Shear-flexible orthotropic cantilever | planned |
 | TO-05 | v0.5 | Region-wise two-material beam (perimeter + infill) | planned |
 | TO-06 | v0.5 | Off-axis strength ratio (Tsai-Wu) | passing |
-| TC-01 | v0.5 | Bonded interface patch test, non-matching meshes | planned |
-| TC-02 | v0.5 | Bonded cantilever split in two parts | planned |
+| TC-01 | v0.5 | Bonded interface patch test, non-matching meshes | awaiting feature |
+| TC-02 | v0.5 | Bonded cantilever split in two parts | awaiting feature |
 | TC-03 | v0.5 | Frictionless contact patch test | planned |
 | TC-04 | v0.5 | Hertz sphere on flat | planned |
 | TC-05 | v0.5 | Shrink (interference) fit of two cylinders | planned |
@@ -101,7 +103,7 @@ primary source.
 | TT-04 | v3 | Steady radial conduction and thermal stress in a thick cylinder | planned |
 | TF-01 | v4 | Laminar pipe flow (Hagen-Poiseuille) | planned |
 
-Count: v0.1 12 (11 passing, 1 awaiting reference), v0.5 15 (2 passing), v1.x 3, v2 3, v3 4, v4 1. Total 38.
+Count: v0.1 12 (11 passing, 1 awaiting reference), v0.5 15 (2 passing, 2 awaiting feature), v1.x 3, v2 3, v3 4, v4 1. Total 38.
 
 ---
 
@@ -569,9 +571,36 @@ nu12 = 0.35, nu13 = nu23 = 0.30 (check positive definiteness in the case).
   1e-4, measured in ADR-011 PR-3 before the reference is proposed. The earlier 1e-6 case for
   matching meshes is dropped: parts are always meshed separately and joined by the same bond.
   A plain `*TIE` fails this test (16 % stress error for z tension), so bonds do not use it.
+- **Case:** `benchmarks/cases/test_bonded_patch_test.py` (awaiting feature: fails at
+  `edit.place_part` until ADR-011 PR-5). Two 10 mm cubes; the cap is meshed at the origin and
+  placed with a 90 degree turn about z. Cases z-steel, x-steel, z-pla (isotropic PLA-like
+  E = 3500, nu = 0.36), z-ortho (TO constants, printed on its side; the placement turns the
+  frame so the load runs along axis 1). Stresses are checked at every integration point and
+  every node, displacements at every node; gate 3.0 mm, sweep 3.0 / 1.3 / 0.9.
+- **Method changes (proposed in ADR-011 PR-7, pending maintainer approval):**
+  - z-pla and z-ortho have rollers on all four sides of both blocks (uniaxial strain). With free
+    sides there is no uniform solution: under sigma_zz the lateral strain -nu sigma / E is 72
+    times larger in the PLA than in the steel, and the bond forces them to be equal at the
+    interface, so the stress there is far from uniform. Confined, the in-plane strains are zero
+    in both blocks and the field is again exact (sigma_xx = sigma_yy = nu / (1 - nu) sigma for
+    an isotropic block).
+  - One study mesh size, so the blocks cannot get different sizes through the public API. Moved
+    without a turn, two separately meshed 10 mm cubes give identical interface nodes (100 %
+    coincident at 3.0 to 1.3 mm); turned 90 degrees, 16 to 31 % coincide (the perimeter). The
+    case asserts at most 50 %.
+  - Stress is gated at the integration points (ADR-008), where ADR-011 D3's numbers were
+    measured. Nodal stresses get their own gate: 2e-5 for x-steel, because the TS-03 nodal
+    extrapolation bias is 1e-5 and a 1e-5 nodal gate cannot pass; 1e-4 for the other cases.
 - **Variant TC-01b (partial cover):** a 10 mm block bonded to the middle of a 30 mm plate face.
   Checks that the bond is accepted with the block as slave, that forces balance and that the
-  corner is flagged near the bond's edge. No closed-form stress.
+  corner is flagged near the bond's edge. No closed-form stress. Case:
+  `benchmarks/cases/test_bonded_partial_cover.py` (awaiting feature). The result does not name
+  the slave, so the case checks what that choice implies: the solve is accepted with the plate
+  named first, and every node of the block's face moves with the plate's face under it (jump
+  1e-4 of the largest displacement, proposed). Force balance by the mean-stress theorem:
+  int sigma_zz dV = F B over the block and F T over the plate, from the integration-point
+  stresses (1e-3, proposed). `BOND_EDGE` on nodes within 0.9 d of the footprint's edge on both
+  parts and on none beyond 1.1 d, and on the raw peak. Gate 1.5 mm, sweep 3.0 / 2.0 / 1.5.
 
 ### TC-02 Cantilever split into two bonded parts
 
@@ -584,6 +613,12 @@ nu12 = 0.35, nu13 = nu23 = 0.30 (check positive definiteness in the case).
 - **Features:** bonded connection, assemblies.
 - **Tolerance:** 2 %, and within 0.5 % of the single-part TS-01 result at the same mesh size.
   ADR-011 D3 measured -0.40 % at 2.5 / 2.0 mm meshes, within 0.03 % of the single part.
+- **Case:** `benchmarks/cases/test_bonded_cantilever.py` (awaiting feature: fails at
+  `edit.place_part` until ADR-011 PR-5). The tip half is meshed at the origin and placed with a
+  90 degree turn about x (ADR-011 D1). Gate 2.5 mm, sweep 5.0 / 2.5 / 1.8; the 0.5 % agreement
+  with the single part is gated at 2.5 and 1.8 and printed at 5.0. Single part today: 1.519644 /
+  1.520735 / 1.521103 mm (-0.46 / -0.39 / -0.37 %). 31 to 43 % of the cut's nodes coincide
+  (asserted at most 50 %).
 
 ### TC-03 Frictionless contact patch test
 
